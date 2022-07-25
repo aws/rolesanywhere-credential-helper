@@ -4,7 +4,7 @@ rolesanywhere-credential-helper implements the [signing process](https://docs.aw
 
 ## Building
 
-In order to build the source code, you will need to install a C compiler, along with make and golang. On Debian-based systems, you can do so using `sudo apt-get install build-essential`. After obtaining these tools, you can build the package (assuming you are currently at the package root):
+In order to build the source code, you will need to install a C compiler, along with make and golang. On Debian-based systems, you can do so using `sudo apt-get install build-essential golang-go`. After obtaining these tools, you can build the package (assuming you are currently at the package root):
 
 ```
 make release
