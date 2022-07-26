@@ -14,11 +14,40 @@ import (
 	"errors"
 	"log"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
 	"strings"
 	"testing"
 
 	"github.com/aws/aws-sdk-go/aws/request"
 )
+
+func setup() error {
+	generateCertsScript := exec.Command("/bin/bash", "../generate-certs.sh")
+	_, err := generateCertsScript.Output()
+	if err != nil {
+		return err
+	}
+
+	generateCredentialProcessDataScript := exec.Command("/bin/bash", "../generate-credential-process-data.sh")
+	_, err = generateCredentialProcessDataScript.Output()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func TestMain(m *testing.M) {
+	err := setup()
+	if err != nil {
+		log.Println(err.Error())
+		os.Exit(1)
+	}
+	code := m.Run()
+	os.Exit(code)
+}
 
 // Simple struct to define fixtures
 type CertData struct {
@@ -30,7 +59,6 @@ type CertData struct {
 // if they do not exist, or need to be updated.
 func TestReadCertificateData(t *testing.T) {
 	fixtures := []CertData{
-		{"../tst/certs/integ-client.pem", "RSA"},
 		{"../tst/certs/ec-prime256v1-sha256-cert.pem", "EC"},
 		{"../tst/certs/rsa-2048-sha256-cert.pem", "RSA"},
 	}
@@ -77,6 +105,7 @@ func TestReadPrivateKeyData(t *testing.T) {
 		_, err := ReadPrivateKeyData(fixture)
 
 		if err != nil {
+			t.Log(fixture)
 			t.Log(err)
 			t.Log("Failed to read private key data")
 			t.Fail()
@@ -191,5 +220,73 @@ func TestSign(t *testing.T) {
 				t.Fail()
 			}
 		}
+	}
+}
+
+func TestCredentialProcess(t *testing.T) {
+	testTable := []struct {
+		name   string
+		server *httptest.Server
+	}{
+		{
+			name: "create-session-server-response",
+			server: httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusCreated)
+				w.Write([]byte(`{
+					"credentialSet":[
+					  {
+						"assumedRoleUser": {
+						"arn": "arn:aws:sts::000000000000:assumed-role/ExampleS3WriteRole",
+						"assumedRoleId": "assumedRoleId"
+						},
+						"credentials":{
+						  "accessKeyId": "accessKeyId",
+						  "expiration": "2022-07-27T04:36:55Z",
+						  "secretAccessKey": "secretAccessKey",
+						  "sessionToken": "sessionToken"
+						},
+						"packedPolicySize": 10,
+						"roleArn": "arn:aws:iam::000000000000:role/ExampleS3WriteRole",
+						"sourceIdentity": "sourceIdentity"
+					  }
+					],
+					"subjectArn": "arn:aws:rolesanywhere:us-east-1:000000000000:subject/41cl0bae-6783-40d4-ab20-65dc5d922e45"
+				  }`))
+			})),
+		},
+	}
+	for _, tc := range testTable {
+		credentialsOpts := CredentialsOpts{
+			PrivateKeyId:      "../credential-process-data/client-key.pem",
+			CertificateId:     "../credential-process-data/client-cert.pem",
+			RoleArn:           "arn:aws:iam::000000000000:role/ExampleS3WriteRole",
+			ProfileArnStr:     "arn:aws:rolesanywhere:us-east-1:000000000000:profile/41cl0bae-6783-40d4-ab20-65dc5d922e45",
+			TrustAnchorArnStr: "arn:aws:rolesanywhere:us-east-1:000000000000:trust-anchor/41cl0bae-6783-40d4-ab20-65dc5d922e45",
+			Endpoint:          tc.server.URL,
+			SessionDuration:   900,
+		}
+		t.Run(tc.name, func(t *testing.T) {
+			defer tc.server.Close()
+			resp, err := GenerateCredentials(&credentialsOpts)
+
+			if err != nil {
+				t.Log(err)
+				t.Log("Unable to call credential-process")
+				t.Fail()
+			}
+
+			if resp.AccessKeyId != "accessKeyId" {
+				t.Log("Incorrect access key id")
+				t.Fail()
+			}
+			if resp.SecretAccessKey != "secretAccessKey" {
+				t.Log("Incorrect secret access key")
+				t.Fail()
+			}
+			if resp.SessionToken != "sessionToken" {
+				t.Log("Incorrect session token")
+				t.Fail()
+			}
+		})
 	}
 }
