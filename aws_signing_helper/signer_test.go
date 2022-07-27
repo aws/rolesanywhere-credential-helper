@@ -32,11 +32,7 @@ func setup() error {
 
 	generateCredentialProcessDataScript := exec.Command("/bin/bash", "../generate-credential-process-data.sh")
 	_, err = generateCredentialProcessDataScript.Output()
-	if err != nil {
-		return err
-	}
-
-	return nil
+	return err
 }
 
 func TestMain(m *testing.M) {
