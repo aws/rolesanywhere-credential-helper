@@ -90,12 +90,12 @@ func GenerateCredentials(opts *CredentialsOpts) (CredentialProcessOutput, error)
 	var tr *http.Transport
 	if opts.WithProxy {
 		tr = &http.Transport{
-			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: opts.NoVerifySSL},
+			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: opts.NoVerifySSL},
 			Proxy:           http.ProxyFromEnvironment,
 		}
 	} else {
 		tr = &http.Transport{
-			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS13, InsecureSkipVerify: opts.NoVerifySSL},
+			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: opts.NoVerifySSL},
 		}
 	}
 	client := &http.Client{Transport: tr}
