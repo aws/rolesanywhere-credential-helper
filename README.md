@@ -6,7 +6,7 @@ rolesanywhere-credential-helper implements the [signing process](https://docs.aw
 
 ### Dependencies
 
-In order to build the source code, you will need to install git, a C compiler, make, and golang. 
+In order to build the source code, you will need to install git, gcc, make, and golang. 
 
 #### Linux
 
@@ -18,7 +18,7 @@ You can download Apple clang through the [following link](https://developer.appl
 
 #### Windows
 
-In order to get a C compile on Windows, one option is to use [MinGW-w64](https://www.mingw-w64.org/downloads/). After obtaining a C compiler, you can install golang through the [installer](https://go.dev/doc/install). Lastly, you can install git and make through `Chocolatey` with `choco install git` and `choco install make`, respectively. 
+In order to get gcc on Windows, one option is to use [MinGW-w64](https://www.mingw-w64.org/downloads/). After obtaining gcc, you can install golang through the [installer](https://go.dev/doc/install). Lastly, you can install git and make through `Chocolatey` with `choco install git` and `choco install make`, respectively. 
 
 ### Build
 
@@ -28,19 +28,38 @@ After obtaining these tools, and making sure they are on your `PATH`, you can bu
 make release
 ```
 
-After building, you should see the `aws_signing_helper` binary built for your system at `build/bin/aws_signing_helper`. Usage is discussed briefly in the next section.
+After building, you should see the `aws_signing_helper` binary built for your system at `build/bin/aws_signing_helper`. Usage can be found in [AWS's documentation](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html). A later section also goes into how you can use the scripts provided in this repository to test out the credential helper binary.
 
 ### Scripts
 
 The project also comes with two bash scripts at its root, called `generate-certs.sh` and `generate-credential-process-data.sh`. The former script is used strictly for unit testing, and it generates certificate and private key data with different parameters that are supported by IAM Roles Anywhere. You can run the bash script using `/bin/bash generate-certs.sh`, and you will see the generated certificates and keys under the `tst/certs` directory. The latter script is used both for unit testing and can also be used for testing the `credential-process` command after having built the binary. It will create a CA certificate/private key as well as a leaf certificate/private key. When testing IAM Roles Anywhere, you will have to upload the CA certificate a trust anchor and create a profile within Roles Anywhere before using the binary along with the leaf certificate/private key to call `credential-process` (more instructions can be found in the next section). You can run the bash script using `/bin/bash generate-credential-process-data.sh`, and you will see the generated certificate hierarchy (and corresponding keys) under the `credential-process-data` directory. Note that the unit tests that require these fixtures to exist will run the bash script themselves, before executing those tests that depend on the fixtures existing. Please note that these scripts currently only work on Unix-based systems and require `openssl` to be installed.
 
-## Usage
+## Diagnostic Command Tools
 
-There are three commands that are currently implemented within the source code. Two of these commands, `sign-string` and `read-certificate-data` are given as diagnostic tools. The former command allows one to sign a string that comes from standard input. The command requires one to pass in the path of a private key on disk to perform the signing (`--private-key`), as well as two optional arguments for the digest (`--digest`) and output format (`--format`). The digest has to be one of `SHA256`, `SHA384`, and `SHA512` if specified. The default value will be `SHA256` if it isn't specified. The output format has to be one of `text`, `json`, and `bin` if specified. The default value will be `text` if it isn't specified. The latter command allows one to read a certificate that is on disk. The path to the certificate (`--certificate`) is required. 
+### read-certificate-data
 
-The last command is `credential-process`, which returns temporary credentials in a JSON format that is compatible with the `credential_process` feature available across language SDKs. Documentation on usage, along with examples can be found [here](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html). A script called `generate-credential-process-data.sh` can be found at the root of the project, which will generate RSA private keys and their corresponding certificates, that you can use to obtain temporary credentials from IAM Roles Anywhere. You can run the script using `/bin/bash generate-credential-process-data.sh`. Afterwards, you should see the generated private keys and certificates under the `credential-process-data` directory. The following example showcases how to use the data to obtain temporary credentials (assuming you are on a unix-based system):
+Reads a certificate that is on disk. The path to the certificate must be provided with the `--certificate` parameter.
 
+### sign-string
+
+Signs a string from standard input. Useful for validating your on-disk private key and digest. The path to the private key must be provided with the `--private-key` parameter. Other parameters that can be used are `--digest`, which must be one of `SHA256 (*default*) | SHA384 | SHA512`, and `--format`, which must be one of `text (*default*) | json | bin`. 
+
+### Scripts
+
+The project also comes with two bash scripts at its root, called `generate-certs.sh` and `generate-credential-process-data.sh`. Note that these scripts currently only work on Unix-based systems and require `openssl` to be installed.
+
+#### generate-certs.sh
+
+Used by unit tests to generate test certificates and private keys supported by IAM Roles Anywhere. The test data is stored in the tst/certs directory.
+
+#### generate-credential-process-data.sh
+
+Used by unit tests and for manual testing of the credential-process command. Creates a CA certificate/private key pair as well as a leaf certificate/private key. Test data is stored in the credential-process-data directory. When testing IAM Roles Anywhere, you will have to upload the CA certificate as a trust anchor and create a profile within Roles Anywhere before using the binary along with the leaf certificate/private key to call credential-process.
+
+### Example Usage
 ```
+/bin/bash generate-credential-process-data.sh
+
 TA_ARN=$(aws rolesanywhere create-trust-anchor \
     --name "Test TA" \
     --source "sourceType=CERTIFICATE_BUNDLE,sourceData={x509CertificateData=$(cat credential-process-data/root-cert.pem)}" \
