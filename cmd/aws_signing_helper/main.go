@@ -100,7 +100,7 @@ func setupFlags() {
 			fs.StringVar(&endpoint, "endpoint", "", "Endpoint to retrieve session from")
 			fs.StringVar(&certificateBundleId, "intermediates", "", "Path to intermediate certificate bundle")
 			fs.BoolVar(&noVerifySSL, "no-verify-ssl", false, "To disable SSL verification")
-			fs.BoolVar(&withProxy, "with-proxy", false, "To use credential-processs with a proxy")
+			fs.BoolVar(&withProxy, "with-proxy", false, "To use credential-process with a proxy")
 			fs.BoolVar(&debug, "debug", false, "To print debug output when SDK calls are made")
 		}
 	}
