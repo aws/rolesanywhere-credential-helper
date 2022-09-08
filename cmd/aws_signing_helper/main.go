@@ -10,9 +10,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"strings"
 	"syscall"
+	"time"
 
 	helper "golang.a2z.com/CredHelper/aws_signing_helper"
 )
@@ -34,11 +37,17 @@ var (
 	withProxy   bool
 	debug       bool
 	format      string
+	profile     string
+	once        bool
+
+	port int
 
 	credentialProcessCmd   = flag.NewFlagSet("credential-process", flag.ExitOnError)
 	signStringCmd          = flag.NewFlagSet("sign-string", flag.ExitOnError)
 	readCertificateDataCmd = flag.NewFlagSet("read-certificate-data", flag.ExitOnError)
+	updateCmd              = flag.NewFlagSet("update", flag.ExitOnError)
 	versionCmd             = flag.NewFlagSet("version", flag.ExitOnError)
+	serveCmd               = flag.NewFlagSet("serve", flag.ExitOnError)
 )
 
 var Version string
@@ -49,7 +58,9 @@ var commands = map[string]*flag.FlagSet{
 	credentialProcessCmd.Name():   credentialProcessCmd,
 	signStringCmd.Name():          signStringCmd,
 	readCertificateDataCmd.Name(): readCertificateDataCmd,
+	updateCmd.Name():              updateCmd,
 	versionCmd.Name():             versionCmd,
+	serveCmd.Name():               serveCmd,
 }
 
 // Finds global parameters that can appear in any position
@@ -61,13 +72,14 @@ func findGlobalVar(argList []string) (map[string]string, []string) {
 	parseList := []string{}
 
 	for i := 0; i < len(argList); i++ {
+
 		if globalOptSet[argList[i]] {
+
 			if !strings.HasPrefix(argList[i+1], "--") {
 				globalVars[argList[i]] = argList[i+1]
 				i = i + 1
 			} else {
 				log.Fatal("Invalid value for ", argList[i])
-				syscall.Exit(1)
 			}
 		} else {
 			parseList = append(parseList, argList[i])
@@ -80,18 +92,18 @@ func findGlobalVar(argList []string) (map[string]string, []string) {
 // Assigns different flags to different commands
 func setupFlags() {
 	for command, fs := range commands {
-		// applicable to `sign-string` and `credential-process` operation
-		if command == "sign-string" || command == "credential-process" {
+		// applicable to `sign-string`, `credential-process`, `update`, and `serve` operation
+		if command != "read-certificate-data" {
 			fs.StringVar(&privateKeyId, "private-key", "", "Path to private key file")
 		}
 
-		// applicable to `read-certificate-data` and `credential-process` operation
-		if command == "read-certificate-data" || command == "credential-process" {
+		// applicable to `read-certificate-data`, `credential-process`, `update`, `serve` operation
+		if command != "sign-string" {
 			fs.StringVar(&certificateId, "certificate", "", "Path to certificate file")
 		}
 
 		// applicable to `credential-process` operation and possibly `update` operation and `serve` operation
-		if command == "credential-process" {
+		if command != "sign-string" && command != "read-certificate-data" {
 			fs.StringVar(&roleArnStr, "role-arn", "", "Target role to assume")
 			fs.StringVar(&profileArnStr, "profile-arn", "", "Profile to to pull policies from")
 			fs.StringVar(&trustAnchorArnStr, "trust-anchor-arn", "", "Trust anchor to to use for authentication")
@@ -103,11 +115,20 @@ func setupFlags() {
 			fs.BoolVar(&withProxy, "with-proxy", false, "To use credential-process with a proxy")
 			fs.BoolVar(&debug, "debug", false, "To print debug output when SDK calls are made")
 		}
+
+		// applicable to `update` operation
+		if command == "update" {
+			fs.StringVar(&profile, "profile", "default", "The aws profile to use (default 'default')")
+			fs.BoolVar(&once, "once", false, "Update the credentials once")
+		}
 	}
 
 	// only applicable to `sign-string` operation
 	commands["sign-string"].StringVar(&format, "format", "json", "Output format. One of json, text, and bin")
 	commands["sign-string"].StringVar(&digestArg, "digest", "SHA256", "One of SHA256, SHA384 and SHA512")
+
+	// only applicable to `serve` operation
+	commands["serve"].IntVar(&port, "port", 9911, "The port used to run local server (default: 9911)")
 }
 
 func main() {
@@ -139,12 +160,24 @@ func main() {
 	if endpointDetected {
 		endpoint = tmpEndpoint
 	}
+	credentialsOptions := helper.CredentialsOpts{
+		PrivateKeyId:        privateKeyId,
+		CertificateId:       certificateId,
+		CertificateBundleId: certificateBundleId,
+		RoleArn:             roleArnStr,
+		ProfileArnStr:       profileArnStr,
+		TrustAnchorArnStr:   trustAnchorArnStr,
+		SessionDuration:     sessionDuration,
+		Region:              region,
+		Endpoint:            endpoint,
+		NoVerifySSL:         noVerifySSL,
+		WithProxy:           withProxy,
+		Debug:               debug,
+		Version:             Version,
+	}
 
-	credentialsOptions := helper.CredentialsOpts{PrivateKeyId: privateKeyId,
-		CertificateId: certificateId, CertificateBundleId: certificateBundleId,
-		RoleArn: roleArnStr, ProfileArnStr: profileArnStr, TrustAnchorArnStr: trustAnchorArnStr,
-		SessionDuration: sessionDuration, Region: region, Endpoint: endpoint,
-		NoVerifySSL: noVerifySSL, WithProxy: withProxy, Debug: debug, Version: Version}
+	// applicable for `update` operation and `serve` operation
+	var refreshableCred = helper.TemporaryCredential{}
 
 	switch command {
 	case "credential-process":
@@ -207,10 +240,135 @@ func main() {
 		fmt.Print(string(buf[:]))
 	case "version":
 		fmt.Println(Version)
+	case "update":
+		if privateKeyId == "" || certificateId == "" ||
+			profileArnStr == "" || trustAnchorArnStr == "" || roleArnStr == "" {
+			msg := `Usage: aws_signing_helper update
+			--private-key <value> 
+			--certificate <value> 
+			--profile-arn <value> 
+			--trust-anchor-arn <value>
+			--role-arn <value> 
+			[--endpoint <value>] 
+			[--region <value>]
+			[--session-duration <value>]
+			[--with-proxy]
+			[--no-verify-ssl]
+			[--intermediates <value>]
+			[--profile <value>]
+			[--once]`
+			log.Println(msg)
+			syscall.Exit(1)
+		}
+		var nextRefreshTime time.Time
+		for {
+			credentialProcessOutput, err := helper.GenerateCredentials(&credentialsOptions)
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Assign Credential Values
+			refreshableCred.AccessKeyId = credentialProcessOutput.AccessKeyId
+			refreshableCred.SecretAccessKey = credentialProcessOutput.SecretAccessKey
+			refreshableCred.SessionToken = credentialProcessOutput.SessionToken // nosemgrep
+			refreshableCred.Expiration, _ = time.Parse(time.RFC3339, credentialProcessOutput.Expiration)
+			if (refreshableCred == helper.TemporaryCredential{}) {
+				log.Println("no credentials created")
+				syscall.Exit(1)
+			}
+			// Get/Create the AWS Credentials file path
+			awsFile, err := helper.GetOrCreateCredentialsFile()
+			if err != nil {
+				log.Println("unable to get or create AWS credentials file")
+				syscall.Exit(1)
+			}
+
+			// Read in all profiles in the credentials file
+			var lines []string
+			scanner := bufio.NewScanner(awsFile)
+			for scanner.Scan() {
+				lines = append(lines, scanner.Text())
+			}
+
+			tmpCredFile, err := ioutil.TempFile("", "aws")
+			if err != nil {
+				log.Fatal(err)
+			}
+
+			// Write to temporary file
+			helper.WriteTo(profile, tmpCredFile, lines, &refreshableCred)
+			tmpCredFile.Sync()
+
+			replacementErr := helper.Replace(awsFile, tmpCredFile)
+			if replacementErr != nil {
+				os.Remove(tmpCredFile.Name())
+				log.Println("failed to update credentials")
+				syscall.Exit(1)
+			} else {
+				log.Println("Credentials have been successfully updated")
+			}
+
+			awsFile.Close()
+			tmpCredFile.Close()
+			os.Remove(tmpCredFile.Name())
+
+			if once {
+				break
+			}
+			nextRefreshTime = refreshableCred.Expiration.Add(-helper.UpdateRefreshTime)
+			log.Println("Credentials will be refreshed at", nextRefreshTime.String())
+			time.Sleep(time.Until(nextRefreshTime))
+		}
+	case "serve":
+		// First check whether required arguments are present
+		if privateKeyId == "" || certificateId == "" || profileArnStr == "" ||
+			trustAnchorArnStr == "" || roleArnStr == "" {
+			msg := `Usage: aws_signing_helper serve
+			--private-key <value> 
+			--certificate <value> 
+			--profile-arn <value> 
+			--trust-anchor-arn <value>
+			--role-arn <value> 
+			[--endpoint <value>] 
+			[--region <value>] 
+			[--session-duration <value>]
+			[--with-proxy]
+			[--no-verify-ssl]
+			[--debug]
+			[--intermediates <value>]
+			[--port <value>]`
+			log.Println(msg)
+			syscall.Exit(1)
+		}
+
+		var refreshableCred = helper.RefreshableCred{}
+
+		credentialProcessOutput, _ := helper.GenerateCredentials(&credentialsOptions)
+		refreshableCred.AccessKeyId = credentialProcessOutput.AccessKeyId
+		refreshableCred.SecretAccessKey = credentialProcessOutput.SecretAccessKey
+		refreshableCred.Token = credentialProcessOutput.SessionToken
+		refreshableCred.Expiration, _ = time.Parse(time.RFC3339, credentialProcessOutput.Expiration)
+		endpoint := &helper.Endpoint{PortNum: port, TmpCred: refreshableCred}
+		endpoint.Server = &http.Server{}
+		http.HandleFunc("/", helper.AllIssuesHandlers(&endpoint.TmpCred, &credentialsOptions))
+		// start the credentials endpoint
+		listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", helper.Address, endpoint.PortNum))
+		if err != nil {
+			log.Println("failed to create listener")
+			syscall.Exit(1)
+		}
+		endpoint.PortNum = listener.Addr().(*net.TCPAddr).Port
+		log.Println("Local server started on port:", endpoint.PortNum)
+		log.Println("Make it available to the sdk by running:")
+		log.Printf("export AWS_CONTAINER_CREDENTIALS_FULL_URI=http://127.0.0.1:%d", endpoint.PortNum)
+		if err := endpoint.Server.Serve(listener); err != nil {
+			log.Println("Httpserver: ListenAndServe() error")
+			syscall.Exit(1)
+		}
 	case "":
 		log.Println("No command provided")
 		syscall.Exit(1)
 	default:
-		log.Fatalf("Unrecognized command %s", os.Args[1])
+		log.Fatalf("Unrecognized command %s", command)
 	}
 }
