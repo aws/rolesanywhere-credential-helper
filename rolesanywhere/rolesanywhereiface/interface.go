@@ -11,7 +11,7 @@ package rolesanywhereiface
 import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/request"
-	"github.com/13ajay/rolesanywhere-credential-helper/rolesanywhere"
+	"github.com/aws/rolesanywhere-credential-helper/rolesanywhere"
 )
 
 // RolesAnywhereAPI provides an interface to enable mocking the
