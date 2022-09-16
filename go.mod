@@ -1,4 +1,4 @@
-module github.com/aws/rolesanywhere-credential-helper
+module github.com/13ajay/rolesanywhere-credential-helper
 
 go 1.18
 
