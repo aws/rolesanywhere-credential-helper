@@ -12,7 +12,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws/arn"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
-	"golang.a2z.com/CredHelper/rolesanywhere"
+	"github.com/aws/rolesanywhere-credential-helper/rolesanywhere"
 )
 
 type CredentialsOpts struct {

@@ -1,4 +1,4 @@
-module golang.a2z.com/CredHelper
+module github.com/aws/rolesanywhere-credential-helper
 
 go 1.18
 
