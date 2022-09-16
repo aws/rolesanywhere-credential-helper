@@ -14,7 +14,7 @@ import (
 	"strings"
 	"syscall"
 
-	helper "golang.a2z.com/CredHelper/aws_signing_helper"
+	helper "github.com/aws/rolesanywhere-credential-helper/aws_signing_helper"
 )
 
 // Common flags that must be contained in all flag sets
