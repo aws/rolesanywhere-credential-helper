@@ -176,9 +176,6 @@ func main() {
 		Version:             Version,
 	}
 
-	// applicable for `update` operation and `serve` operation
-	var refreshableCred = helper.TemporaryCredential{}
-
 	switch command {
 	case "credential-process":
 		// First check whether required arguments are present
@@ -260,65 +257,7 @@ func main() {
 			log.Println(msg)
 			syscall.Exit(1)
 		}
-		var nextRefreshTime time.Time
-		for {
-			credentialProcessOutput, err := helper.GenerateCredentials(&credentialsOptions)
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			// Assign Credential Values
-			refreshableCred.AccessKeyId = credentialProcessOutput.AccessKeyId
-			refreshableCred.SecretAccessKey = credentialProcessOutput.SecretAccessKey
-			refreshableCred.SessionToken = credentialProcessOutput.SessionToken // nosemgrep
-			refreshableCred.Expiration, _ = time.Parse(time.RFC3339, credentialProcessOutput.Expiration)
-			if (refreshableCred == helper.TemporaryCredential{}) {
-				log.Println("no credentials created")
-				syscall.Exit(1)
-			}
-			// Get/Create the AWS Credentials file path
-			awsFile, err := helper.GetOrCreateCredentialsFile()
-			if err != nil {
-				log.Println("unable to get or create AWS credentials file")
-				syscall.Exit(1)
-			}
-
-			// Read in all profiles in the credentials file
-			var lines []string
-			scanner := bufio.NewScanner(awsFile)
-			for scanner.Scan() {
-				lines = append(lines, scanner.Text())
-			}
-
-			tmpCredFile, err := ioutil.TempFile("", "aws")
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			// Write to temporary file
-			helper.WriteTo(profile, tmpCredFile, lines, &refreshableCred)
-			tmpCredFile.Sync()
-
-			replacementErr := helper.Replace(awsFile, tmpCredFile)
-			if replacementErr != nil {
-				os.Remove(tmpCredFile.Name())
-				log.Println("failed to update credentials")
-				syscall.Exit(1)
-			} else {
-				log.Println("Credentials have been successfully updated")
-			}
-
-			awsFile.Close()
-			tmpCredFile.Close()
-			os.Remove(tmpCredFile.Name())
-
-			if once {
-				break
-			}
-			nextRefreshTime = refreshableCred.Expiration.Add(-helper.UpdateRefreshTime)
-			log.Println("Credentials will be refreshed at", nextRefreshTime.String())
-			time.Sleep(time.Until(nextRefreshTime))
-		}
+		helper.Update(credentialsOptions, profile, once)
 	case "serve":
 		// First check whether required arguments are present
 		if privateKeyId == "" || certificateId == "" || profileArnStr == "" ||
