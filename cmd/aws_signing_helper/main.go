@@ -46,6 +46,7 @@ var (
 
 var Version string
 var globalOptSet = map[string]bool{"--region": true, "--endpoint": true}
+var credentialCommands = map[string]struct{}{"credential-process": {}, "update": {}}
 
 // Maps each command name to a flagset
 var commands = map[string]*flag.FlagSet{
@@ -85,18 +86,10 @@ func findGlobalVar(argList []string) (map[string]string, []string) {
 // Assigns different flags to different commands
 func setupFlags() {
 	for command, fs := range commands {
-		// applicable to `sign-string`, `credential-process`, and `update` operations
-		if command != "read-certificate-data" {
-			fs.StringVar(&privateKeyId, "private-key", "", "Path to private key file")
-		}
-
-		// applicable to `read-certificate-data`, `credential-process`, and `update` operations
-		if command != "sign-string" {
+		// Common flags for all credential-related commands
+		if _, ok := credentialCommands[command]; ok {
 			fs.StringVar(&certificateId, "certificate", "", "Path to certificate file")
-		}
-
-		// applicable to `credential-process` operation and possibly `update` operation
-		if command != "sign-string" && command != "read-certificate-data" {
+			fs.StringVar(&privateKeyId, "private-key", "", "Path to private key file")
 			fs.StringVar(&roleArnStr, "role-arn", "", "Target role to assume")
 			fs.StringVar(&profileArnStr, "profile-arn", "", "Profile to to pull policies from")
 			fs.StringVar(&trustAnchorArnStr, "trust-anchor-arn", "", "Trust anchor to to use for authentication")
@@ -109,16 +102,17 @@ func setupFlags() {
 			fs.BoolVar(&debug, "debug", false, "To print debug output when SDK calls are made")
 		}
 
-		// applicable to `update` operation
-		if command == "update" {
+		if command == "read-certificate-data" {
+			fs.StringVar(&certificateId, "certificate", "", "Path to certificate file")
+		} else if command == "sign-string" {
+			fs.StringVar(&privateKeyId, "private-key", "", "Path to private key file")
+			fs.StringVar(&format, "format", "json", "Output format. One of json, text, and bin")
+			fs.StringVar(&digestArg, "digest", "SHA256", "One of SHA256, SHA384 and SHA512")
+		} else if command == "update" {
 			fs.StringVar(&profile, "profile", "default", "The aws profile to use (default 'default')")
 			fs.BoolVar(&once, "once", false, "Update the credentials once")
 		}
 	}
-
-	// only applicable to `sign-string` operation
-	commands["sign-string"].StringVar(&format, "format", "json", "Output format. One of json, text, and bin")
-	commands["sign-string"].StringVar(&digestArg, "digest", "SHA256", "One of SHA256, SHA384 and SHA512")
 }
 
 func main() {

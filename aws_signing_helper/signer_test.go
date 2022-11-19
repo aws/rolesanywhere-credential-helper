@@ -427,11 +427,18 @@ aws_secret_access_key = test`,
 			SetupTests()
 			defer tc.server.Close()
 			os.Setenv(AwsSharedCredentialsFileEnvVarName, TestCredentialsFilePath)
-			readOnlyCredentialsFile, _ := GetOrCreateReadOnlyCredentialsFile() // first create the credentials file with the appropriate permissions
-			readOnlyCredentialsFile.Close()
-			writeOnlyCredentialsFile, _ := GetWriteOnlyCredentialsFile() // then obtain a handle to the credentials file to perform write operations
+			_, err := GetCredentialsFileContents() // first create the credentials file with the appropriate permissions
+			if err != nil {
+				t.Log("unable to create credentials file for testing")
+				t.Fail()
+			}
+			writeOnlyCredentialsFile, err := GetWriteOnlyCredentialsFile() // then obtain a handle to the credentials file to perform write operations
+			if err != nil {
+				t.Log("unable to write to credentials file for testing")
+				t.Fail()
+			}
+			defer writeOnlyCredentialsFile.Close()
 			writeOnlyCredentialsFile.WriteString(tc.inputFileContents)
-			writeOnlyCredentialsFile.Close()
 
 			Update(credentialsOpts, tc.profile, true)
 

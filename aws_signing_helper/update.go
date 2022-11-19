@@ -41,30 +41,16 @@ func Update(credentialsOptions CredentialsOpts, profile string, once bool) {
 			log.Println("no credentials created")
 			syscall.Exit(1)
 		}
-		// Get/create the credentials file path
-		readOnlyCredentialsFile, err := GetOrCreateReadOnlyCredentialsFile()
-		if err != nil {
-			log.Println("unable to get or create read-only AWS credentials file")
-			syscall.Exit(1)
-		}
 
-		// Read in all profiles in the credentials file
-		var lines []string
-		scanner := bufio.NewScanner(readOnlyCredentialsFile)
-		for scanner.Scan() {
-			lines = append(lines, scanner.Text())
-		}
-		readOnlyCredentialsFile.Close()
-
-		writeOnlyCredentialsFile, err := GetWriteOnlyCredentialsFile()
+		// Get credentials file contents
+		lines, err := GetCredentialsFileContents()
 		if err != nil {
-			log.Println("unable to get write-only AWS credentials file")
+			log.Println("unable to get credentials file contents")
 			syscall.Exit(1)
 		}
 
 		// Write to credentials file
-		err = WriteTo(profile, writeOnlyCredentialsFile, lines, &refreshableCred)
-		writeOnlyCredentialsFile.Close()
+		err = WriteTo(profile, lines, &refreshableCred)
 		if err != nil {
 			log.Println("unable to write to AWS credentials file")
 			syscall.Exit(1)
@@ -80,7 +66,7 @@ func Update(credentialsOptions CredentialsOpts, profile string, once bool) {
 }
 
 // Assume that the credentials file is located in the default path: `~/.aws/credentials`
-func GetOrCreateReadOnlyCredentialsFile() (*os.File, error) {
+func GetCredentialsFileContents() ([]string, error) {
 	homeDir, err := os.UserHomeDir()
 	if err != nil {
 		log.Println("unable to locate the home directory")
@@ -96,7 +82,20 @@ func GetOrCreateReadOnlyCredentialsFile() (*os.File, error) {
 		return nil, err
 	}
 
-	return os.OpenFile(awsCredentialsPath, os.O_RDONLY|os.O_CREATE, 0600)
+	readOnlyCredentialsFile, err := os.OpenFile(awsCredentialsPath, os.O_RDONLY|os.O_CREATE, 0600)
+	if err != nil {
+		log.Println("unable to get or create read-only AWS credentials file")
+		syscall.Exit(1)
+	}
+	defer readOnlyCredentialsFile.Close()
+
+	// Read in all profiles in the credentials file
+	var lines []string
+	scanner := bufio.NewScanner(readOnlyCredentialsFile)
+	for scanner.Scan() {
+		lines = append(lines, scanner.Text())
+	}
+	return lines, nil
 }
 
 // Assume that the credentials file exists already and open it for write operations
@@ -110,8 +109,15 @@ func GetWriteOnlyCredentialsFile() (*os.File, error) {
 }
 
 // Function to write existing credentials and newly-created credentials to a destination file
-func WriteTo(profileName string, destFile *os.File, writeLines []string, cred *TemporaryCredential) error {
-	// Create buffered writer with a buffer size of maximum size
+func WriteTo(profileName string, writeLines []string, cred *TemporaryCredential) error {
+	destFile, err := GetWriteOnlyCredentialsFile()
+	if err != nil {
+		log.Println("unable to get write-only AWS credentials file")
+		syscall.Exit(1)
+	}
+	defer destFile.Close()
+
+	// Create buffered writer with a buffer of maximum size
 	destFileWriter := bufio.NewWriterSize(destFile, math.MaxInt32)
 
 	var profileExist = false
@@ -122,7 +128,6 @@ func WriteTo(profileName string, destFile *os.File, writeLines []string, cred *T
 	secretKey := "aws_secret_access_key = " + cred.SecretAccessKey + "\n"
 	sessionToken := "aws_session_token = " + cred.SessionToken + "\n"
 
-	var err error
 	for i := 0; i < len(writeLines); i++ {
 		if !profileExist && writeLines[i] == profileSection {
 			j := i + 1
