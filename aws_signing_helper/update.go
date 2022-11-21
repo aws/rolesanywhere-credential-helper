@@ -189,17 +189,3 @@ func WriteTo(profileName string, writeLines []string, cred *TemporaryCredential)
 	destFileWriter.Flush()
 	return nil
 }
-
-// Function to check whether credentials are still valid
-func ValidCred(cred TemporaryCredential) bool {
-	// if credentials are not issued by Roles Anywhere
-	if (cred == TemporaryCredential{}) {
-		return false
-	}
-	// if credentials are going to expire in five minutes
-	if time.Until(cred.Expiration) <= UpdateRefreshTime {
-		return false
-	}
-
-	return true
-}
