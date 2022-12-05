@@ -34,21 +34,26 @@ var (
 	withProxy   bool
 	debug       bool
 	format      string
+	profile     string
+	once        bool
 
 	credentialProcessCmd   = flag.NewFlagSet("credential-process", flag.ExitOnError)
 	signStringCmd          = flag.NewFlagSet("sign-string", flag.ExitOnError)
 	readCertificateDataCmd = flag.NewFlagSet("read-certificate-data", flag.ExitOnError)
+	updateCmd              = flag.NewFlagSet("update", flag.ExitOnError)
 	versionCmd             = flag.NewFlagSet("version", flag.ExitOnError)
 )
 
 var Version string
 var globalOptSet = map[string]bool{"--region": true, "--endpoint": true}
+var credentialCommands = map[string]struct{}{"credential-process": {}, "update": {}}
 
 // Maps each command name to a flagset
 var commands = map[string]*flag.FlagSet{
 	credentialProcessCmd.Name():   credentialProcessCmd,
 	signStringCmd.Name():          signStringCmd,
 	readCertificateDataCmd.Name(): readCertificateDataCmd,
+	updateCmd.Name():              updateCmd,
 	versionCmd.Name():             versionCmd,
 }
 
@@ -61,13 +66,14 @@ func findGlobalVar(argList []string) (map[string]string, []string) {
 	parseList := []string{}
 
 	for i := 0; i < len(argList); i++ {
+
 		if globalOptSet[argList[i]] {
+
 			if !strings.HasPrefix(argList[i+1], "--") {
 				globalVars[argList[i]] = argList[i+1]
 				i = i + 1
 			} else {
 				log.Fatal("Invalid value for ", argList[i])
-				syscall.Exit(1)
 			}
 		} else {
 			parseList = append(parseList, argList[i])
@@ -80,18 +86,10 @@ func findGlobalVar(argList []string) (map[string]string, []string) {
 // Assigns different flags to different commands
 func setupFlags() {
 	for command, fs := range commands {
-		// applicable to `sign-string` and `credential-process` operation
-		if command == "sign-string" || command == "credential-process" {
-			fs.StringVar(&privateKeyId, "private-key", "", "Path to private key file")
-		}
-
-		// applicable to `read-certificate-data` and `credential-process` operation
-		if command == "read-certificate-data" || command == "credential-process" {
+		// Common flags for all credential-related commands
+		if _, ok := credentialCommands[command]; ok {
 			fs.StringVar(&certificateId, "certificate", "", "Path to certificate file")
-		}
-
-		// applicable to `credential-process` operation and possibly `update` operation and `serve` operation
-		if command == "credential-process" {
+			fs.StringVar(&privateKeyId, "private-key", "", "Path to private key file")
 			fs.StringVar(&roleArnStr, "role-arn", "", "Target role to assume")
 			fs.StringVar(&profileArnStr, "profile-arn", "", "Profile to to pull policies from")
 			fs.StringVar(&trustAnchorArnStr, "trust-anchor-arn", "", "Trust anchor to to use for authentication")
@@ -103,11 +101,18 @@ func setupFlags() {
 			fs.BoolVar(&withProxy, "with-proxy", false, "To use credential-process with a proxy")
 			fs.BoolVar(&debug, "debug", false, "To print debug output when SDK calls are made")
 		}
-	}
 
-	// only applicable to `sign-string` operation
-	commands["sign-string"].StringVar(&format, "format", "json", "Output format. One of json, text, and bin")
-	commands["sign-string"].StringVar(&digestArg, "digest", "SHA256", "One of SHA256, SHA384 and SHA512")
+		if command == "read-certificate-data" {
+			fs.StringVar(&certificateId, "certificate", "", "Path to certificate file")
+		} else if command == "sign-string" {
+			fs.StringVar(&privateKeyId, "private-key", "", "Path to private key file")
+			fs.StringVar(&format, "format", "json", "Output format. One of json, text, and bin")
+			fs.StringVar(&digestArg, "digest", "SHA256", "One of SHA256, SHA384 and SHA512")
+		} else if command == "update" {
+			fs.StringVar(&profile, "profile", "default", "The aws profile to use (default 'default')")
+			fs.BoolVar(&once, "once", false, "Update the credentials once")
+		}
+	}
 }
 
 func main() {
@@ -139,12 +144,21 @@ func main() {
 	if endpointDetected {
 		endpoint = tmpEndpoint
 	}
-
-	credentialsOptions := helper.CredentialsOpts{PrivateKeyId: privateKeyId,
-		CertificateId: certificateId, CertificateBundleId: certificateBundleId,
-		RoleArn: roleArnStr, ProfileArnStr: profileArnStr, TrustAnchorArnStr: trustAnchorArnStr,
-		SessionDuration: sessionDuration, Region: region, Endpoint: endpoint,
-		NoVerifySSL: noVerifySSL, WithProxy: withProxy, Debug: debug, Version: Version}
+	credentialsOptions := helper.CredentialsOpts{
+		PrivateKeyId:        privateKeyId,
+		CertificateId:       certificateId,
+		CertificateBundleId: certificateBundleId,
+		RoleArn:             roleArnStr,
+		ProfileArnStr:       profileArnStr,
+		TrustAnchorArnStr:   trustAnchorArnStr,
+		SessionDuration:     sessionDuration,
+		Region:              region,
+		Endpoint:            endpoint,
+		NoVerifySSL:         noVerifySSL,
+		WithProxy:           withProxy,
+		Debug:               debug,
+		Version:             Version,
+	}
 
 	switch command {
 	case "credential-process":
@@ -207,10 +221,31 @@ func main() {
 		fmt.Print(string(buf[:]))
 	case "version":
 		fmt.Println(Version)
+	case "update":
+		if privateKeyId == "" || certificateId == "" ||
+			profileArnStr == "" || trustAnchorArnStr == "" || roleArnStr == "" {
+			msg := `Usage: aws_signing_helper update
+			--private-key <value> 
+			--certificate <value> 
+			--profile-arn <value> 
+			--trust-anchor-arn <value>
+			--role-arn <value> 
+			[--endpoint <value>] 
+			[--region <value>]
+			[--session-duration <value>]
+			[--with-proxy]
+			[--no-verify-ssl]
+			[--intermediates <value>]
+			[--profile <value>]
+			[--once]`
+			log.Println(msg)
+			syscall.Exit(1)
+		}
+		helper.Update(credentialsOptions, profile, once)
 	case "":
 		log.Println("No command provided")
 		syscall.Exit(1)
 	default:
-		log.Fatalf("Unrecognized command %s", os.Args[1])
+		log.Fatalf("Unrecognized command %s", command)
 	}
 }
