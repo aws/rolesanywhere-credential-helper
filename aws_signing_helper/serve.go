@@ -10,10 +10,10 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws/arn"
@@ -220,7 +220,7 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	roleArn, err := arn.Parse(credentialsOptions.RoleArn)
 	if err != nil {
 		log.Println("invalid role ARN")
-		syscall.Exit(1)
+		os.Exit(1)
 	}
 
 	credentialProcessOutput, _ := GenerateCredentials(&credentialsOptions)
@@ -258,7 +258,7 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", LocalHostAddress, endpoint.PortNum))
 	if err != nil {
 		log.Println("failed to create listener")
-		syscall.Exit(1)
+		os.Exit(1)
 	}
 	endpoint.PortNum = listener.Addr().(*net.TCPAddr).Port
 	log.Println("Local server started on port:", endpoint.PortNum)
@@ -266,6 +266,6 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	log.Printf("export AWS_EC2_METADATA_SERVICE_ENDPOINT=http://%s:%d/", LocalHostAddress, endpoint.PortNum)
 	if err := endpoint.Server.Serve(listener); err != nil {
 		log.Println("Httpserver: ListenAndServe() error")
-		syscall.Exit(1)
+		os.Exit(1)
 	}
 }
