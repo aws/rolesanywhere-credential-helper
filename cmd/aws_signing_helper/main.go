@@ -12,7 +12,6 @@ import (
 	"log"
 	"os"
 	"strings"
-	"syscall"
 
 	helper "github.com/aws/rolesanywhere-credential-helper/aws_signing_helper"
 )
@@ -64,7 +63,7 @@ var commands = map[string]*flag.FlagSet{
 
 // Finds global parameters that can appear in any position
 // Return a map that maps the name of global parameter to its value
-//		and a list of remaining arguments
+// and a list of remaining arguments
 func findGlobalVar(argList []string) (map[string]string, []string) {
 	globalVars := make(map[string]string)
 
@@ -79,7 +78,7 @@ func findGlobalVar(argList []string) (map[string]string, []string) {
 				i = i + 1
 			} else {
 				log.Println("Invalid value for ", argList[i])
-				syscall.Exit(1)
+				os.Exit(1)
 			}
 		} else {
 			parseList = append(parseList, argList[i])
@@ -132,7 +131,7 @@ func main() {
 	tmpEndpoint, endpointDetected := globalVars["--endpoint"]
 	if len(parseList) == 0 || strings.HasPrefix(parseList[0], "--") {
 		log.Println("No command provided")
-		syscall.Exit(1)
+		os.Exit(1)
 	}
 
 	command := parseList[0]
@@ -140,7 +139,7 @@ func main() {
 	// if the command does not exist in the command list
 	if !valid {
 		log.Println("Unrecognized command")
-		syscall.Exit(1)
+		os.Exit(1)
 	}
 
 	commandFs.Parse(parseList[1:])
@@ -187,12 +186,12 @@ func main() {
 			[--debug]
 			[--intermediates <value>]`
 			log.Println(msg)
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 		credentialProcessOutput, err := helper.GenerateCredentials(&credentialsOptions)
 		if err != nil {
 			log.Println(err)
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 		buf, _ := json.Marshal(credentialProcessOutput)
 		fmt.Print(string(buf[:]))
@@ -247,7 +246,7 @@ func main() {
 			[--profile <value>]
 			[--once]`
 			log.Println(msg)
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 		helper.Update(credentialsOptions, profile, once)
 	case "serve":
@@ -269,12 +268,12 @@ func main() {
 			[--intermediates <value>]
 			[--port <value>]`
 			log.Println(msg)
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 		helper.Serve(port, credentialsOptions)
 	case "":
 		log.Println("No command provided")
-		syscall.Exit(1)
+		os.Exit(1)
 	default:
 		log.Fatalf("Unrecognized command %s", command)
 	}
