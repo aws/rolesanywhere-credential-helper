@@ -20,6 +20,7 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
 	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go/aws/request"
@@ -501,6 +502,78 @@ aws_session_token = sessionToken
 				t.Fail()
 			}
 		})
+	}
+}
+
+func TestGenerateLongToken(t *testing.T) {
+	_, err := GenerateToken(150)
+	if err == nil {
+		t.Log("token generation should've failed since token size is too large")
+		t.Fail()
+	}
+}
+
+func TestGenerateToken(t *testing.T) {
+	token1, err := GenerateToken(100)
+	if err != nil {
+		t.Log("unexpected failure in generating token")
+		t.Fail()
+	}
+
+	token2, err := GenerateToken(100)
+	if err != nil {
+		t.Log("unexpected failure in generating token")
+		t.Fail()
+	}
+
+	if token1 == token2 {
+		t.Log("expected two randomly generated tokens to be different")
+		t.Fail()
+	}
+}
+
+func TestStoreValidToken(t *testing.T) {
+	token, err := GenerateToken(100)
+	if err != nil {
+		t.Log("unexpected failure in generating token")
+		t.Fail()
+	}
+
+	err = InsertToken(token, time.Now().Add(time.Second*time.Duration(100)))
+	if err != nil {
+		t.Log("unexpected failure when inserting token")
+		t.Fail()
+	}
+
+	httpRequest, err := http.NewRequest("GET", "http://127.0.0.1", nil)
+	if err != nil {
+		t.Log("unable to create test http request")
+		t.Fail()
+	}
+	httpRequest.Header.Add(EC2_METADATA_TOKEN_HEADER, token)
+
+	err = CheckValidToken(nil, httpRequest)
+	if err != nil {
+		t.Log("expected previously inserted token to be valid")
+		t.Fail()
+	}
+}
+
+func Test(t *testing.T) {
+	httpRequest, err := http.NewRequest("GET", "http://127.0.0.1", nil)
+	if err != nil {
+		t.Log("unable to create test http request")
+		t.Fail()
+	}
+	httpRequest.Header.Add("test-header", "test-header-value")
+
+	headerNames := [4]string{"Test-Header", "test-header", "TEST-HEADER", "tEST-hEadeR"}
+	for _, header := range headerNames {
+		testHeaderValue := httpRequest.Header.Get(header)
+		if testHeaderValue != "test-header-value" {
+			t.Log("header name canonicalization not working as expected")
+			t.Fail()
+		}
 	}
 }
 

@@ -34,19 +34,23 @@ var (
 	withProxy   bool
 	debug       bool
 	format      string
-	profile     string
-	once        bool
+
+	profile string
+	once    bool
+
+	port int
 
 	credentialProcessCmd   = flag.NewFlagSet("credential-process", flag.ExitOnError)
 	signStringCmd          = flag.NewFlagSet("sign-string", flag.ExitOnError)
 	readCertificateDataCmd = flag.NewFlagSet("read-certificate-data", flag.ExitOnError)
 	updateCmd              = flag.NewFlagSet("update", flag.ExitOnError)
+	serveCmd               = flag.NewFlagSet("serve", flag.ExitOnError)
 	versionCmd             = flag.NewFlagSet("version", flag.ExitOnError)
 )
 
 var Version string
 var globalOptSet = map[string]bool{"--region": true, "--endpoint": true}
-var credentialCommands = map[string]struct{}{"credential-process": {}, "update": {}}
+var credentialCommands = map[string]struct{}{"credential-process": {}, "update": {}, "serve": {}}
 
 // Maps each command name to a flagset
 var commands = map[string]*flag.FlagSet{
@@ -54,6 +58,7 @@ var commands = map[string]*flag.FlagSet{
 	signStringCmd.Name():          signStringCmd,
 	readCertificateDataCmd.Name(): readCertificateDataCmd,
 	updateCmd.Name():              updateCmd,
+	serveCmd.Name():               serveCmd,
 	versionCmd.Name():             versionCmd,
 }
 
@@ -73,7 +78,8 @@ func findGlobalVar(argList []string) (map[string]string, []string) {
 				globalVars[argList[i]] = argList[i+1]
 				i = i + 1
 			} else {
-				log.Fatal("Invalid value for ", argList[i])
+				log.Println("Invalid value for ", argList[i])
+				syscall.Exit(1)
 			}
 		} else {
 			parseList = append(parseList, argList[i])
@@ -111,6 +117,8 @@ func setupFlags() {
 		} else if command == "update" {
 			fs.StringVar(&profile, "profile", "default", "The aws profile to use (default 'default')")
 			fs.BoolVar(&once, "once", false, "Update the credentials once")
+		} else if command == "serve" {
+			fs.IntVar(&port, "port", helper.DefaultPort, "The port used to run local server (default: 9911)")
 		}
 	}
 }
@@ -242,6 +250,28 @@ func main() {
 			syscall.Exit(1)
 		}
 		helper.Update(credentialsOptions, profile, once)
+	case "serve":
+		// First check whether required arguments are present
+		if privateKeyId == "" || certificateId == "" || profileArnStr == "" ||
+			trustAnchorArnStr == "" || roleArnStr == "" {
+			msg := `Usage: aws_signing_helper serve
+			--private-key <value> 
+			--certificate <value> 
+			--profile-arn <value> 
+			--trust-anchor-arn <value>
+			--role-arn <value> 
+			[--endpoint <value>] 
+			[--region <value>] 
+			[--session-duration <value>]
+			[--with-proxy]
+			[--no-verify-ssl]
+			[--debug]
+			[--intermediates <value>]
+			[--port <value>]`
+			log.Println(msg)
+			syscall.Exit(1)
+		}
+		helper.Serve(port, credentialsOptions)
 	case "":
 		log.Println("No command provided")
 		syscall.Exit(1)
