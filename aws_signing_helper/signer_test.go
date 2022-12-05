@@ -12,6 +12,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -19,9 +20,13 @@ import (
 	"os/exec"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/aws/aws-sdk-go/aws/request"
 )
+
+const TestCredentialsFilePath = "/tmp/credentials"
 
 func setup() error {
 	generateCertsScript := exec.Command("/bin/bash", "../generate-certs.sh")
@@ -225,30 +230,8 @@ func TestCredentialProcess(t *testing.T) {
 		server *httptest.Server
 	}{
 		{
-			name: "create-session-server-response",
-			server: httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				w.WriteHeader(http.StatusCreated)
-				w.Write([]byte(`{
-					"credentialSet":[
-					  {
-						"assumedRoleUser": {
-						"arn": "arn:aws:sts::000000000000:assumed-role/ExampleS3WriteRole",
-						"assumedRoleId": "assumedRoleId"
-						},
-						"credentials":{
-						  "accessKeyId": "accessKeyId",
-						  "expiration": "2022-07-27T04:36:55Z",
-						  "secretAccessKey": "secretAccessKey",
-						  "sessionToken": "sessionToken"
-						},
-						"packedPolicySize": 10,
-						"roleArn": "arn:aws:iam::000000000000:role/ExampleS3WriteRole",
-						"sourceIdentity": "sourceIdentity"
-					  }
-					],
-					"subjectArn": "arn:aws:rolesanywhere:us-east-1:000000000000:subject/41cl0bae-6783-40d4-ab20-65dc5d922e45"
-				  }`))
-			})),
+			name:   "create-session-server-response",
+			server: GetMockedCreateSessionResponseServer(),
 		},
 	}
 	for _, tc := range testTable {
@@ -285,4 +268,349 @@ func TestCredentialProcess(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestUpdate(t *testing.T) {
+	testTable := []struct {
+		name                 string
+		server               *httptest.Server
+		inputFileContents    string
+		profile              string
+		expectedFileContents string
+	}{
+		{
+			name:   "test-space-separated-keys",
+			server: GetMockedCreateSessionResponseServer(),
+			inputFileContents: `test
+test
+test
+[test profile]
+aws_access_key_id = test
+[test]
+aws_secret_access_key = test`,
+			profile: "test profile",
+			expectedFileContents: `test
+test
+test
+[test profile]
+aws_access_key_id = accessKeyId
+aws_secret_access_key = secretAccessKey
+aws_session_token = sessionToken
+[test]
+aws_secret_access_key = test`,
+		},
+		{
+			name:   "test-profile-with-other-keys",
+			server: GetMockedCreateSessionResponseServer(),
+			inputFileContents: `test
+test
+test
+[test profile]
+aws_access_key_id = test
+test_key = test
+[test]
+aws_secret_access_key = test`,
+			profile: "test profile",
+			expectedFileContents: `test
+test
+test
+[test profile]
+aws_access_key_id = accessKeyId
+test_key = test
+aws_secret_access_key = secretAccessKey
+aws_session_token = sessionToken
+[test]
+aws_secret_access_key = test`,
+		},
+		{
+			name:   "test-commented-profile",
+			server: GetMockedCreateSessionResponseServer(),
+			inputFileContents: `test
+test
+test
+# [test profile]
+aws_access_key_id = test
+[test]
+aws_secret_access_key = test`,
+			profile: "test profile",
+			expectedFileContents: `test
+test
+test
+# [test profile]
+aws_access_key_id = test
+[test]
+aws_secret_access_key = test
+[test profile]
+aws_access_key_id = accessKeyId
+aws_secret_access_key = secretAccessKey
+aws_session_token = sessionToken
+`,
+		},
+		{
+			name:   "test-profile-does-not-exist",
+			server: GetMockedCreateSessionResponseServer(),
+			inputFileContents: `test
+test
+test
+[test]
+aws_secret_access_key = test`,
+			profile: "test profile",
+			expectedFileContents: `test
+test
+test
+[test]
+aws_secret_access_key = test
+[test profile]
+aws_access_key_id = accessKeyId
+aws_secret_access_key = secretAccessKey
+aws_session_token = sessionToken
+`,
+		},
+		{
+			name:   "test-first-word-in-profile-matches",
+			server: GetMockedCreateSessionResponseServer(),
+			inputFileContents: `test
+test
+test
+[test profile]
+aws_access_key_id = test
+[test]
+aws_secret_access_key = test`,
+			profile: "test",
+			expectedFileContents: `test
+test
+test
+[test profile]
+aws_access_key_id = test
+[test]
+aws_access_key_id = accessKeyId
+aws_secret_access_key = secretAccessKey
+aws_session_token = sessionToken`,
+		},
+		{
+			name:   "test-multiple-profiles-with-same-name",
+			server: GetMockedCreateSessionResponseServer(),
+			inputFileContents: `test
+test
+test
+[test]
+test_key = test
+[test profile]
+aws_access_key_id = test
+[test]
+aws_secret_access_key = test`,
+			profile: "test",
+			expectedFileContents: `test
+test
+test
+[test]
+test_key = test
+aws_access_key_id = accessKeyId
+aws_secret_access_key = secretAccessKey
+aws_session_token = sessionToken
+[test profile]
+aws_access_key_id = test
+[test]
+aws_secret_access_key = test`,
+		},
+	}
+	for _, tc := range testTable {
+		credentialsOpts := CredentialsOpts{
+			PrivateKeyId:      "../credential-process-data/client-key.pem",
+			CertificateId:     "../credential-process-data/client-cert.pem",
+			RoleArn:           "arn:aws:iam::000000000000:role/ExampleS3WriteRole",
+			ProfileArnStr:     "arn:aws:rolesanywhere:us-east-1:000000000000:profile/41cl0bae-6783-40d4-ab20-65dc5d922e45",
+			TrustAnchorArnStr: "arn:aws:rolesanywhere:us-east-1:000000000000:trust-anchor/41cl0bae-6783-40d4-ab20-65dc5d922e45",
+			Endpoint:          tc.server.URL,
+			SessionDuration:   900,
+		}
+		t.Run(tc.name, func(t *testing.T) {
+			SetupTests()
+			defer tc.server.Close()
+			os.Setenv(AwsSharedCredentialsFileEnvVarName, TestCredentialsFilePath)
+			_, err := GetCredentialsFileContents() // first create the credentials file with the appropriate permissions
+			if err != nil {
+				t.Log("unable to create credentials file for testing")
+				t.Fail()
+			}
+			writeOnlyCredentialsFile, err := GetWriteOnlyCredentialsFile() // then obtain a handle to the credentials file to perform write operations
+			if err != nil {
+				t.Log("unable to write to credentials file for testing")
+				t.Fail()
+			}
+			defer writeOnlyCredentialsFile.Close()
+			writeOnlyCredentialsFile.WriteString(tc.inputFileContents)
+
+			Update(credentialsOpts, tc.profile, true)
+
+			fileByteContents, _ := ioutil.ReadFile(TestCredentialsFilePath)
+			fileStringContents := trimLastChar(string(fileByteContents))
+			if fileStringContents != tc.expectedFileContents {
+				t.Log("unexpected file contents")
+				t.Fail()
+			}
+		})
+	}
+}
+
+func TestUpdateFilePermissions(t *testing.T) {
+	testTable := []struct {
+		name                 string
+		server               *httptest.Server
+		profile              string
+		expectedFileContents string
+	}{
+		{
+			name:    "test-space-separated-keys",
+			server:  GetMockedCreateSessionResponseServer(),
+			profile: "test profile",
+			expectedFileContents: `[test profile]
+aws_access_key_id = accessKeyId
+aws_secret_access_key = secretAccessKey
+aws_session_token = sessionToken
+`,
+		},
+	}
+	for _, tc := range testTable {
+		credentialsOpts := CredentialsOpts{
+			PrivateKeyId:      "../credential-process-data/client-key.pem",
+			CertificateId:     "../credential-process-data/client-cert.pem",
+			RoleArn:           "arn:aws:iam::000000000000:role/ExampleS3WriteRole",
+			ProfileArnStr:     "arn:aws:rolesanywhere:us-east-1:000000000000:profile/41cl0bae-6783-40d4-ab20-65dc5d922e45",
+			TrustAnchorArnStr: "arn:aws:rolesanywhere:us-east-1:000000000000:trust-anchor/41cl0bae-6783-40d4-ab20-65dc5d922e45",
+			Endpoint:          tc.server.URL,
+			SessionDuration:   900,
+		}
+		t.Run(tc.name, func(t *testing.T) {
+			SetupTests()
+			defer tc.server.Close()
+			os.Setenv(AwsSharedCredentialsFileEnvVarName, TestCredentialsFilePath)
+
+			Update(credentialsOpts, tc.profile, true)
+
+			fileByteContents, _ := ioutil.ReadFile(TestCredentialsFilePath)
+			fileStringContents := trimLastChar(string(fileByteContents))
+			if fileStringContents != tc.expectedFileContents {
+				t.Log("unexpected file contents")
+				t.Fail()
+			}
+
+			info, _ := os.Stat(TestCredentialsFilePath)
+			mode := info.Mode()
+			if mode != ((1 << 8) | (1 << 7)) {
+				t.Log("unexpected file mode")
+				t.Fail()
+			}
+		})
+	}
+}
+
+func TestGenerateLongToken(t *testing.T) {
+	_, err := GenerateToken(150)
+	if err == nil {
+		t.Log("token generation should've failed since token size is too large")
+		t.Fail()
+	}
+}
+
+func TestGenerateToken(t *testing.T) {
+	token1, err := GenerateToken(100)
+	if err != nil {
+		t.Log("unexpected failure in generating token")
+		t.Fail()
+	}
+
+	token2, err := GenerateToken(100)
+	if err != nil {
+		t.Log("unexpected failure in generating token")
+		t.Fail()
+	}
+
+	if token1 == token2 {
+		t.Log("expected two randomly generated tokens to be different")
+		t.Fail()
+	}
+}
+
+func TestStoreValidToken(t *testing.T) {
+	token, err := GenerateToken(100)
+	if err != nil {
+		t.Log("unexpected failure in generating token")
+		t.Fail()
+	}
+
+	err = InsertToken(token, time.Now().Add(time.Second*time.Duration(100)))
+	if err != nil {
+		t.Log("unexpected failure when inserting token")
+		t.Fail()
+	}
+
+	httpRequest, err := http.NewRequest("GET", "http://127.0.0.1", nil)
+	if err != nil {
+		t.Log("unable to create test http request")
+		t.Fail()
+	}
+	httpRequest.Header.Add(EC2_METADATA_TOKEN_HEADER, token)
+
+	err = CheckValidToken(nil, httpRequest)
+	if err != nil {
+		t.Log("expected previously inserted token to be valid")
+		t.Fail()
+	}
+}
+
+func Test(t *testing.T) {
+	httpRequest, err := http.NewRequest("GET", "http://127.0.0.1", nil)
+	if err != nil {
+		t.Log("unable to create test http request")
+		t.Fail()
+	}
+	httpRequest.Header.Add("test-header", "test-header-value")
+
+	headerNames := [4]string{"Test-Header", "test-header", "TEST-HEADER", "tEST-hEadeR"}
+	for _, header := range headerNames {
+		testHeaderValue := httpRequest.Header.Get(header)
+		if testHeaderValue != "test-header-value" {
+			t.Log("header name canonicalization not working as expected")
+			t.Fail()
+		}
+	}
+}
+
+func SetupTests() {
+	os.Remove(TestCredentialsFilePath)
+}
+
+func trimLastChar(s string) string {
+	r, size := utf8.DecodeLastRuneInString(s)
+	if r == utf8.RuneError && (size == 0 || size == 1) {
+		size = 0
+	}
+	return s[:len(s)-size]
+}
+
+func GetMockedCreateSessionResponseServer() *httptest.Server {
+	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusCreated)
+		w.Write([]byte(`{
+			"credentialSet":[
+			  {
+				"assumedRoleUser": {
+				"arn": "arn:aws:sts::000000000000:assumed-role/ExampleS3WriteRole",
+				"assumedRoleId": "assumedRoleId"
+				},
+				"credentials":{
+				  "accessKeyId": "accessKeyId",
+				  "expiration": "2022-07-27T04:36:55Z",
+				  "secretAccessKey": "secretAccessKey",
+				  "sessionToken": "sessionToken"
+				},
+				"packedPolicySize": 10,
+				"roleArn": "arn:aws:iam::000000000000:role/ExampleS3WriteRole",
+				"sourceIdentity": "sourceIdentity"
+			  }
+			],
+			"subjectArn": "arn:aws:rolesanywhere:us-east-1:000000000000:subject/41cl0bae-6783-40d4-ab20-65dc5d922e45"
+		  }`))
+	}))
 }

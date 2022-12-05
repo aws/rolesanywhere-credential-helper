@@ -101,10 +101,6 @@ type CredentialProcessOutput struct {
 	Expiration string `json:"Expiration"`
 }
 
-type Signer interface {
-	Sign(r *http.Request, body io.ReadSeeker, service, region string, signTime time.Time) (http.Header, error)
-}
-
 type RolesAnywhereSigner struct {
 	PrivateKey       crypto.PrivateKey
 	Certificate      x509.Certificate
