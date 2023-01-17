@@ -138,7 +138,7 @@ func FindTokenTTLSeconds(r *http.Request) (string, error) {
 	expiration, ok := tokenMap[token]
 	mutex.Unlock()
 	if ok {
-		tokenTTLFloat := expiration.Sub(time.Now()).Seconds()
+		tokenTTLFloat := time.Until(expiration).Seconds()
 		tokenTTLInt64 := int64(tokenTTLFloat)
 		return strconv.FormatInt(tokenTTLInt64, 10), nil
 	} else {

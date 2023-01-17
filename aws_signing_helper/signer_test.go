@@ -12,7 +12,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -443,7 +442,7 @@ aws_secret_access_key = test`,
 
 			Update(credentialsOpts, tc.profile, true)
 
-			fileByteContents, _ := ioutil.ReadFile(TestCredentialsFilePath)
+			fileByteContents, _ := os.ReadFile(TestCredentialsFilePath)
 			fileStringContents := trimLastChar(string(fileByteContents))
 			if fileStringContents != tc.expectedFileContents {
 				t.Log("unexpected file contents")
@@ -488,7 +487,7 @@ aws_session_token = sessionToken
 
 			Update(credentialsOpts, tc.profile, true)
 
-			fileByteContents, _ := ioutil.ReadFile(TestCredentialsFilePath)
+			fileByteContents, _ := os.ReadFile(TestCredentialsFilePath)
 			fileStringContents := trimLastChar(string(fileByteContents))
 			if fileStringContents != tc.expectedFileContents {
 				t.Log("unexpected file contents")

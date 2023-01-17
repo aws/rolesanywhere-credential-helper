@@ -8,7 +8,7 @@ import (
 	"encoding/json"
 	"flag"
 	"fmt"
-	"io/ioutil"
+	"io"
 	"log"
 	"os"
 	"strings"
@@ -196,7 +196,7 @@ func main() {
 		buf, _ := json.Marshal(credentialProcessOutput)
 		fmt.Print(string(buf[:]))
 	case "sign-string":
-		stringToSign, _ := ioutil.ReadAll(bufio.NewReader(os.Stdin))
+		stringToSign, _ := io.ReadAll(bufio.NewReader(os.Stdin))
 		privateKey, _ := helper.ReadPrivateKeyData(privateKeyId)
 		var digest crypto.Hash
 		switch strings.ToUpper(digestArg) {
