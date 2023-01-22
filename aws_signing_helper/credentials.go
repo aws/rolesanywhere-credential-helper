@@ -2,9 +2,9 @@ package aws_signing_helper
 
 import (
 	"crypto/tls"
-	"crypto/x509"
 	"encoding/base64"
 	"errors"
+	"log"
 	"net/http"
 	"runtime"
 
@@ -19,6 +19,7 @@ type CredentialsOpts struct {
 	PrivateKeyId        string
 	CertificateId       string
 	CertificateBundleId string
+	CertIdentifier      CertIdentifier
 	RoleArn             string
 	ProfileArnStr       string
 	TrustAnchorArnStr   string
@@ -51,30 +52,22 @@ func GenerateCredentials(opts *CredentialsOpts) (CredentialProcessOutput, error)
 		opts.Region = trustAnchorArn.Region
 	}
 
-	privateKey, err := ReadPrivateKeyData(opts.PrivateKeyId)
-	if err != nil {
-		return CredentialProcessOutput{}, err
-	}
-	certificateData, err := ReadCertificateData(opts.CertificateId)
-	if err != nil {
-		return CredentialProcessOutput{}, err
-	}
-	certificateDerData, err := base64.StdEncoding.DecodeString(certificateData.CertificateData)
-	if err != nil {
-		return CredentialProcessOutput{}, err
-	}
-	certificate, err := x509.ParseCertificate([]byte(certificateDerData))
-	if err != nil {
-		return CredentialProcessOutput{}, err
-	}
-	var certificateChain []x509.Certificate
-	if opts.CertificateBundleId != "" {
-		certificateChainPointers, err := ReadCertificateBundleData(opts.CertificateBundleId)
+	var signer Signer
+	var signingAlgorithm string
+	if opts.PrivateKeyId != "" {
+		privateKey, err := ReadPrivateKeyData(opts.PrivateKeyId)
 		if err != nil {
 			return CredentialProcessOutput{}, err
 		}
-		for _, certificate := range certificateChainPointers {
-			certificateChain = append(certificateChain, *certificate)
+		signer, signingAlgorithm, err = GetFileSystemSigner(privateKey, opts.CertificateId, opts.CertificateBundleId)
+		if err != nil {
+			return CredentialProcessOutput{}, errors.New("unable to create request signer")
+		}
+	} else {
+		signer, signingAlgorithm, err = GetDarwinCertStoreSigner(opts.CertIdentifier)
+		if err != nil {
+			log.Println(err)
+			return CredentialProcessOutput{}, errors.New("unable to create request signer")
 		}
 	}
 
@@ -107,11 +100,20 @@ func GenerateCredentials(opts *CredentialsOpts) (CredentialProcessOutput, error)
 	rolesAnywhereClient.Handlers.Build.RemoveByName("core.SDKVersionUserAgentHandler")
 	rolesAnywhereClient.Handlers.Build.PushBackNamed(request.NamedHandler{Name: "v4x509.CredHelperUserAgentHandler", Fn: request.MakeAddToUserAgentHandler("CredHelper", opts.Version, runtime.Version(), runtime.GOOS, runtime.GOARCH)})
 	rolesAnywhereClient.Handlers.Sign.Clear()
-	rolesAnywhereClient.Handlers.Sign.PushBackNamed(request.NamedHandler{Name: "v4x509.SignRequestHandler", Fn: CreateSignFunction(privateKey, *certificate, certificateChain)})
+	certificate, err := signer.Certificate()
+	if err != nil {
+		return CredentialProcessOutput{}, errors.New("unable to find certificate")
+	}
+	certificateChain, err := signer.CertificateChain()
+	if err != nil {
+		return CredentialProcessOutput{}, errors.New("unable to find certificate chain")
+	}
+	rolesAnywhereClient.Handlers.Sign.PushBackNamed(request.NamedHandler{Name: "v4x509.SignRequestHandler", Fn: CreateRequestSignFunction(signer, signingAlgorithm, certificate, certificateChain)})
 
+	certificateStr := base64.StdEncoding.EncodeToString(certificate.Raw)
 	durationSeconds := int64(opts.SessionDuration)
 	createSessionRequest := rolesanywhere.CreateSessionInput{
-		Cert:               &certificateData.CertificateData,
+		Cert:               &certificateStr,
 		ProfileArn:         &opts.ProfileArnStr,
 		TrustAnchorArn:     &opts.TrustAnchorArnStr,
 		DurationSeconds:    &(durationSeconds),
