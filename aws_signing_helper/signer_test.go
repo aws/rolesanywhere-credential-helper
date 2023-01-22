@@ -8,9 +8,6 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/hex"
 	"errors"
 	"io/ioutil"
 	"log"
@@ -129,28 +126,34 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 		t.Fail()
 	}
 
+	certificateId := "../tst/certs/rsa-2048-sha256-cert.pem"
 	privateKey, _ := ReadPrivateKeyData("../tst/certs/rsa-2048-key.pem")
-	certificateData, _ := ReadCertificateData("../tst/certs/rsa-2048-sha256-cert.pem")
-	certificateDerData, _ := base64.StdEncoding.DecodeString(certificateData.CertificateData)
-	certificate, _ := x509.ParseCertificate([]byte(certificateDerData))
 
 	awsRequest := request.Request{HTTPRequest: testRequest}
-	v4x509 := RolesAnywhereSigner{
-		PrivateKey:  privateKey,
-		Certificate: *certificate,
-	}
-	err = v4x509.SignWithCurrTime(&awsRequest)
+	signer, signingAlgorithm, err := GetFileSystemSigner(privateKey, certificateId, "")
 	if err != nil {
 		t.Log(err)
 		t.Fail()
 	}
+	certificate, err := signer.Certificate()
+	if err != nil {
+		t.Log(err)
+		t.Fail()
+	}
+	certificateChain, err := signer.CertificateChain()
+	if err != nil {
+		t.Log(err)
+		t.Fail()
+	}
+	requestSignFunction := CreateRequestSignFunction(signer, signingAlgorithm, certificate, certificateChain)
+	requestSignFunction(&awsRequest)
 }
 
 // Verify that the provided payload was signed correctly with the provided options.
 // This function is specifically used for unit testing.
-func Verify(payload []byte, opts SigningOpts, sig []byte) (bool, error) {
+func Verify(payload []byte, privateKey crypto.PrivateKey, digest crypto.Hash, sig []byte) (bool, error) {
 	var hash []byte
-	switch opts.Digest {
+	switch digest {
 	case crypto.SHA256:
 		sum := sha256.Sum256(payload)
 		hash = sum[:]
@@ -166,7 +169,7 @@ func Verify(payload []byte, opts SigningOpts, sig []byte) (bool, error) {
 	}
 
 	{
-		privateKey, ok := opts.PrivateKey.(ecdsa.PrivateKey)
+		privateKey, ok := privateKey.(ecdsa.PrivateKey)
 		if ok {
 			valid := ecdsa.VerifyASN1(&privateKey.PublicKey, hash, sig)
 			if valid {
@@ -176,9 +179,9 @@ func Verify(payload []byte, opts SigningOpts, sig []byte) (bool, error) {
 	}
 
 	{
-		privateKey, ok := opts.PrivateKey.(rsa.PrivateKey)
+		privateKey, ok := privateKey.(rsa.PrivateKey)
 		if ok {
-			err := rsa.VerifyPKCS1v15(&privateKey.PublicKey, opts.Digest, hash, sig)
+			err := rsa.VerifyPKCS1v15(&privateKey.PublicKey, digest, hash, sig)
 			if err == nil {
 				return true, nil
 			}
@@ -191,6 +194,7 @@ func Verify(payload []byte, opts SigningOpts, sig []byte) (bool, error) {
 func TestSign(t *testing.T) {
 	msg := "test message"
 
+	certificateId := "../tst/certs/rsa-2048-sha256-cert.pem"
 	var privateKeyList [2]crypto.PrivateKey
 	{
 		privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -203,19 +207,19 @@ func TestSign(t *testing.T) {
 	digestList := []crypto.Hash{crypto.SHA256, crypto.SHA384, crypto.SHA512}
 
 	for _, privateKey := range privateKeyList {
+		signer, _, err := GetFileSystemSigner(privateKey, certificateId, "")
+		if err != nil {
+			t.Log("unable to get file system signer")
+			t.Fail()
+		}
 		for _, digest := range digestList {
-			signingResult, err := Sign([]byte(msg), SigningOpts{privateKey, digest})
+			signatureBytes, err := signer.Sign(rand.Reader, []byte(msg), digest)
 			if err != nil {
 				t.Log("Failed to sign the input message")
 				t.Fail()
 			}
 
-			sig, err := hex.DecodeString(signingResult.Signature)
-			if err != nil {
-				t.Log("Failed to decode the hex-encoded signature")
-				t.Fail()
-			}
-			valid, _ := Verify([]byte(msg), SigningOpts{privateKey, digest}, sig)
+			valid, _ := Verify([]byte(msg), privateKey, digest, signatureBytes)
 			if !valid {
 				t.Log("Failed to verify the signature")
 				t.Fail()
