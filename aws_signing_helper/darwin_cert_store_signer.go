@@ -1,3 +1,5 @@
+//go:build darwin
+
 package aws_signing_helper
 
 /*
@@ -44,7 +46,7 @@ var (
 
 // Gets the matching identity and certificate for this CertIdentifier
 // If there is more than one, only a list of the matching certificates is returned
-func GetMatchingCerts(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCertificateRef, []*x509.Certificate, error) {
+func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCertificateRef, []*x509.Certificate, error) {
 	queryMap := map[C.CFTypeRef]C.CFTypeRef{
 		C.CFTypeRef(C.kSecClass):      C.CFTypeRef(C.kSecClassIdentity),
 		C.CFTypeRef(C.kSecReturnRef):  C.CFTypeRef(C.kCFBooleanTrue),
@@ -87,20 +89,7 @@ func GetMatchingCerts(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCer
 		}
 
 		// Find whether there is a matching certificate
-		certMatches := true
-		for ok := true; ok; ok = false {
-			if certIdentifier.Subject != "" && certIdentifier.Subject != curCert.Subject.String() {
-				certMatches = false
-				break
-			}
-			if certIdentifier.Issuer != "" && certIdentifier.Issuer != curCert.Issuer.String() {
-				certMatches = false
-				break
-			}
-			if certIdentifier.SerialNumber != nil && certIdentifier.SerialNumber != curCert.SerialNumber {
-				certMatches = false
-			}
-		}
+        certMatches := certMatches(certIdentifier, curCert)
 		if certMatches {
 			certs = append(certs, curCert)
 			certRef = curCertRef
@@ -113,16 +102,21 @@ func GetMatchingCerts(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCer
 		return identRef, certRef, certs, nil
 	} else {
 		return 0, 0, certs, nil
-	}
+	} 
 }
 
-// Creates a DarwinCertSigner based on the identifying certificate
-func GetDarwinCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAlgorithm string, err error) {
-	identRef, certRef, certs, err := GetMatchingCerts(certIdentifier)
+func GetMatchingCerts(certIdentifier CertIdentifier) ([]*x509.Certificate, error) {
+    _, _, certificates, err := GetMatchingCertsAndIdentity(certIdentifier)
+    return certificates, err
+}
+
+// Creates a DarwinCertStoreSigner based on the identifying certificate
+func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAlgorithm string, err error) {
+	identRef, certRef, certs, err := GetMatchingCertsAndIdentity(certIdentifier)
 	if err != nil {
 		return nil, "", err
 	}
-	// case where there are no matching identities is already handled as an error from GetMatchingCerts
+	// Case where there are no matching identities is already handled as an error from GetMatchingCertsAndIdentity
 	if len(certs) > 1 {
 		return nil, "", errors.New("multiple matching identities")
 	}

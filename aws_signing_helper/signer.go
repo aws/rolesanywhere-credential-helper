@@ -52,6 +52,7 @@ type Signer interface {
 	Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error)
 	Certificate() (certificate *x509.Certificate, err error)
 	CertificateChain() (certificateChain []*x509.Certificate, err error)
+	Close()
 }
 
 // Container for certificate data returned to the SDK as JSON.
@@ -103,6 +104,28 @@ var ignoredHeaderKeys = map[string]bool{
 	"Authorization":   true,
 	"User-Agent":      true,
 	"X-Amzn-Trace-Id": true,
+}
+
+// Find whether the current certificate matches the CertIdentifier
+func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
+	// certMatches := true
+	// for ok := true; ok; ok = false {
+	// 	if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
+	// 		certMatches = false
+	// 		break
+	// 	}
+	// 	if certIdentifier.Issuer != "" && certIdentifier.Issuer != cert.Issuer.String() {
+	// 		certMatches = false
+	// 		break
+	// 	}
+	// 	if certIdentifier.SerialNumber != nil && certIdentifier.SerialNumber != cert.SerialNumber {
+	// 		certMatches = false
+	// 	}
+	// }
+
+	// return certMatches
+
+	return true
 }
 
 // Obtain the date-time, formatted as specified by SigV4

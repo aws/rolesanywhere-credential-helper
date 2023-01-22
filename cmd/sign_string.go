@@ -95,7 +95,7 @@ var signStringCmd = &cobra.Command{
                 syscall.Exit(1)
             }
         } else {
-            signer, _, err = helper.GetDarwinCertStoreSigner(certIdentifier)
+            signer, _, err = helper.GetCertStoreSigner(certIdentifier)
             if err != nil {
                 log.Println("unable to create signer using cert selector")
                 syscall.Exit(1)

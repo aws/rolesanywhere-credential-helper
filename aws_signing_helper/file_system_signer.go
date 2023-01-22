@@ -23,6 +23,9 @@ func (fileSystemSigner FileSystemSigner) Public() crypto.PublicKey {
 	return nil
 }
 
+func (fileSystemSigner FileSystemSigner) Close() {
+}
+
 func (fileSystemSigner FileSystemSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	var hash []byte
 	switch opts.HashFunc() {

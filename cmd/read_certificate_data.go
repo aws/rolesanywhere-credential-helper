@@ -36,7 +36,7 @@ var readCertificateDataCmd = &cobra.Command{
 			buf, _ := json.Marshal(data)
 			fmt.Print(string(buf[:]))
 		} else {
-			_, _, certs, err := helper.GetMatchingCerts(certIdentifier)
+			certs, err := helper.GetMatchingCerts(certIdentifier)
 			if err != nil {
 				log.Println("unable to get certificates from cert store")
 				syscall.Exit(1)
