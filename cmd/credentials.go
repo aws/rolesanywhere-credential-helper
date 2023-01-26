@@ -27,6 +27,10 @@ var (
 	certificateBundleId string
 	certSelector        string
 
+	libPkcs11	string
+	pinPkcs11	string
+	checkPkcs11	bool
+
 	credentialsOptions helper.CredentialsOpts
 
 	X509_SUBJECT_KEY = "x509Subject"
@@ -62,8 +66,12 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&certificateBundleId, "intermediates", "", "Path to intermediate certificate bundle file")
 	subCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify a certificate from a certificate store. Can be 
 passed in either as string or a file name (prefixed by \"file://\")`)
+	subCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smartcard / security token (opensc or vendor specific)")
+	subCmd.PersistentFlags().StringVar(&pinPkcs11, "pkcs11-pin", "", "PIN code for smartcard / security token")
+	subCmd.PersistentFlags().BoolVar(&checkPkcs11, "pkcs11-check", false, "To print which smartcard is detected by the pkcs driver")
 
 	subCmd.MarkFlagsRequiredTogether("certificate", "private-key")
+	subCmd.MarkFlagsRequiredTogether("pkcs11-lib", "pkcs11-pin")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 }
@@ -200,6 +208,9 @@ func PopulateCredentialsOptions() error {
 		WithProxy:           withProxy,
 		Debug:               debug,
 		Version:             Version,
+		LibPkcs11:           libPkcs11,
+		PinPkcs11:           pinPkcs11,
+		CheckPkcs11:         checkPkcs11,
 	}
 
 	return nil

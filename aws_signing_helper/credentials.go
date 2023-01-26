@@ -30,6 +30,9 @@ type CredentialsOpts struct {
 	WithProxy           bool
 	Debug               bool
 	Version             string
+	PinPkcs11			string
+	LibPkcs11			string
+	CheckPkcs11			bool
 }
 
 // Function to create session and generate credentials
@@ -51,6 +54,12 @@ func GenerateCredentials(opts *CredentialsOpts) (CredentialProcessOutput, error)
 	if opts.Region == "" {
 		opts.Region = trustAnchorArn.Region
 	}
+	var LibPkcs11 = opts.LibPkcs11
+	var PinPkcs11 = opts.PinPkcs11
+	var CheckPkcs11 = opts.CheckPkcs11
+	if CheckPkcs11 {
+		//pkcs11GetInfo()
+	}
 
 	var signer Signer
 	var signingAlgorithm string
@@ -60,6 +69,11 @@ func GenerateCredentials(opts *CredentialsOpts) (CredentialProcessOutput, error)
 			return CredentialProcessOutput{}, err
 		}
 		signer, signingAlgorithm, err = GetFileSystemSigner(privateKey, opts.CertificateId, opts.CertificateBundleId)
+		if err != nil {
+			return CredentialProcessOutput{}, errors.New("unable to create request signer")
+		}
+	} else if PinPkcs11 != "" && LibPkcs11 != "" {
+		signer, signingAlgorithm, err = GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, opts.PinPkcs11)
 		if err != nil {
 			return CredentialProcessOutput{}, errors.New("unable to create request signer")
 		}
