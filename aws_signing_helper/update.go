@@ -3,7 +3,6 @@ package aws_signing_helper
 import (
 	"bufio"
 	"log"
-	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +11,7 @@ import (
 
 const UpdateRefreshTime = time.Minute * time.Duration(5)
 const AwsSharedCredentialsFileEnvVarName = "AWS_SHARED_CREDENTIALS_FILE"
+const BufferSize = 49152
 
 // Structure to contain a temporary credential
 type TemporaryCredential struct {
@@ -98,27 +98,19 @@ func GetCredentialsFileContents() ([]string, error) {
 }
 
 // Assume that the credentials file exists already and open it for write operations
+// that will overwrite the existing contents of the file
 func GetWriteOnlyCredentialsFile() (*os.File, error) {
 	homeDir, _ := os.UserHomeDir()
 	awsCredentialsPath := os.Getenv(AwsSharedCredentialsFileEnvVarName)
 	if awsCredentialsPath == "" {
 		awsCredentialsPath = filepath.Join(homeDir, ".aws", "credentials")
 	}
-	return os.OpenFile(awsCredentialsPath, os.O_WRONLY, 0200)
+	return os.OpenFile(awsCredentialsPath, os.O_WRONLY|os.O_TRUNC, 0200)
 }
 
-// Function to write existing credentials and newly-created credentials to a destination file
-func WriteTo(profileName string, writeLines []string, cred *TemporaryCredential) error {
-	destFile, err := GetWriteOnlyCredentialsFile()
-	if err != nil {
-		log.Println("unable to get write-only AWS credentials file")
-		os.Exit(1)
-	}
-	defer destFile.Close()
-
-	// Create buffered writer with a buffer of maximum size
-	destFileWriter := bufio.NewWriterSize(destFile, math.MaxInt32)
-
+// Function that will get the new conents of the credentials file after a 
+// refresh has been done
+func GetNewCredentialsFileContents(profileName string, readLines []string, cred *TemporaryCredential) []string {
 	var profileExist = false
 	var profileSection = "[" + profileName + "]"
 	// A variable that checks whether or not required fields are written to the destination file
@@ -126,62 +118,78 @@ func WriteTo(profileName string, writeLines []string, cred *TemporaryCredential)
 	accessKey := "aws_access_key_id = " + cred.AccessKeyId + "\n"
 	secretKey := "aws_secret_access_key = " + cred.SecretAccessKey + "\n"
 	sessionToken := "aws_session_token = " + cred.SessionToken + "\n"
-
-	for i := 0; i < len(writeLines); i++ {
-		if !profileExist && writeLines[i] == profileSection {
-			j := i + 1
-			destFileWriter.WriteString(profileSection + "\n")
-			for ; j < len(writeLines); j++ {
+	var writeLines = make([]string, 0)
+	for readLinesIndex := 0; readLinesIndex < len(readLines); readLinesIndex++ {
+		if !profileExist && readLines[readLinesIndex] == profileSection {
+			writeLines = append(writeLines[:], profileSection+"\n")
+			readLinesIndex += 1
+			for ; readLinesIndex < len(readLines); readLinesIndex++ {
 				// If the last line of the credentials file is reached
 				// OR the next profile section is reached
-				if j == len(writeLines)-1 || strings.HasPrefix(writeLines[j], "[") {
+				if readLinesIndex == len(readLines)-1 || strings.HasPrefix(readLines[readLinesIndex], "[") {
 					if !newCredVisit["aws_access_key_id"] {
-						_, err = destFileWriter.WriteString(accessKey)
+						writeLines = append(writeLines[:], accessKey)
 					}
 					if !newCredVisit["aws_secret_access_key"] {
-						_, err = destFileWriter.WriteString(secretKey)
+						writeLines = append(writeLines[:], secretKey)
 					}
 					if !newCredVisit["aws_session_token"] {
-						_, err = destFileWriter.WriteString(sessionToken)
+						writeLines = append(writeLines[:], sessionToken)
 
 					}
-					if j == len(writeLines)-1 {
-						i = j
-					} else {
-						i = j - 1
+					if readLinesIndex != len(readLines)-1 {
+						readLinesIndex -= 1
 					}
 					profileExist = true
 					break
-				} else if strings.HasPrefix(writeLines[j], "aws_access_key_id") {
+				} else if strings.HasPrefix(readLines[readLinesIndex], "aws_access_key_id") {
 					// replace "aws_access_key_id"
-					_, err = destFileWriter.WriteString(accessKey)
+					writeLines = append(writeLines[:], accessKey)
 					newCredVisit["aws_access_key_id"] = true
-				} else if strings.HasPrefix(writeLines[j], "aws_secret_access_key") {
+				} else if strings.HasPrefix(readLines[readLinesIndex], "aws_secret_access_key") {
 					// replace "aws_secret_access_key"
-					_, err = destFileWriter.WriteString(secretKey)
+					writeLines = append(writeLines[:], secretKey)
 					newCredVisit["aws_secret_access_key"] = true
-				} else if strings.HasPrefix(writeLines[j], "aws_session_token") {
+				} else if strings.HasPrefix(readLines[readLinesIndex], "aws_session_token") {
 					// replace "aws_session_token"
-					_, err = destFileWriter.WriteString(sessionToken)
+					writeLines = append(writeLines[:], sessionToken)
 					newCredVisit["aws_session_token"] = true
 				} else {
 					// write other keys
-					_, err = destFileWriter.WriteString(writeLines[j] + "\n")
+					writeLines = append(writeLines[:], readLines[readLinesIndex]+"\n")
 				}
 			}
 		} else {
-			_, err = destFileWriter.WriteString(writeLines[i] + "\n")
+			writeLines = append(writeLines[:], readLines[readLinesIndex]+"\n")
 		}
 	}
 
 	// If the chosen profile does not exist
 	if !profileExist {
 		writeCredential := profileSection + "\n" + accessKey + secretKey + sessionToken
-		_, err = destFileWriter.WriteString(writeCredential + "\n")
+		writeLines = append(writeLines[:], writeCredential+"\n")
 	}
 
+    return writeLines
+}
+
+// Function to write existing credentials and newly-created credentials to a destination file
+func WriteTo(profileName string, readLines []string, cred *TemporaryCredential) error {
+	destFile, err := GetWriteOnlyCredentialsFile()
 	if err != nil {
-		return err
+		log.Println("unable to get write-only AWS credentials file")
+		os.Exit(1)
+	}
+	defer destFile.Close()
+
+	// Create buffered writer 
+	destFileWriter := bufio.NewWriterSize(destFile, BufferSize)
+	for _, line := range GetNewCredentialsFileContents(profileName, readLines, cred) {
+		_, err := destFileWriter.WriteString(line)
+		if err != nil {
+			log.Println("unable to write to credentials file")
+			os.Exit(1)
+		}
 	}
 
 	// Flush the contents of the buffer
