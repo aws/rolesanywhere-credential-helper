@@ -17,7 +17,6 @@ import (
 
 
 type PKCS11Signer struct {
-	//PrivateKey       crypto.PrivateKey
 	cert      *x509.Certificate
 	certChain []*x509.Certificate
 	libpkcs11			 string
@@ -26,13 +25,13 @@ type PKCS11Signer struct {
 
 }
 
-func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (slot int, cert *x509.Certificate, erra error) {
+func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (slot int, cert *x509.Certificate, err error) {
 	var certLocated CertIdentifier
 
 	p := pkcs11.New(lib)
-	err := p.Initialize()
+	err = p.Initialize()
 	if err != nil {
-		panic(err)
+		return 0, nil, err
 	}
 
 	defer p.Destroy()
@@ -40,12 +39,18 @@ func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (slot int, 
 
 	slots, err := p.GetSlotList(true)
 	if err != nil {
-		panic(err)
+		return 0, nil, err
 	}
+
+	if len(slots) == 0 {
+		log.Println("No slots identified on the security device")
+		err = errors.New("No slots")
+		return 0, nil, err
+	} 
 
 	session, err := p.OpenSession(slots[0], pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
 	if err != nil {
-		panic(err)
+		return 0, nil, err
 	}
 	defer p.CloseSession(session)
 
@@ -57,12 +62,6 @@ func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (slot int, 
 	if err = p.FindObjectsInit(session, templatecrt); err != nil {
 		fmt.Println("nil, err")
 	}
-	defer func() {
-		finalErr := p.FindObjectsFinal(session)
-		if err == nil {
-			err = finalErr
-		}
-	}()
 
 	objs, b, err := p.FindObjects(session, 1)
 	for err == nil {
@@ -108,7 +107,7 @@ func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (slot int, 
 	}
 
 
-	return 1, nil, errors.New("unsupported certificate")
+	return 0, nil, errors.New("unsupported certificate")
 }
 
 func (pkcs11Signer PKCS11Signer) Public() crypto.PublicKey {
@@ -116,6 +115,10 @@ func (pkcs11Signer PKCS11Signer) Public() crypto.PublicKey {
 }
 
 func (pkcs11Signer PKCS11Signer) Close() {
+	p := pkcs11.New(pkcs11Signer.libpkcs11)
+	p.Finalize()
+	p.Destroy()
+
 }
 
 func (signer PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
@@ -126,26 +129,23 @@ func (signer PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypto.Signe
 		p := pkcs11.New(lib) 
 		err = p.Initialize()
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
-
-		defer p.Destroy()
-		defer p.Finalize()
 
 		slots, err := p.GetSlotList(true)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 
 		session, err := p.OpenSession(slots[0], pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		defer p.CloseSession(session)
 
-		err = p.Login(session, pkcs11.CKU_USER, pin)// err = p.Login(session, pkcs11.CKU_USER, pin) 
+		err = p.Login(session, pkcs11.CKU_USER, pin)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 		defer p.Logout(session)
 
@@ -160,14 +160,12 @@ func (signer PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypto.Signe
 
 		err = p.SignInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_SHA256_RSA_PKCS, nil)}, objspk[id]) // CKM_SHA256_RSA_PKCS
 		if err != nil {
-		fmt.Println("err: ", err)
 			log.Fatalf("Signing Initiation failed (%s)\n", err.Error())
 		}
 
 		sig, err := p.Sign(session, digest)
 		if err != nil {
 		err = fmt.Errorf("Signing failed (%s)\n", err.Error())
-		fmt.Println("err: ", err)
 		}
 
 
@@ -194,11 +192,8 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libpkcs11 string, pin string
 	idpkcs11, cert, err := GetMatchingPKCSCerts(certIdentifier, libpkcs11)
 	if err != nil {
 		return nil, "", err
-		//errors.New("No matching certificate found on the security device")
 	}
 	pinpkcs11 := pin
-    // case where there are no matching identities is already handled as an error from GetMatchingCerts
-
 
 	// Find the signing algorithm
 	switch cert.PublicKey.(type) {

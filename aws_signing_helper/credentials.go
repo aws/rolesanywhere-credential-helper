@@ -54,10 +54,8 @@ func GenerateCredentials(opts *CredentialsOpts) (CredentialProcessOutput, error)
 	if opts.Region == "" {
 		opts.Region = trustAnchorArn.Region
 	}
-	var LibPkcs11 = opts.LibPkcs11
-	var PinPkcs11 = opts.PinPkcs11
-	var CheckPkcs11 = opts.CheckPkcs11
-	if CheckPkcs11 {
+
+	if opts.CheckPkcs11 {
 		//pkcs11GetInfo()
 	}
 
@@ -72,7 +70,7 @@ func GenerateCredentials(opts *CredentialsOpts) (CredentialProcessOutput, error)
 		if err != nil {
 			return CredentialProcessOutput{}, errors.New("unable to create request signer")
 		}
-	} else if PinPkcs11 != "" && LibPkcs11 != "" {
+	} else if opts.PinPkcs11 != "" && opts.LibPkcs11 != "" {
 		signer, signingAlgorithm, err = GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, opts.PinPkcs11)
 		if err != nil {
 			return CredentialProcessOutput{}, errors.New("unable to create request signer")
