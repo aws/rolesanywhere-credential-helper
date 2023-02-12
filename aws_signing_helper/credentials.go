@@ -64,7 +64,7 @@ func GenerateCredentials(opts *CredentialsOpts) (CredentialProcessOutput, error)
 			return CredentialProcessOutput{}, errors.New("unable to create request signer")
 		}
 	} else {
-		signer, signingAlgorithm, err = GetDarwinCertStoreSigner(opts.CertIdentifier)
+		signer, signingAlgorithm, err = GetCertStoreSigner(opts.CertIdentifier)
 		if err != nil {
 			log.Println(err)
 			return CredentialProcessOutput{}, errors.New("unable to create request signer")

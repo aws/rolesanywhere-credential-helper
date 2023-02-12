@@ -4,8 +4,6 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/sha512"
 	"crypto/x509"
 	"encoding/base64"
 	"errors"
@@ -23,26 +21,13 @@ func (fileSystemSigner FileSystemSigner) Public() crypto.PublicKey {
 	return nil
 }
 
-func (fileSystemSigner FileSystemSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-	var hash []byte
-	switch opts.HashFunc() {
-	case crypto.SHA256:
-		sum := sha256.Sum256(digest)
-		hash = sum[:]
-	case crypto.SHA384:
-		sum := sha512.Sum384(digest)
-		hash = sum[:]
-	case crypto.SHA512:
-		sum := sha512.Sum512(digest)
-		hash = sum[:]
-	default:
-		log.Println("unsupported digest")
-		return nil, errors.New("unsupported digest")
-	}
+func (fileSystemSigner FileSystemSigner) Close() {
+}
 
+func (fileSystemSigner FileSystemSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	ecdsaPrivateKey, ok := fileSystemSigner.PrivateKey.(ecdsa.PrivateKey)
 	if ok {
-		sig, err := ecdsa.SignASN1(rand, &ecdsaPrivateKey, hash[:])
+		sig, err := ecdsa.SignASN1(rand, &ecdsaPrivateKey, digest[:])
 		if err == nil {
 			return sig, nil
 		}
@@ -50,7 +35,7 @@ func (fileSystemSigner FileSystemSigner) Sign(rand io.Reader, digest []byte, opt
 
 	rsaPrivateKey, ok := fileSystemSigner.PrivateKey.(rsa.PrivateKey)
 	if ok {
-		sig, err := rsa.SignPKCS1v15(rand, &rsaPrivateKey, opts.HashFunc(), hash[:])
+		sig, err := rsa.SignPKCS1v15(rand, &rsaPrivateKey, opts.HashFunc(), digest[:])
 		if err == nil {
 			return sig, nil
 		}

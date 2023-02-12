@@ -16,7 +16,7 @@ func init() {
 	rootCmd.AddCommand(readCertificateDataCmd)
 	readCertificateDataCmd.PersistentFlags().StringVar(&certificateId, "certificate", "", "Path to certificate file")
 	readCertificateDataCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify 
-a certificate from a certificate store. Can be passed in either as string or a file name (prefixed by \"file://\")`)
+a certificate from a certificate store. Can be passed in either as string or a file name (prefixed by "file://")`)
 }
 
 var readCertificateDataCmd = &cobra.Command{
@@ -36,15 +36,19 @@ var readCertificateDataCmd = &cobra.Command{
 			buf, _ := json.Marshal(data)
 			fmt.Print(string(buf[:]))
 		} else {
-			_, _, certs, err := helper.GetMatchingCerts(certIdentifier)
+			certs, err := helper.GetMatchingCerts(certIdentifier)
 			if err != nil {
 				log.Println("unable to get certificates from cert store")
 				syscall.Exit(1)
 			}
+			if len(certs) > 0 {
+				fmt.Printf("Matching identities\n")
+			} else {
+				fmt.Printf("No matching identies\n")
+			}
 			for index, cert := range certs {
 				fingerprint := sha1.Sum(cert.Raw) // nosemgrep
 				fingerprintHex := hex.EncodeToString(fingerprint[:])
-				fmt.Printf("Matching identities\n")
 				fmt.Printf("%d) %s \"%s\"\n", index+1, fingerprintHex, cert.Subject.String())
 			}
 		}

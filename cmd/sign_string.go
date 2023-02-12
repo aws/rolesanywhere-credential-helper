@@ -64,7 +64,7 @@ func init() {
 	format = newEnum([]string{"json", "text", "bin"}, "json")
 	digestArg = newEnum([]string{"SHA256", "SHA384", "SHA512"}, "SHA256")
 	signStringCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify 
-a certificate from a certificate store. Can be passed in either as string or a file name (prefixed by \"file://\")`)
+a certificate from a certificate store. Can be passed in either as string or a file name (prefixed by "file://")`)
 	signStringCmd.PersistentFlags().Var(format, "format", "Output format. One of json, text, and bin")
 	signStringCmd.PersistentFlags().Var(digestArg, "digest", "One of SHA256, SHA384, and SHA512")
 }
@@ -86,21 +86,21 @@ var signStringCmd = &cobra.Command{
 		default:
 			digest = crypto.SHA256
 		}
-        var signer crypto.Signer
-        if (certIdentifier == helper.CertIdentifier{}) {
-            privateKey, _ := helper.ReadPrivateKeyData(privateKeyId)
-            signer, _, err = helper.GetFileSystemSigner(privateKey, "", "")
-            if err != nil {
-                log.Println("unable to create signer with the referenced private key")
-                syscall.Exit(1)
-            }
-        } else {
-            signer, _, err = helper.GetDarwinCertStoreSigner(certIdentifier)
-            if err != nil {
-                log.Println("unable to create signer using cert selector")
-                syscall.Exit(1)
-            }
-        }
+		var signer crypto.Signer
+		if (certIdentifier == helper.CertIdentifier{}) {
+			privateKey, _ := helper.ReadPrivateKeyData(privateKeyId)
+			signer, _, err = helper.GetFileSystemSigner(privateKey, "", "")
+			if err != nil {
+				log.Println("unable to create signer with the referenced private key")
+				syscall.Exit(1)
+			}
+		} else {
+			signer, _, err = helper.GetCertStoreSigner(certIdentifier)
+			if err != nil {
+				log.Println("unable to create signer using cert selector")
+				syscall.Exit(1)
+			}
+		}
 		sigBytes, err := signer.Sign(rand.Reader, stringToSign, digest)
 		if err != nil {
 			log.Println("unable to sign the digest")

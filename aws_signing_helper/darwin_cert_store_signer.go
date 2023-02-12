@@ -1,3 +1,5 @@
+//go:build darwin
+
 package aws_signing_helper
 
 /*
@@ -11,8 +13,6 @@ import (
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
-	"crypto/sha256"
-	"crypto/sha512"
 	"crypto/x509"
 	"errors"
 	"fmt"
@@ -44,7 +44,7 @@ var (
 
 // Gets the matching identity and certificate for this CertIdentifier
 // If there is more than one, only a list of the matching certificates is returned
-func GetMatchingCerts(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCertificateRef, []*x509.Certificate, error) {
+func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCertificateRef, []*x509.Certificate, error) {
 	queryMap := map[C.CFTypeRef]C.CFTypeRef{
 		C.CFTypeRef(C.kSecClass):      C.CFTypeRef(C.kSecClassIdentity),
 		C.CFTypeRef(C.kSecReturnRef):  C.CFTypeRef(C.kCFBooleanTrue),
@@ -69,7 +69,7 @@ func GetMatchingCerts(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCer
 	// don't need to release absResult since the abstract result is released above
 	aryResult := C.CFArrayRef(absResult)
 
-	// identRefs aren't owned by us initially; newMacIdentity retains them
+	// identRefs aren't owned by us initially
 	n := C.CFArrayGetCount(aryResult)
 	identRefs := make([]C.CFTypeRef, n)
 	C.CFArrayGetValues(aryResult, C.CFRange{0, n}, (*unsafe.Pointer)(unsafe.Pointer(&identRefs[0])))
@@ -87,20 +87,7 @@ func GetMatchingCerts(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCer
 		}
 
 		// Find whether there is a matching certificate
-		certMatches := true
-		for ok := true; ok; ok = false {
-			if certIdentifier.Subject != "" && certIdentifier.Subject != curCert.Subject.String() {
-				certMatches = false
-				break
-			}
-			if certIdentifier.Issuer != "" && certIdentifier.Issuer != curCert.Issuer.String() {
-				certMatches = false
-				break
-			}
-			if certIdentifier.SerialNumber != nil && certIdentifier.SerialNumber != curCert.SerialNumber {
-				certMatches = false
-			}
-		}
+		certMatches := certMatches(certIdentifier, *curCert)
 		if certMatches {
 			certs = append(certs, curCert)
 			certRef = curCertRef
@@ -116,13 +103,20 @@ func GetMatchingCerts(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCer
 	}
 }
 
-// Creates a DarwinCertSigner based on the identifying certificate
-func GetDarwinCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAlgorithm string, err error) {
-	identRef, certRef, certs, err := GetMatchingCerts(certIdentifier)
+func GetMatchingCerts(certIdentifier CertIdentifier) ([]*x509.Certificate, error) {
+	_, _, certificates, err := GetMatchingCertsAndIdentity(certIdentifier)
+	return certificates, err
+}
+
+// Creates a DarwinCertStoreSigner based on the identifying certificate
+func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAlgorithm string, err error) {
+	identRef, certRef, certs, err := GetMatchingCertsAndIdentity(certIdentifier)
 	if err != nil {
 		return nil, "", err
 	}
-	// case where there are no matching identities is already handled as an error from GetMatchingCerts
+	if len(certs) == 0 {
+		return nil, "", errors.New("no matching identities")
+	}
 	if len(certs) > 1 {
 		return nil, "", errors.New("multiple matching identities")
 	}
@@ -275,27 +269,12 @@ func (signer DarwinCertStoreSigner) Close() {
 
 // Sign implements the crypto.Signer interface.
 func (signer DarwinCertStoreSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
-	var hash []byte
-	switch opts.HashFunc() {
-	case crypto.SHA256:
-		sum := sha256.Sum256(digest)
-		hash = sum[:]
-	case crypto.SHA384:
-		sum := sha512.Sum384(digest)
-		hash = sum[:]
-	case crypto.SHA512:
-		sum := sha512.Sum512(digest)
-		hash = sum[:]
-	default:
-		return nil, errors.New("unsupported digest")
-	}
-
 	keyRef, err := signer.getKeyRef()
 	if err != nil {
 		return nil, err
 	}
 
-	cdigest, err := bytesToCFData(hash)
+	cdigest, err := bytesToCFData(digest)
 	if err != nil {
 		return nil, err
 	}

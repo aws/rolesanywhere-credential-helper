@@ -61,7 +61,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&privateKeyId, "private-key", "", "Path to private key file")
 	subCmd.PersistentFlags().StringVar(&certificateBundleId, "intermediates", "", "Path to intermediate certificate bundle file")
 	subCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify a certificate from a certificate store. Can be 
-passed in either as string or a file name (prefixed by \"file://\")`)
+passed in either as string or a file name (prefixed by "file://")`)
 
 	subCmd.MarkFlagsRequiredTogether("certificate", "private-key")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
