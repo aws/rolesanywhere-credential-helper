@@ -38,6 +38,8 @@ var (
 		"x509Issuer":  {},
 		"x509Serial":  {},
 	}
+
+	MAX_DN_STRING = 32768
 )
 
 type MapEntry struct {
@@ -111,23 +113,36 @@ func getMapFromJsonEntries(jsonStr string) (map[string]string, error) {
 	return m, nil
 }
 
-func createCertSelectorFromMap(certSelectorMap map[string]string) helper.CertIdentifier {
+func createCertSelectorFromMap(certSelectorMap map[string]string) (helper.CertIdentifier, error) {
 	var certIdentifier helper.CertIdentifier
 
 	for key, value := range certSelectorMap {
 		switch key {
 		case X509_SUBJECT_KEY:
+			if len(value) > MAX_DN_STRING {
+				return helper.CertIdentifier{}, errors.New("invalid certificate subject")
+			}
 			certIdentifier.Subject = value
 		case X509_ISSUER_KEY:
+			if len(value) > MAX_DN_STRING {
+				return helper.CertIdentifier{}, errors.New("invalid certificate issuer")
+			}
 			certIdentifier.Issuer = value
 		case X509_SERIAL_KEY:
+			// Maximum value that a serial number can take on
+			maxSerial := new(big.Int).Exp(big.NewInt(2), big.NewInt(160), nil)
+			maxSerial = maxSerial.Sub(maxSerial, big.NewInt(1))
+
 			certSerial := new(big.Int)
 			certSerial.SetString(value, 16)
+			if certSerial.Cmp(big.NewInt(0)) <= 0 || certSerial.Cmp(maxSerial) == 1 {
+				return helper.CertIdentifier{}, errors.New("invalid certificate serial number")
+			}
 			certIdentifier.SerialNumber = certSerial
 		}
 	}
 
-	return certIdentifier
+	return certIdentifier, nil
 }
 
 func PopulateCertIdentifierFromJsonStr(jsonStr string) (helper.CertIdentifier, error) {
@@ -135,7 +150,7 @@ func PopulateCertIdentifierFromJsonStr(jsonStr string) (helper.CertIdentifier, e
 	if err != nil {
 		return helper.CertIdentifier{}, err
 	}
-	return createCertSelectorFromMap(certSelectorMap), nil
+	return createCertSelectorFromMap(certSelectorMap)
 }
 
 // Populates a CertIdentifier object using a cert selector string
@@ -152,7 +167,7 @@ func PopulateCertIdentifierFromCertSelectorStr(certSelectorStr string) (helper.C
 		}
 	}
 
-	return createCertSelectorFromMap(certSelectorMap), nil
+	return createCertSelectorFromMap(certSelectorMap)
 }
 
 // Populates a CertIdentifier using a cert selector

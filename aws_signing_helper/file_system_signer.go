@@ -17,14 +17,14 @@ type FileSystemSigner struct {
 	certChain  []*x509.Certificate
 }
 
-func (fileSystemSigner FileSystemSigner) Public() crypto.PublicKey {
+func (fileSystemSigner *FileSystemSigner) Public() crypto.PublicKey {
 	return nil
 }
 
-func (fileSystemSigner FileSystemSigner) Close() {
+func (fileSystemSigner *FileSystemSigner) Close() {
 }
 
-func (fileSystemSigner FileSystemSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+func (fileSystemSigner *FileSystemSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	ecdsaPrivateKey, ok := fileSystemSigner.PrivateKey.(ecdsa.PrivateKey)
 	if ok {
 		sig, err := ecdsa.SignASN1(rand, &ecdsaPrivateKey, digest[:])
@@ -45,11 +45,11 @@ func (fileSystemSigner FileSystemSigner) Sign(rand io.Reader, digest []byte, opt
 	return nil, errors.New("unsupported algorithm")
 }
 
-func (fileSystemSigner FileSystemSigner) Certificate() (*x509.Certificate, error) {
+func (fileSystemSigner *FileSystemSigner) Certificate() (*x509.Certificate, error) {
 	return fileSystemSigner.cert, nil
 }
 
-func (fileSystemSigner FileSystemSigner) CertificateChain() ([]*x509.Certificate, error) {
+func (fileSystemSigner *FileSystemSigner) CertificateChain() ([]*x509.Certificate, error) {
 	return fileSystemSigner.certChain, nil
 }
 
@@ -74,9 +74,7 @@ func GetFileSystemSigner(privateKey crypto.PrivateKey, certificateId string, cer
 		if err != nil {
 			return nil, "", err
 		}
-		for _, certificate := range certificateChainPointers {
-			certificateChain = append(certificateChain, certificate)
-		}
+		certificateChain = append(certificateChain, certificateChainPointers...)
 	}
 
 	// Find the signing algorithm
@@ -92,5 +90,5 @@ func GetFileSystemSigner(privateKey crypto.PrivateKey, certificateId string, cer
 		log.Println("unsupported algorithm")
 		return nil, "", errors.New("unsupported algorithm")
 	}
-	return FileSystemSigner{privateKey, certificate, certificateChain}, signingAlgorithm, nil
+	return &FileSystemSigner{privateKey, certificate, certificateChain}, signingAlgorithm, nil
 }

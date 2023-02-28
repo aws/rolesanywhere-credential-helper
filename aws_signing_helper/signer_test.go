@@ -64,12 +64,12 @@ func TestReadCertificateData(t *testing.T) {
 		certData, err := ReadCertificateData(fixture.CertPath)
 
 		if err != nil {
-			t.Log("Failed to read certificate data")
+			t.Log("failed to read certificate data")
 			t.Fail()
 		}
 
 		if certData.KeyType != fixture.KeyType {
-			t.Logf("Wrong key type. Expected %s, got %s", fixture.KeyType, certData.KeyType)
+			t.Logf("wrong key type. Expected %s, got %s", fixture.KeyType, certData.KeyType)
 			t.Fail()
 		}
 	}
@@ -78,7 +78,7 @@ func TestReadCertificateData(t *testing.T) {
 func TestReadInvalidCertificateData(t *testing.T) {
 	_, err := ReadCertificateData("../tst/certs/invalid-rsa-cert.pem")
 	if err == nil || !strings.Contains(err.Error(), "could not parse certificate") {
-		t.Log("Failed to throw a handled error")
+		t.Log("failed to throw a handled error")
 		t.Fail()
 	}
 }
@@ -86,7 +86,7 @@ func TestReadInvalidCertificateData(t *testing.T) {
 func TestReadCertificateBundleData(t *testing.T) {
 	_, err := ReadCertificateBundleData("../tst/certs/cert-bundle.pem")
 	if err != nil {
-		t.Log("Failed to read certificate bundle data")
+		t.Log("failed to read certificate bundle data")
 		t.Fail()
 	}
 }
@@ -114,7 +114,7 @@ func TestReadPrivateKeyData(t *testing.T) {
 func TestReadInvalidPrivateKeyData(t *testing.T) {
 	_, err := ReadPrivateKeyData("../tst/certs/invalid-rsa-key.pem")
 	if err == nil || !strings.Contains(err.Error(), "unable to parse private key") {
-		t.Log("Failed to throw a handled error")
+		t.Log("failed to throw a handled error")
 		t.Fail()
 	}
 }
@@ -164,8 +164,8 @@ func Verify(payload []byte, privateKey crypto.PrivateKey, digest crypto.Hash, si
 		sum := sha512.Sum512(payload)
 		hash = sum[:]
 	default:
-		log.Fatal("Unsupported digest")
-		return false, errors.New("Unsupported digest")
+		log.Fatal("unsupported digest")
+		return false, errors.New("unsupported digest")
 	}
 
 	{
@@ -191,8 +191,31 @@ func Verify(payload []byte, privateKey crypto.PrivateKey, digest crypto.Hash, si
 	return false, nil
 }
 
+// Hash the message bytes based on the provided crypto.Hash.
+// This function is specifically used for unit testing.
+func findHash(msgBytes []byte, digest crypto.Hash) ([]byte, error) {
+	var hash []byte
+	switch digest {
+	case crypto.SHA256:
+		sum := sha256.Sum256(msgBytes)
+		hash = sum[:]
+	case crypto.SHA384:
+		sum := sha512.Sum384(msgBytes)
+		hash = sum[:]
+	case crypto.SHA512:
+		sum := sha512.Sum512(msgBytes)
+		hash = sum[:]
+	default:
+		log.Println("unsupported digest")
+		return nil, errors.New("unsupported digest")
+	}
+
+	return hash, nil
+}
+
 func TestSign(t *testing.T) {
 	msg := "test message"
+	msgBytes := []byte(msg)
 
 	certificateId := "../tst/certs/rsa-2048-sha256-cert.pem"
 	var privateKeyList [2]crypto.PrivateKey
@@ -212,16 +235,22 @@ func TestSign(t *testing.T) {
 			t.Log("unable to get file system signer")
 			t.Fail()
 		}
+		defer signer.Close()
 		for _, digest := range digestList {
-			signatureBytes, err := signer.Sign(rand.Reader, []byte(msg), digest)
+			msgHash, err := findHash(msgBytes, digest)
 			if err != nil {
-				t.Log("Failed to sign the input message")
+				t.Log("failed to hash the digest")
+				t.Fail()
+			}
+			signatureBytes, err := signer.Sign(rand.Reader, msgHash, digest)
+			if err != nil {
+				t.Log("failed to sign the input message")
 				t.Fail()
 			}
 
-			valid, _ := Verify([]byte(msg), privateKey, digest, signatureBytes)
+			valid, _ := Verify(msgBytes, privateKey, digest, signatureBytes)
 			if !valid {
-				t.Log("Failed to verify the signature")
+				t.Log("failed to verify the signature")
 				t.Fail()
 			}
 		}
@@ -254,20 +283,20 @@ func TestCredentialProcess(t *testing.T) {
 
 			if err != nil {
 				t.Log(err)
-				t.Log("Unable to call credential-process")
+				t.Log("unable to call credential-process")
 				t.Fail()
 			}
 
 			if resp.AccessKeyId != "accessKeyId" {
-				t.Log("Incorrect access key id")
+				t.Log("incorrect access key id")
 				t.Fail()
 			}
 			if resp.SecretAccessKey != "secretAccessKey" {
-				t.Log("Incorrect secret access key")
+				t.Log("incorrect secret access key")
 				t.Fail()
 			}
 			if resp.SessionToken != "sessionToken" {
-				t.Log("Incorrect session token")
+				t.Log("incorrect session token")
 				t.Fail()
 			}
 		})

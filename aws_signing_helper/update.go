@@ -108,7 +108,7 @@ func GetWriteOnlyCredentialsFile() (*os.File, error) {
 	return os.OpenFile(awsCredentialsPath, os.O_WRONLY|os.O_TRUNC, 0200)
 }
 
-// Function that will get the new conents of the credentials file after a 
+// Function that will get the new conents of the credentials file after a
 // refresh has been done
 func GetNewCredentialsFileContents(profileName string, readLines []string, cred *TemporaryCredential) []string {
 	var profileExist = false
@@ -170,7 +170,7 @@ func GetNewCredentialsFileContents(profileName string, readLines []string, cred 
 		writeLines = append(writeLines[:], writeCredential+"\n")
 	}
 
-    return writeLines
+	return writeLines
 }
 
 // Function to write existing credentials and newly-created credentials to a destination file
@@ -182,7 +182,7 @@ func WriteTo(profileName string, readLines []string, cred *TemporaryCredential) 
 	}
 	defer destFile.Close()
 
-	// Create buffered writer 
+	// Create buffered writer
 	destFileWriter := bufio.NewWriterSize(destFile, BufferSize)
 	for _, line := range GetNewCredentialsFileContents(profileName, readLines, cred) {
 		_, err := destFileWriter.WriteString(line)

@@ -28,18 +28,11 @@ type DarwinCertStoreSigner struct {
 	certChain []*x509.Certificate
 }
 
-// work around https://golang.org/doc/go1.10#cgo
-// in go>=1.10 CFTypeRefs are translated to uintptrs instead of pointers.
-var (
-	nilCFDictionaryRef   C.CFDictionaryRef
-	nilSecCertificateRef C.SecCertificateRef
-	nilCFArrayRef        C.CFArrayRef
-	nilCFDataRef         C.CFDataRef
-	nilCFErrorRef        C.CFErrorRef
-	nilCFStringRef       C.CFStringRef
-	nilSecIdentityRef    C.SecIdentityRef
-	nilSecKeyRef         C.SecKeyRef
-	nilCFAllocatorRef    C.CFAllocatorRef
+// osStatus wraps a C.OSStatus
+type osStatus C.OSStatus
+
+const (
+	errSecItemNotFound = osStatus(C.errSecItemNotFound)
 )
 
 // Gets the matching identity and certificate for this CertIdentifier
@@ -52,7 +45,7 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 	}
 
 	query := mapToCFDictionary(queryMap)
-	if query == nilCFDictionaryRef {
+	if query == 0 {
 		return 0, 0, nil, errors.New("error creating CFDictionary")
 	}
 	defer C.CFRelease(C.CFTypeRef(query))
@@ -65,14 +58,12 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 		return 0, 0, nil, err
 	}
 	defer C.CFRelease(C.CFTypeRef(absResult))
-
-	// don't need to release absResult since the abstract result is released above
 	aryResult := C.CFArrayRef(absResult)
 
 	// identRefs aren't owned by us initially
-	n := C.CFArrayGetCount(aryResult)
-	identRefs := make([]C.CFTypeRef, n)
-	C.CFArrayGetValues(aryResult, C.CFRange{0, n}, (*unsafe.Pointer)(unsafe.Pointer(&identRefs[0])))
+	numIdentRefs := C.CFArrayGetCount(aryResult)
+	identRefs := make([]C.CFTypeRef, numIdentRefs)
+	C.CFArrayGetValues(aryResult, C.CFRange{0, numIdentRefs}, (*unsafe.Pointer)(unsafe.Pointer(&identRefs[0])))
 	var certs []*x509.Certificate
 	var certRef C.SecCertificateRef
 	var identRef C.SecIdentityRef
@@ -90,11 +81,18 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 		certMatches := certMatches(certIdentifier, *curCert)
 		if certMatches {
 			certs = append(certs, curCert)
-			certRef = curCertRef
-			identRef = C.SecIdentityRef(curIdentRef)
+			// Assign to certRef and identRef at most once in the loop
+			// Both values are only useful if there is exactly one match in the certificate store
+			// When creating a signer, there has to be exactly one matching certificate
+			if certRef == 0 {
+				certRef = curCertRef
+				identRef = C.SecIdentityRef(curIdentRef)
+			}
 		}
 	}
-	// Only retain the identity reference if it should be used later on
+
+	// Only retain the SecIdentityRef if it should be used later on
+	// Note that only the SecIdentityRef needs to be retained since it was neither created nor copied
 	if len(certs) == 1 {
 		C.CFRetain(C.CFTypeRef(identRef))
 		return identRef, certRef, certs, nil
@@ -103,9 +101,14 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 	}
 }
 
+// Gets the certificates that match the CertIdentifier
 func GetMatchingCerts(certIdentifier CertIdentifier) ([]*x509.Certificate, error) {
-	_, _, certificates, err := GetMatchingCertsAndIdentity(certIdentifier)
-	return certificates, err
+	identRef, certRef, certs, err := GetMatchingCertsAndIdentity(certIdentifier)
+	if len(certs) == 1 {
+		C.CFRelease(C.CFTypeRef(identRef))
+		C.CFRelease(C.CFTypeRef(certRef))
+	}
+	return certs, err
 }
 
 // Creates a DarwinCertStoreSigner based on the identifying certificate
@@ -137,7 +140,7 @@ func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAl
 		return nil, "", errors.New("unable to get key reference")
 	}
 
-	return DarwinCertStoreSigner{identRef, keyRef, certRef, cert, nil}, signingAlgorithm, nil
+	return &DarwinCertStoreSigner{identRef, keyRef, certRef, cert, nil}, signingAlgorithm, nil
 }
 
 // Gets a pointer to the certificate from a certificate reference
@@ -150,8 +153,8 @@ func getCert(certRef C.SecCertificateRef) (*x509.Certificate, error) {
 	return cert, nil
 }
 
-// Gets a pointer to the certificate associated with this DarwinCertStoreSigner
-func (signer DarwinCertStoreSigner) getCert() (*x509.Certificate, error) {
+// Gets the certificate associated with this DarwinCertStoreSigner
+func (signer *DarwinCertStoreSigner) Certificate() (*x509.Certificate, error) {
 	if signer.cert != nil {
 		return signer.cert, nil
 	}
@@ -170,18 +173,8 @@ func (signer DarwinCertStoreSigner) getCert() (*x509.Certificate, error) {
 	return signer.cert, nil
 }
 
-// Gets the certificate associated with this DarwinCertStoreSigner
-func (signer DarwinCertStoreSigner) Certificate() (*x509.Certificate, error) {
-	cert, err := signer.getCert()
-	if err != nil {
-		return nil, err
-	}
-
-	return cert, nil
-}
-
 // Gets the certificate chain associated with this DarwinCertStoreSigner
-func (signer DarwinCertStoreSigner) CertificateChain() ([]*x509.Certificate, error) {
+func (signer *DarwinCertStoreSigner) CertificateChain() ([]*x509.Certificate, error) {
 	if signer.certChain != nil {
 		return signer.certChain, nil
 	}
@@ -191,7 +184,7 @@ func (signer DarwinCertStoreSigner) CertificateChain() ([]*x509.Certificate, err
 		return nil, err
 	}
 
-	policy := C.SecPolicyCreateSSL(0, nilCFStringRef)
+	policy := C.SecPolicyCreateSSL(0, 0)
 
 	var trustRef C.SecTrustRef
 	if err := osStatusError(C.SecTrustCreateWithCertificates(C.CFTypeRef(certRef), C.CFTypeRef(policy), &trustRef)); err != nil {
@@ -199,24 +192,26 @@ func (signer DarwinCertStoreSigner) CertificateChain() ([]*x509.Certificate, err
 	}
 	defer C.CFRelease(C.CFTypeRef(trustRef))
 
-	var status C.SecTrustResultType
-	if err := osStatusError(C.SecTrustEvaluate(trustRef, &status)); err != nil {
-		return nil, err
+	// var status C.SecTrustResultType
+	var cfErrRef C.CFErrorRef
+	if C.SecTrustEvaluateWithError(trustRef, &cfErrRef) {
+		return nil, cfErrorError(cfErrRef)
 	}
 
 	var (
-		nchain    = C.SecTrustGetCertificateCount(trustRef)
-		certChain = make([]*x509.Certificate, 0, int(nchain))
+		nChain    = C.SecTrustGetCertificateCount(trustRef)
+		certChain = make([]*x509.Certificate, 0, int(nChain))
 	)
 
-	for i := C.CFIndex(0); i < nchain; i++ {
-		// TODO: do we need to release these?
-		chainCertref := C.SecTrustGetCertificateAtIndex(trustRef, i)
-		if chainCertref == nilSecCertificateRef {
+	certChainArr := C.SecTrustCopyCertificateChain(trustRef)
+	defer C.CFRelease(C.CFTypeRef(certChainArr))
+	for i := C.CFIndex(0); i < nChain; i++ {
+		chainCertRef := C.SecCertificateRef(C.CFArrayGetValueAtIndex(certChainArr, i))
+		if chainCertRef == 0 {
 			return nil, errors.New("nil certificate in chain")
 		}
 
-		chainCert, err := exportCertRef(chainCertref)
+		chainCert, err := exportCertRef(chainCertRef)
 		if err != nil {
 			return nil, err
 		}
@@ -230,45 +225,36 @@ func (signer DarwinCertStoreSigner) CertificateChain() ([]*x509.Certificate, err
 	return signer.certChain, nil
 }
 
-// Public implements the crypto.Signer interface
-func (signer DarwinCertStoreSigner) Public() crypto.PublicKey {
-	if signer.cert == nil {
-		certRef, err := getCertRef(signer.identRef)
-		if err != nil {
-			return nil
-		}
-
-		cert, err := exportCertRef(certRef)
-		if err != nil {
-			return nil
-		}
-
-		signer.cert = cert
+// Public implements the crypto.Signer interface and returns the public key associated with the signer
+func (signer *DarwinCertStoreSigner) Public() crypto.PublicKey {
+	cert, err := signer.Certificate()
+	if err != nil {
+		return nil
 	}
 
-	return signer.cert.PublicKey
+	return cert.PublicKey
 }
 
 // Closes the DarwinCertStoreSigner
-func (signer DarwinCertStoreSigner) Close() {
-	if signer.identRef != nilSecIdentityRef {
+func (signer *DarwinCertStoreSigner) Close() {
+	if signer.identRef != 0 {
 		C.CFRelease(C.CFTypeRef(signer.identRef))
-		signer.identRef = nilSecIdentityRef
+		signer.identRef = 0
 	}
 
-	if signer.keyRef != nilSecKeyRef {
+	if signer.keyRef != 0 {
 		C.CFRelease(C.CFTypeRef(signer.keyRef))
-		signer.keyRef = nilSecKeyRef
+		signer.keyRef = 0
 	}
 
-	if signer.certRef != nilSecCertificateRef {
+	if signer.certRef != 0 {
 		C.CFRelease(C.CFTypeRef(signer.certRef))
-		signer.certRef = nilSecCertificateRef
+		signer.certRef = 0
 	}
 }
 
-// Sign implements the crypto.Signer interface.
-func (signer DarwinCertStoreSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
+// Sign implements the crypto.Signer interface and signs the digest
+func (signer *DarwinCertStoreSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	keyRef, err := signer.getKeyRef()
 	if err != nil {
 		return nil, err
@@ -291,22 +277,21 @@ func (signer DarwinCertStoreSigner) Sign(rand io.Reader, digest []byte, opts cry
 	}
 
 	// sign the digest
-	var cerr C.CFErrorRef
-	csig := C.SecKeyCreateSignature(keyRef, algo, cdigest, &cerr)
+	var cfErrRef C.CFErrorRef
+	cSig := C.SecKeyCreateSignature(keyRef, algo, cdigest, &cfErrRef)
 
-	if err := cfErrorError(cerr); err != nil {
-		defer C.CFRelease(C.CFTypeRef(cerr))
+	if err := cfErrorError(cfErrRef); err != nil {
+		C.CFRelease(C.CFTypeRef(cfErrRef))
 
 		return nil, err
 	}
 
-	if csig == nilCFDataRef {
+	if cSig == 0 {
 		return nil, errors.New("nil signature from SecKeyCreateSignature")
 	}
+	defer C.CFRelease(C.CFTypeRef(cSig))
 
-	defer C.CFRelease(C.CFTypeRef(csig))
-
-	sig := cfDataToBytes(csig)
+	sig := cfDataToBytes(cSig)
 
 	return sig, nil
 }
@@ -333,7 +318,6 @@ func getAlgo(cert *x509.Certificate, hash crypto.Hash) (algo C.SecKeyAlgorithm, 
 			algo = C.kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA1
 		case crypto.SHA256:
 			algo = C.kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA256
-			return algo, nil
 		case crypto.SHA384:
 			algo = C.kSecKeyAlgorithmRSASignatureDigestPKCS1v15SHA384
 		case crypto.SHA512:
@@ -351,7 +335,7 @@ func getAlgo(cert *x509.Certificate, hash crypto.Hash) (algo C.SecKeyAlgorithm, 
 // exportCertRef gets a *x509.Certificate for the given SecCertificateRef.
 func exportCertRef(certRef C.SecCertificateRef) (*x509.Certificate, error) {
 	derRef := C.SecCertificateCopyData(certRef)
-	if derRef == nilCFDataRef {
+	if derRef == 0 {
 		return nil, errors.New("error getting certificate from identity")
 	}
 	defer C.CFRelease(C.CFTypeRef(derRef))
@@ -369,7 +353,7 @@ func exportCertRef(certRef C.SecCertificateRef) (*x509.Certificate, error) {
 func getKeyRef(ref C.SecIdentityRef) (C.SecKeyRef, error) {
 	var keyRef C.SecKeyRef
 	if err := osStatusError(C.SecIdentityCopyPrivateKey(ref, &keyRef)); err != nil {
-		return nilSecKeyRef, err
+		return 0, err
 	}
 
 	return keyRef, nil
@@ -377,7 +361,7 @@ func getKeyRef(ref C.SecIdentityRef) (C.SecKeyRef, error) {
 
 // getKeyRef gets the SecKeyRef for this identity's private key.
 func (signer DarwinCertStoreSigner) getKeyRef() (C.SecKeyRef, error) {
-	if signer.keyRef != nilSecKeyRef {
+	if signer.keyRef != 0 {
 		return signer.keyRef, nil
 	}
 
@@ -391,15 +375,15 @@ func (signer DarwinCertStoreSigner) getKeyRef() (C.SecKeyRef, error) {
 func getCertRef(ref C.SecIdentityRef) (C.SecCertificateRef, error) {
 	var certRef C.SecCertificateRef
 	if err := osStatusError(C.SecIdentityCopyCertificate(ref, &certRef)); err != nil {
-		return nilSecCertificateRef, err
+		return 0, err
 	}
 
 	return certRef, nil
 }
 
 // getCertRef gets the identity's certificate reference
-func (signer DarwinCertStoreSigner) getCertRef() (C.SecCertificateRef, error) {
-	if signer.certRef != nilSecCertificateRef {
+func (signer *DarwinCertStoreSigner) getCertRef() (C.SecCertificateRef, error) {
+	if signer.certRef != 0 {
 		return signer.certRef, nil
 	}
 
@@ -414,14 +398,14 @@ func stringToCFData(str string) (C.CFDataRef, error) {
 	return bytesToCFData([]byte(str))
 }
 
-// cfDataToBytes converts a CFDataRef to a Go byte slice.
+// cfDataToBytes converts a CFDataRef to a Go byte slice
 func cfDataToBytes(cfdata C.CFDataRef) []byte {
 	nBytes := C.CFDataGetLength(cfdata)
 	bytesPtr := C.CFDataGetBytePtr(cfdata)
 	return C.GoBytes(unsafe.Pointer(bytesPtr), C.int(nBytes))
 }
 
-// bytesToCFData converts a Go byte slice to a CFDataRef.
+// bytesToCFData converts a Go byte slice to a CFDataRef
 func bytesToCFData(gobytes []byte) (C.CFDataRef, error) {
 	var (
 		cptr = (*C.UInt8)(nil)
@@ -432,23 +416,23 @@ func bytesToCFData(gobytes []byte) (C.CFDataRef, error) {
 		cptr = (*C.UInt8)(&gobytes[0])
 	}
 
-	cdata := C.CFDataCreate(nilCFAllocatorRef, cptr, clen)
-	if cdata == nilCFDataRef {
-		return nilCFDataRef, errors.New("error creating cdata")
+	cdata := C.CFDataCreate(0, cptr, clen)
+	if cdata == 0 {
+		return 0, errors.New("error creating cdata")
 	}
 
 	return cdata, nil
 }
 
-// cfErrorError returns an error for a CFErrorRef unless it is nil.
+// cfErrorError returns an error for a CFErrorRef unless it is nil
 func cfErrorError(cerr C.CFErrorRef) error {
-	if cerr == nilCFErrorRef {
+	if cerr == 0 {
 		return nil
 	}
 
 	code := int(C.CFErrorGetCode(cerr))
 
-	if cdescription := C.CFErrorCopyDescription(cerr); cdescription != nilCFStringRef {
+	if cdescription := C.CFErrorCopyDescription(cerr); cdescription != 0 {
 		defer C.CFRelease(C.CFTypeRef(cdescription))
 
 		if cstr := C.CFStringGetCStringPtr(cdescription, C.kCFStringEncodingUTF8); cstr != nil {
@@ -462,7 +446,7 @@ func cfErrorError(cerr C.CFErrorRef) error {
 	return fmt.Errorf("CFError %d", code)
 }
 
-// mapToCFDictionary converts a Go map[C.CFTypeRef]C.CFTypeRef to a CFDictionaryRef.
+// mapToCFDictionary converts a Go map[C.CFTypeRef]C.CFTypeRef to a CFDictionaryRef
 func mapToCFDictionary(gomap map[C.CFTypeRef]C.CFTypeRef) C.CFDictionaryRef {
 	var (
 		n      = len(gomap)
@@ -475,17 +459,10 @@ func mapToCFDictionary(gomap map[C.CFTypeRef]C.CFTypeRef) C.CFDictionaryRef {
 		values = append(values, unsafe.Pointer(v))
 	}
 
-	return C.CFDictionaryCreate(nilCFAllocatorRef, &keys[0], &values[0], C.CFIndex(n), nil, nil)
+	return C.CFDictionaryCreate(0, &keys[0], &values[0], C.CFIndex(n), nil, nil)
 }
 
-// osStatus wraps a C.OSStatus
-type osStatus C.OSStatus
-
-const (
-	errSecItemNotFound = osStatus(C.errSecItemNotFound)
-)
-
-// osStatusError returns an error for an OSStatus unless it is errSecSuccess.
+// osStatusError returns an error for an OSStatus unless it is errSecSuccess
 func osStatusError(s C.OSStatus) error {
 	if s == C.errSecSuccess {
 		return nil
@@ -494,7 +471,7 @@ func osStatusError(s C.OSStatus) error {
 	return osStatus(s)
 }
 
-// Error implements the error interface.
+// Error implements the error interface and returns a stringified error for this osStatus
 func (s osStatus) Error() string {
 	return fmt.Sprintf("OSStatus %d", s)
 }

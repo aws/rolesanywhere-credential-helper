@@ -1,11 +1,4 @@
-## AWS IAM Roles Anywhere Credential Helper
-
-rolesanywhere-credential-helper implements the [signing process](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/authentication-sign-process.html) for IAM Roles Anywhere's [CreateSession](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/authentication-create-session.html) API and returns temporary credentials in a standard JSON format that is compatible with the `credential_process` feature available across the language SDKs. More information can be found [here](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html). It is released and licensed under the Apache License 2.0.
-
-## Building
-
-### Dependencies
-
+## AWS IAM Roles Anywhere Credential Helper rolesanywhere-credential-helper implements the [signing process](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/authentication-sign-process.html) for IAM Roles Anywhere's [CreateSession](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/authentication-create-session.html) API and returns temporary credentials in a standard JSON format that is compatible with the `credential_process` feature available across the language SDKs. More information can be found [here](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html). It is released and licensed under the Apache License 2.0. ## Building ### Dependencies
 In order to build the source code, you will need to install git, gcc, make, and golang. 
 
 #### Linux
@@ -38,15 +31,7 @@ The project also comes with two bash scripts at its root, called `generate-certs
 
 ### read-certificate-data
 
-Reads a certificate that is on disk. The path to the certificate must be provided with the `--certificate` parameter.
-
-### sign-string
-
-Signs a string from standard input. Useful for validating your on-disk private key and digest. The path to the private key must be provided with the `--private-key` parameter. Other parameters that can be used are `--digest`, which must be one of `SHA256 (*default*) | SHA384 | SHA512`, and `--format`, which must be one of `text (*default*) | json | bin`. 
-
-### credential-process
-
-Vends temporary credentials by sending a `CreateSession` request to the Roles Anywhere service. The request is signed by the private key whose path can be provided with the `--private-key` parameter. Other parameters include `--certificate` (the path to the end-entity certificate), `--role-arn` (the ARN of the role to obtain temporary credentials for), `--profile-arn` (the ARN of the profile that provides a mapping for the specified role), and `--trust-anchor-arn` (the ARN of the trust anchor used to authenticate). Optional parameters that can be used are `--debug` (to provide debugging output about the request sent), `--no-verify-ssl` (to skip verification of the SSL certificate on the endpoint called), `--intermediates` (the path to intermediate certificates), `--with-proxy` (to make the binary proxy aware), `--endpoint` (the endpoint to call), `--region` (the region to scope the request to), and `--session-duration` (the duration of the vended session). Instead of passing in paths to the plaintext private key on your file system, another option (depending on your OS) could be to use the `--cert-selector` flag. More details can be found below.
+Reads a certificate that is on disk. Either the path to the certificate on disk is provided with the `--certificate` parameter, or the `--cert-selector` flag is provided to select a certificate within an OS certificate store. Further details about the flag are provided below. 
 
 #### cert-selector flag
 
@@ -73,17 +58,25 @@ If you would like to use a JSON file, it should look something like this:
 ]
 ```
 
-If the above is placed in a file called `selector.json`, is can be specified with the `--cert-selctor` flag through `file://path/to/selector.json`. The very same certificate selector argument can be specified through the command line as follows:
+If the above is placed in a file called `selector.json`, it can be specified with the `--cert-selector` flag through `file://path/to/selector.json`. The very same certificate selector argument can be specified through the command line as follows:
 
 ```
 --cert-selector Key=x509Subject,Value=CN=Subject Key=x509Issuer,Value=CN=Issuer Key=x509Serial,Value=15D19632234BF759A32802C0DA88F9E8AFC8702D
 ```
 
+
+### sign-string
+
+Signs a string from standard input. Useful for validating your on-disk private key and digest. The path to the private key must be provided with the `--private-key` parameter. Other parameters that can be used are `--digest`, which must be one of `SHA256 (*default*) | SHA384 | SHA512`, and `--format`, which must be one of `text (*default*) | json | bin`. 
+
+### credential-process
+
+Vends temporary credentials by sending a `CreateSession` request to the Roles Anywhere service. The request is signed by the private key whose path can be provided with the `--private-key` parameter. Other parameters include `--certificate` (the path to the end-entity certificate), `--role-arn` (the ARN of the role to obtain temporary credentials for), `--profile-arn` (the ARN of the profile that provides a mapping for the specified role), and `--trust-anchor-arn` (the ARN of the trust anchor used to authenticate). Optional parameters that can be used are `--debug` (to provide debugging output about the request sent), `--no-verify-ssl` (to skip verification of the SSL certificate on the endpoint called), `--intermediates` (the path to intermediate certificates), `--with-proxy` (to make the binary proxy aware), `--endpoint` (the endpoint to call), `--region` (the region to scope the request to), and `--session-duration` (the duration of the vended session). Instead of passing in paths to the plaintext private key on your file system, another option (depending on your OS) could be to use the `--cert-selector` flag. More details can be found below.
 #### MacOS Keychain Guidance
 
-If you would like to secure keys through MacOS Keychain and use them with IAM Roles Anywhere, you may want to consider creating a new Keychain that only the credential helper can access and storing your keys there. The steps to do this are listed below. 
+If you would like to secure keys through MacOS Keychain and use them with IAM Roles Anywhere, you may want to consider creating a new Keychain that only the credential helper can access and store your keys there. The steps to do this are listed below. Note that the commands should be executed in bash.
 
-First, create the new keychain:
+First, create the new Keychain:
 
 ```
 security create-keychain -p ${CREDENTIAL_HELPER_KEYCHAIN_PASSWORD} credential-helper.keychain
@@ -109,17 +102,21 @@ security import /path/to/identity.pfx -T /path/to/aws_signing_helper -P ${UNWRAP
 
 The above command line will import your client certificate and private key that are in a PFX file (which will be unwrapped using the `UNWRAPPING_PASSWORD` environment variable) into the newly created Keychain and only allow for the credential helper to access it. It's important to note that since the credential helper isn't signed, it isn't trusted by MacOS. To get around this, you may have to specify your Keychain password whenever the credential helper wants to use the private key to perform a signing operation. If you don't want to have to specify the password each time, you can choose to always allow the credential helper to use the Keychain item. 
 
+Also note that the above steps can be done through [MacOS Keychain APIs](https://developer.apple.com/documentation/security/keychain_services/keychains), as well as through the [Keychain Access application](https://support.apple.com/guide/keychain-access/welcome/mac). 
+
 #### Windows CNG Guidance
 
 If you would like to secure keys through Windows CNG and use them with IAM Roles Anywhere, it should be sufficient to to import your certificate (and associated private key) into your user's "MY" certificate store. 
 
-Add your certificate (and associated private key) to the certificate store by importing a PFX file through the below command line in PowerShell:
+Add your certificate (and associated private key) to the certificate store by importing e.g. a PFX file through the below command line in Command Prompt:
 
 ```
-certutil -user -p $env:UNWRAPPING_PASSWORD -importPFX "MY" \path\to\identity.pfx
+certutil -user -p %UNWRAPPING_PASSWORD% -importPFX "MY" \path\to\identity.pfx
 ```
 
 The above command will import the PFX file into the user's "MY" certificate store. The `UNWRAPPING_PASSWORD` environment variable should contain the password to unwrap the PFX file. 
+
+Also note that the above step can be done through a [Powershell cmdlet](https://learn.microsoft.com/en-us/powershell/module/pki/import-pfxcertificate?view=windowsserver2022-ps) or through [Windows CNG/Cryptography APIs](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-pfximportcertstore).
 
 ### update
 
