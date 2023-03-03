@@ -20,7 +20,7 @@ import (
 )
 
 const DefaultPort = 9911
-const LocalHostAddress = "127.0.0.1"
+const DefaultBindAddr = "127.0.0.1"
 
 var RefreshTime = time.Minute * time.Duration(5)
 
@@ -35,9 +35,10 @@ type RefreshableCred struct {
 }
 
 type Endpoint struct {
-	PortNum int
-	Server  *http.Server
-	TmpCred RefreshableCred
+	BindAddr string
+	PortNum  int
+	Server   *http.Server
+	TmpCred  RefreshableCred
 }
 
 type SessionToken struct {
@@ -259,7 +260,7 @@ func AllIssuesHandlers(cred *RefreshableCred, roleName string, opts *Credentials
 	return putTokenHandler, getRoleNameHandler, getCredentialsHandler
 }
 
-func Serve(port int, credentialsOptions CredentialsOpts) {
+func Serve(bindAddr string, port int, credentialsOptions CredentialsOpts) {
 	var refreshableCred = RefreshableCred{}
 
 	roleArn, err := arn.Parse(credentialsOptions.RoleArn)
@@ -276,7 +277,7 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	refreshableCred.Code = REFRESHABLE_CRED_CODE
 	refreshableCred.LastUpdated = time.Now()
 	refreshableCred.Type = REFRESHABLE_CRED_TYPE
-	endpoint := &Endpoint{PortNum: port, TmpCred: refreshableCred}
+	endpoint := &Endpoint{BindAddr: bindAddr, PortNum: port, TmpCred: refreshableCred}
 	endpoint.Server = &http.Server{}
 	roleResourceParts := strings.Split(roleArn.Resource, "/")
 	roleName := roleResourceParts[len(roleResourceParts)-1] // Find role name without path
@@ -303,7 +304,7 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	}()
 
 	// Start the credentials endpoint
-	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", LocalHostAddress, endpoint.PortNum))
+	listener, err := net.Listen("tcp", fmt.Sprintf("%s:%d", endpoint.BindAddr, endpoint.PortNum))
 	if err != nil {
 		log.Println("failed to create listener")
 		os.Exit(1)
@@ -311,7 +312,7 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	endpoint.PortNum = listener.Addr().(*net.TCPAddr).Port
 	log.Println("Local server started on port:", endpoint.PortNum)
 	log.Println("Make it available to the sdk by running:")
-	log.Printf("export AWS_EC2_METADATA_SERVICE_ENDPOINT=http://%s:%d/", LocalHostAddress, endpoint.PortNum)
+	log.Printf("export AWS_EC2_METADATA_SERVICE_ENDPOINT=http://%s:%d/", endpoint.BindAddr, endpoint.PortNum)
 	if err := endpoint.Server.Serve(listener); err != nil {
 		log.Println("Httpserver: ListenAndServe() error")
 		os.Exit(1)
