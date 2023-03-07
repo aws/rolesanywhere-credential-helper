@@ -110,7 +110,7 @@ var ignoredHeaderKeys = map[string]bool{
 func certMatches(certIdentifier CertIdentifier, cert *x509.Certificate) bool {
 	certMatches := true
 	for ok := true; ok; ok = false {
-	if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
+		if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
 			certMatches = false
 			break
 		}

@@ -89,7 +89,7 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 		}
 
 		// Find whether there is a matching certificate
-        certMatches := certMatches(certIdentifier, curCert)
+		certMatches := certMatches(certIdentifier, curCert)
 		if certMatches {
 			certs = append(certs, curCert)
 			certRef = curCertRef
@@ -102,12 +102,12 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 		return identRef, certRef, certs, nil
 	} else {
 		return 0, 0, certs, nil
-	} 
+	}
 }
 
 func GetMatchingCerts(certIdentifier CertIdentifier) ([]*x509.Certificate, error) {
-    _, _, certificates, err := GetMatchingCertsAndIdentity(certIdentifier)
-    return certificates, err
+	_, _, certificates, err := GetMatchingCertsAndIdentity(certIdentifier)
+	return certificates, err
 }
 
 // Creates a DarwinCertStoreSigner based on the identifying certificate

@@ -86,21 +86,21 @@ var signStringCmd = &cobra.Command{
 		default:
 			digest = crypto.SHA256
 		}
-        var signer crypto.Signer
-        if (certIdentifier == helper.CertIdentifier{}) {
-            privateKey, _ := helper.ReadPrivateKeyData(privateKeyId)
-            signer, _, err = helper.GetFileSystemSigner(privateKey, "", "")
-            if err != nil {
-                log.Println("unable to create signer with the referenced private key")
-                syscall.Exit(1)
-            }
-        } else {
-            signer, _, err = helper.GetCertStoreSigner(certIdentifier)
-            if err != nil {
-                log.Println("unable to create signer using cert selector")
-                syscall.Exit(1)
-            }
-        }
+		var signer crypto.Signer
+		if (certIdentifier == helper.CertIdentifier{}) {
+			privateKey, _ := helper.ReadPrivateKeyData(privateKeyId)
+			signer, _, err = helper.GetFileSystemSigner(privateKey, "", "")
+			if err != nil {
+				log.Println("unable to create signer with the referenced private key")
+				syscall.Exit(1)
+			}
+		} else {
+			signer, _, err = helper.GetCertStoreSigner(certIdentifier)
+			if err != nil {
+				log.Println("unable to create signer using cert selector")
+				syscall.Exit(1)
+			}
+		}
 		sigBytes, err := signer.Sign(rand.Reader, stringToSign, digest)
 		if err != nil {
 			log.Println("unable to sign the digest")

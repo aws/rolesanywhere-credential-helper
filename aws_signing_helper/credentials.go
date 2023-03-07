@@ -2,6 +2,7 @@ package aws_signing_helper
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/base64"
 	"errors"
 	"log"
@@ -30,9 +31,9 @@ type CredentialsOpts struct {
 	WithProxy           bool
 	Debug               bool
 	Version             string
-	PinPkcs11			string
-	LibPkcs11			string
-	CheckPkcs11			bool
+	LibPkcs11           string
+	PinPkcs11           string
+	CheckPkcs11         bool
 }
 
 // Function to create session and generate credentials
@@ -55,10 +56,6 @@ func GenerateCredentials(opts *CredentialsOpts) (CredentialProcessOutput, error)
 		opts.Region = trustAnchorArn.Region
 	}
 
-	if opts.CheckPkcs11 {
-		//pkcs11GetInfo()
-	}
-
 	var signer Signer
 	var signingAlgorithm string
 	if opts.PrivateKeyId != "" {
@@ -70,8 +67,30 @@ func GenerateCredentials(opts *CredentialsOpts) (CredentialProcessOutput, error)
 		if err != nil {
 			return CredentialProcessOutput{}, errors.New("unable to create request signer")
 		}
-	} else if opts.PinPkcs11 != "" && opts.LibPkcs11 != "" {
-		signer, signingAlgorithm, err = GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, opts.PinPkcs11)
+	} else if opts.LibPkcs11 != "" && opts.PinPkcs11 != "" {
+		if opts.CheckPkcs11 {
+			//pkcs11GetInfo()
+		}
+
+		var certificate *x509.Certificate
+		if opts.CertificateId != "" {
+			certificates, err := ReadCertificateBundleData(opts.CertificateId)
+
+			if err != nil {
+				return CredentialProcessOutput{}, errors.New("unable to read certificate")
+			}
+			certificate = certificates[0]
+		}
+		var certificateBundle []*x509.Certificate
+		if opts.CertificateBundleId != "" {
+			certificateBundle, err = ReadCertificateBundleData(opts.CertificateId)
+
+			if err != nil {
+				return CredentialProcessOutput{}, errors.New("unable to read certificate")
+			}
+		}
+
+		signer, signingAlgorithm, err = GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, opts.PinPkcs11, certificate, certificateBundle)
 		if err != nil {
 			return CredentialProcessOutput{}, errors.New("unable to create request signer")
 		}
