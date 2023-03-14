@@ -3,20 +3,22 @@ package aws_signing_helper
 import (
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/rand"
+	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
 	"errors"
 	"fmt"
 	"io"
-	"reflect"
+	"os"
+	"strconv"
 	"strings"
 
 	"github.com/miekg/pkcs11"
 	"golang.org/x/term"
 )
 
+var PKCS11_TEST_VERSION int16 = 1
 var MAX_OBJECT_LIMIT int = 1000
 
 type PKCS11Signer struct {
@@ -27,12 +29,9 @@ type PKCS11Signer struct {
 	privateKeyHandle pkcs11.ObjectHandle
 }
 
-// Gets certificates that match the passed in CertIdentifier
-func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (module *pkcs11.Ctx, session pkcs11.SessionHandle, cert *x509.Certificate, matchingCerts []*x509.Certificate, err error) {
+// Opens a session with the PKCS#11 module
+func openPKCS11Session(lib string) (module *pkcs11.Ctx, session pkcs11.SessionHandle, err error) {
 	var slots []uint
-	var sessionCertObjects []pkcs11.ObjectHandle
-	var certObjects []pkcs11.ObjectHandle
-	var templateCrt []*pkcs11.Attribute
 
 	module = pkcs11.New(lib)
 	if err = module.Initialize(); err != nil {
@@ -48,7 +47,30 @@ func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (module *pk
 		goto fail
 	}
 
-	session, err = module.OpenSession(slots[0], pkcs11.CKF_SERIAL_SESSION|pkcs11.CKF_RW_SESSION)
+	session, err = module.OpenSession(slots[0], pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
+	if err != nil {
+		goto fail
+	}
+	return module, session, nil
+
+fail:
+	if module != nil {
+		if session != 0 {
+			module.CloseSession(session)
+		}
+		module.Finalize()
+		module.Destroy()
+	}
+	return nil, 0, err
+}
+
+// Gets certificates that match the passed in CertIdentifier
+func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (module *pkcs11.Ctx, session pkcs11.SessionHandle, cert *x509.Certificate, matchingCerts []*x509.Certificate, err error) {
+	var sessionCertObjects []pkcs11.ObjectHandle
+	var certObjects []pkcs11.ObjectHandle
+	var templateCrt []*pkcs11.Attribute
+
+	module, session, err = openPKCS11Session(lib)
 	if err != nil {
 		goto fail
 	}
@@ -77,12 +99,12 @@ func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (module *pk
 	}
 
 	// Matches certificates based on the CertIdentifier
-	for i := range sessionCertObjects {
+	for i := range certObjects {
 		crtAttributes := []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_VALUE, 0),
 		}
 
-		if crtAttributes, err = module.GetAttributeValue(session, sessionCertObjects[i], crtAttributes); err != nil {
+		if crtAttributes, err = module.GetAttributeValue(session, certObjects[i], crtAttributes); err != nil {
 			goto fail
 		}
 
@@ -94,14 +116,13 @@ func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (module *pk
 		}
 		if certMatches(certIdentifier, curCert) {
 			matchingCerts = append(matchingCerts, curCert)
+			return module, session, curCert, matchingCerts, nil
 		}
 	}
 	if len(matchingCerts) == 0 {
 		err = errors.New("no matching certificates")
 		goto fail
 	}
-
-	return module, session, nil, matchingCerts, nil
 
 fail:
 	if module != nil {
@@ -178,32 +199,45 @@ func (pkcs11Signer PKCS11Signer) CertificateChain() ([]*x509.Certificate, error)
 
 // Checks whether the private key and certificate are associated with each other
 func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate) bool {
-	pkcs11Signer := PKCS11Signer{certificate, nil, module, session, privateKeyHandle}
-	hash := sha256.Sum256(certificate.RawTBSCertificate)
-	var signature []byte
-	var err error
-
-	// Derive signature based on algorithm (for a subset of possible algorithms)
-	// Other algorithms are unsupported and therefore won't match
-	switch certificate.SignatureAlgorithm {
-	case x509.SHA256WithRSA:
-	case x509.ECDSAWithSHA256:
-		signature, err = pkcs11Signer.Sign(rand.Reader, hash[:], crypto.SHA256)
-		break
-	case x509.SHA384WithRSA:
-	case x509.ECDSAWithSHA384:
-		signature, err = pkcs11Signer.Sign(rand.Reader, hash[:], crypto.SHA384)
-		break
-	case x509.SHA512WithRSA:
-	case x509.ECDSAWithSHA512:
-		signature, err = pkcs11Signer.Sign(rand.Reader, hash[:], crypto.SHA512)
-		break
+	var digestSuffix []byte
+	publicKey := certificate.PublicKey
+	ecdsaPublicKey, isEcKey := publicKey.(*ecdsa.PublicKey)
+	if isEcKey {
+		digestSuffixArr := sha256.Sum256(append([]byte("IAM RA"), elliptic.Marshal(ecdsaPublicKey, ecdsaPublicKey.X, ecdsaPublicKey.Y)...))
+		digestSuffix = digestSuffixArr[:]
 	}
 
+	rsaPublicKey, isRsaKey := publicKey.(*rsa.PublicKey)
+	if isRsaKey {
+		digestSuffixArr := sha256.Sum256(append([]byte("IAM RA"), x509.MarshalPKCS1PublicKey(rsaPublicKey)...))
+		digestSuffix = digestSuffixArr[:]
+	}
+	// "AWS Roles Anywhere Credential Helper PKCS11 Test" || PKCS11_TEST_VERSION || SHA256("IAM RA" || PUBLIC_KEY_BYTE_ARRAY)
+	digest := "AWS Roles Anywhere Credential Helper PKCS11 Test" + strconv.Itoa(int(PKCS11_TEST_VERSION)) + string(digestSuffix)
+	digestBytes := []byte(digest)
+	hash := sha256.Sum256(digestBytes)
+
+	err := module.SignInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_SHA256_RSA_PKCS, nil)}, privateKeyHandle)
 	if err != nil {
 		return false
 	}
-	return reflect.DeepEqual(signature, certificate.Signature)
+
+	signature, err := module.Sign(session, digestBytes[:])
+	if err != nil {
+		return false
+	}
+
+	if isEcKey {
+		valid := ecdsa.VerifyASN1(ecdsaPublicKey, hash[:], signature)
+		return valid
+	}
+
+	if isRsaKey {
+		err := rsa.VerifyPKCS1v15(rsaPublicKey, crypto.SHA256, hash[:], signature)
+		return err == nil
+	}
+
+	return false
 }
 
 // Returns a PKCS11Signer, that can be used to sign a payload through a PKCS11-compatible
@@ -213,17 +247,26 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 
 	var sessionPrivateKeyObjects []pkcs11.ObjectHandle
 	var privateKeyHandle pkcs11.ObjectHandle
 	var pinPkcs11Bytes []byte
+	var module *pkcs11.Ctx
+	var session pkcs11.SessionHandle
 
-	module, session, cert, _, err := GetMatchingPKCSCerts(certIdentifier, libPkcs11)
-	if err != nil {
-		goto fail
+	if certificate == nil {
+		module, session, certificate, _, err = GetMatchingPKCSCerts(certIdentifier, libPkcs11)
+		if err != nil {
+			goto fail
+		}
+	} else {
+		module, session, err = openPKCS11Session(libPkcs11)
+		if err != nil {
+			goto fail
+		}
 	}
 
 	if pinPkcs11 == "-" {
-		fmt.Println("Please enter your user pin:")
+		fmt.Fprintln(os.Stderr, "Please enter your user pin:")
 		pinPkcs11Bytes, err = term.ReadPassword(0) // Read from stdin
 		if err != nil {
-			err = errors.New("unable to read PKCS#11 pin")
+			err = errors.New("unable to read PKCS#11 user pin")
 			goto fail
 		}
 
@@ -249,18 +292,18 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 
 	if err = module.FindObjectsFinal(session); err != nil {
 		goto fail
 	}
-	if certificate == nil {
-		privateKeyHandle = sessionPrivateKeyObjects[0]
-	} else {
-		for _, curPrivateKeyHandle := range sessionPrivateKeyObjects {
-			if checkPrivateKeyMatchesCert(module, session, curPrivateKeyHandle, certificate) {
-				privateKeyHandle = curPrivateKeyHandle
-			}
+	for _, curPrivateKeyHandle := range sessionPrivateKeyObjects {
+		if checkPrivateKeyMatchesCert(module, session, curPrivateKeyHandle, certificate) {
+			privateKeyHandle = curPrivateKeyHandle
 		}
+	}
+	if privateKeyHandle == 0 {
+		err = errors.New("unable to find matching private key")
+		goto fail
 	}
 
 	// Find the signing algorithm
-	switch cert.PublicKey.(type) {
+	switch certificate.PublicKey.(type) {
 	case *ecdsa.PublicKey:
 		signingAlgorithm = aws4_x509_ecdsa_sha256
 	case *rsa.PublicKey:
@@ -269,7 +312,7 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 
 		return nil, "", errors.New("unsupported algorithm")
 	}
 
-	return &PKCS11Signer{cert, certificateChain, module, session, privateKeyHandle}, signingAlgorithm, nil
+	return &PKCS11Signer{certificate, nil, module, session, privateKeyHandle}, signingAlgorithm, nil
 
 fail:
 	if module != nil {

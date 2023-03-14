@@ -26,10 +26,19 @@ type TemporaryCredential struct {
 func Update(credentialsOptions CredentialsOpts, profile string, once bool) {
 	var refreshableCred = TemporaryCredential{}
 	var nextRefreshTime time.Time
+
+	signer, signatureAlgorithm, err := GetSigner(&credentialsOptions)
+	if err != nil {
+		log.Println(err)
+		syscall.Exit(1)
+	}
+	defer signer.Close()
+
 	for {
-		credentialProcessOutput, err := GenerateCredentials(&credentialsOptions)
+		credentialProcessOutput, err := GenerateCredentials(&credentialsOptions, signer, signatureAlgorithm)
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			syscall.Exit(1)
 		}
 
 		// Assign credential values

@@ -72,8 +72,15 @@ func (fileSystemSigner FileSystemSigner) CertificateChain() ([]*x509.Certificate
 }
 
 // Returns a FileSystemSigner, that signs a payload using the
-// private key passed in
-func GetFileSystemSigner(privateKey crypto.PrivateKey, certificateId string, certificateBundleId string) (signer Signer, signingAlgorithm string, err error) {
+// private key passed in and also includes information about the associated
+// certificate
+func GetFileSystemSignerWithCertificate(privateKey crypto.PrivateKey, certificateId string, certificateBundleId string) (signer Signer, signingAlgorithm string, err error) {
+	signer, signingAlgorithm, err = GetFileSystemSigner(privateKey)
+	if err != nil {
+		return nil, "", err
+	}
+	fileSystemSigner := signer.(FileSystemSigner)
+
 	certificateData, err := ReadCertificateData(certificateId)
 	if err != nil {
 		return nil, "", err
@@ -97,6 +104,12 @@ func GetFileSystemSigner(privateKey crypto.PrivateKey, certificateId string, cer
 		}
 	}
 
+	return FileSystemSigner{fileSystemSigner.PrivateKey, certificate, certificateChain}, signingAlgorithm, nil
+}
+
+// Returns a FileSystemSigner, that signs a payload using the
+// private key passed in
+func GetFileSystemSigner(privateKey crypto.PrivateKey) (signer Signer, signingAlgorithm string, err error) {
 	// Find the signing algorithm
 	_, isRsaKey := privateKey.(rsa.PrivateKey)
 	if isRsaKey {
@@ -110,5 +123,6 @@ func GetFileSystemSigner(privateKey crypto.PrivateKey, certificateId string, cer
 		log.Println("unsupported algorithm")
 		return nil, "", errors.New("unsupported algorithm")
 	}
-	return FileSystemSigner{privateKey, certificate, certificateChain}, signingAlgorithm, nil
+
+	return FileSystemSigner{privateKey, nil, nil}, signingAlgorithm, nil
 }

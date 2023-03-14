@@ -64,13 +64,12 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&certificateId, "certificate", "", "Path to certificate file")
 	subCmd.PersistentFlags().StringVar(&privateKeyId, "private-key", "", "Path to private key file")
 	subCmd.PersistentFlags().StringVar(&certificateBundleId, "intermediates", "", "Path to intermediate certificate bundle file")
-	subCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify a certificate from a certificate store. Can be 
+	subCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify a certificate from a certificate store. Can be
 passed in either as string or a file name (prefixed by \"file://\")`)
 	subCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
 	subCmd.PersistentFlags().StringVar(&pinPkcs11, "pkcs11-pin", "", "Pin of the PKCS#11 user for private key access")
 	subCmd.PersistentFlags().BoolVar(&checkPkcs11, "pkcs11-check", false, "To print which cryptographic device is detected by the PKCS#11 driver")
 
-	subCmd.MarkFlagsRequiredTogether("certificate", "private-key")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 }
@@ -81,7 +80,7 @@ func getStringMap(s string) (map[string]string, error) {
 
 	m := make(map[string]string)
 	for _, e := range entries {
-		tokens := strings.Split(e, ",")
+		tokens := strings.SplitN(e, ",", 2)
 		keyTokens := strings.Split(tokens[0], "=")
 		if keyTokens[0] != "Key" {
 			return nil, errors.New("invalid cert selector map key")

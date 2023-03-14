@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"crypto"
 	"crypto/rand"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -63,8 +64,11 @@ func init() {
 	rootCmd.AddCommand(signStringCmd)
 	format = newEnum([]string{"json", "text", "bin"}, "json")
 	digestArg = newEnum([]string{"SHA256", "SHA384", "SHA512"}, "SHA256")
-	signStringCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify 
+	signStringCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify
 a certificate from a certificate store. Can be passed in either as string or a file name (prefixed by \"file://\")`)
+	signStringCmd.PersistentFlags().StringVar(&privateKeyId, "private-key", "", "Path to private key file")
+	signStringCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
+	signStringCmd.PersistentFlags().StringVar(&pinPkcs11, "pkcs11-pin", "", "Pin of the PKCS#11 user for private key access")
 	signStringCmd.PersistentFlags().Var(format, "format", "Output format. One of json, text, and bin")
 	signStringCmd.PersistentFlags().Var(digestArg, "digest", "One of SHA256, SHA384, and SHA512")
 }
@@ -89,11 +93,24 @@ var signStringCmd = &cobra.Command{
 		var signer crypto.Signer
 		if (certIdentifier == helper.CertIdentifier{}) {
 			privateKey, _ := helper.ReadPrivateKeyData(privateKeyId)
-			signer, _, err = helper.GetFileSystemSigner(privateKey, "", "")
+			signer, _, err = helper.GetFileSystemSigner(privateKey)
 			if err != nil {
 				log.Println("unable to create signer with the referenced private key")
 				syscall.Exit(1)
 			}
+		} else if libPkcs11 != "" && pinPkcs11 != "" {
+			var certificate *x509.Certificate
+			if certificateId != "" {
+				certificates, err := helper.ReadCertificateBundleData(certificateId)
+
+				if err != nil {
+					log.Println("unable to read certificate")
+					syscall.Exit(1)
+				}
+				certificate = certificates[0]
+			}
+
+			signer, _, err = helper.GetPKCS11Signer(certIdentifier, libPkcs11, pinPkcs11, certificate, nil)
 		} else {
 			signer, _, err = helper.GetCertStoreSigner(certIdentifier)
 			if err != nil {

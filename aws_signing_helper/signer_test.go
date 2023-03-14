@@ -164,17 +164,15 @@ func Verify(payload []byte, privateKey crypto.PrivateKey, digest crypto.Hash, si
 		sum := sha512.Sum512(payload)
 		hash = sum[:]
 	default:
-		log.Fatal("Unsupported digest")
-		return false, errors.New("Unsupported digest")
+		log.Fatal("unsupported digest")
+		return false, errors.New("unsupported digest")
 	}
 
 	{
 		privateKey, ok := privateKey.(ecdsa.PrivateKey)
 		if ok {
 			valid := ecdsa.VerifyASN1(&privateKey.PublicKey, hash, sig)
-			if valid {
-				return valid, nil
-			}
+			return valid, nil
 		}
 	}
 
@@ -182,9 +180,7 @@ func Verify(payload []byte, privateKey crypto.PrivateKey, digest crypto.Hash, si
 		privateKey, ok := privateKey.(rsa.PrivateKey)
 		if ok {
 			err := rsa.VerifyPKCS1v15(&privateKey.PublicKey, digest, hash, sig)
-			if err == nil {
-				return true, nil
-			}
+			return err == nil, nil
 		}
 	}
 

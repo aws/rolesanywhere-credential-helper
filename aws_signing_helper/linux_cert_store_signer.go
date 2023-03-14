@@ -2,7 +2,10 @@
 
 package aws_signing_helper
 
-import "errors"
+import (
+	"crypto/x509"
+	"errors"
+)
 
 func GetMatchingCerts(certIdentifier CertIdentifier) ([]*x509.Certificate, error) {
 	return nil, errors.New("unable to use cert store signer on linux")

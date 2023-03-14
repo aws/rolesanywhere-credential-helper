@@ -118,12 +118,51 @@ func certMatches(certIdentifier CertIdentifier, cert *x509.Certificate) bool {
 			certMatches = false
 			break
 		}
-		if certIdentifier.SerialNumber != nil && certIdentifier.SerialNumber != cert.SerialNumber {
+		if certIdentifier.SerialNumber != nil && certIdentifier.SerialNumber.Cmp(cert.SerialNumber) != 0 {
 			certMatches = false
 		}
 	}
 
 	return certMatches
+}
+
+// Gets the Signer based on the flags passed in by the user (from which the CredentialsOpts structure is derived)
+func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string, err error) {
+	if opts.PrivateKeyId != "" {
+		privateKey, err := ReadPrivateKeyData(opts.PrivateKeyId)
+		if err != nil {
+			return nil, "", err
+		}
+
+		return GetFileSystemSignerWithCertificate(privateKey, opts.CertificateId, opts.CertificateBundleId)
+	} else if opts.LibPkcs11 != "" && opts.PinPkcs11 != "" {
+		if opts.CheckPkcs11 {
+			//pkcs11GetInfo()
+		}
+
+		var certificate *x509.Certificate
+		if opts.CertificateId != "" {
+			certificates, err := ReadCertificateBundleData(opts.CertificateId)
+
+			if err != nil {
+				return nil, "", errors.New("unable to read certificate")
+			}
+			certificate = certificates[0]
+		}
+
+		var certificateBundle []*x509.Certificate
+		if opts.CertificateBundleId != "" {
+			certificateBundle, err = ReadCertificateBundleData(opts.CertificateId)
+
+			if err != nil {
+				return nil, "", errors.New("unable to read certificate bundle")
+			}
+		}
+
+		return GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, opts.PinPkcs11, certificate, certificateBundle)
+	} else {
+		return GetCertStoreSigner(opts.CertIdentifier)
+	}
 }
 
 // Obtain the date-time, formatted as specified by SigV4
