@@ -29,6 +29,7 @@ var (
 
 	libPkcs11   string
 	pinPkcs11   string
+	slotPkcs11  uint
 	checkPkcs11 bool
 
 	credentialsOptions helper.CredentialsOpts
@@ -65,12 +66,11 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&privateKeyId, "private-key", "", "Path to private key file")
 	subCmd.PersistentFlags().StringVar(&certificateBundleId, "intermediates", "", "Path to intermediate certificate bundle file")
 	subCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify a certificate from a certificate store. Can be
-passed in either as string or a file name (prefixed by \"file://\")`)
+passed in either as string or a file name (prefixed by "file://")`)
 	subCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
-	subCmd.PersistentFlags().StringVar(&pinPkcs11, "pkcs11-pin", "", "Pin of the PKCS#11 user for private key access")
-	subCmd.PersistentFlags().BoolVar(&checkPkcs11, "pkcs11-check", false, "To print which cryptographic device is detected by the PKCS#11 driver")
+	subCmd.PersistentFlags().StringVar(&pinPkcs11, "pkcs11-pin", "-", "Pin of the PKCS #11 user for private key access")
+	subCmd.PersistentFlags().UintVar(&slotPkcs11, "pkcs11-slot", 0, "PKCS #11 slot in which to search for the private key (and potentially certificate as well)")
 
-	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 }
 
@@ -208,7 +208,7 @@ func PopulateCredentialsOptions() error {
 		Version:             Version,
 		LibPkcs11:           libPkcs11,
 		PinPkcs11:           pinPkcs11,
-		CheckPkcs11:         checkPkcs11,
+		SlotPkcs11:          slotPkcs11,
 	}
 
 	return nil

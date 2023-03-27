@@ -3,7 +3,7 @@ package cmd
 import (
 	"github.com/spf13/cobra"
 	"log"
-	"syscall"
+	"os"
 )
 
 var rootCmd = &cobra.Command{
@@ -21,6 +21,6 @@ retrieval and rotation more convenient.`,
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
 		log.Println(err)
-		syscall.Exit(1)
+		os.Exit(1)
 	}
 }

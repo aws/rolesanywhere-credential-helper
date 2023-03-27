@@ -13,6 +13,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"github.com/miekg/pkcs11"
 	"golang.org/x/term"
@@ -27,10 +28,22 @@ type PKCS11Signer struct {
 	module           *pkcs11.Ctx
 	session          pkcs11.SessionHandle
 	privateKeyHandle pkcs11.ObjectHandle
+	pin              string
 }
 
-// Opens a session with the PKCS#11 module
-func openPKCS11Session(lib string) (module *pkcs11.Ctx, session pkcs11.SessionHandle, err error) {
+// Helper function to check whether the passed in []uint contains a given element
+func contains(slice []uint, find uint) bool {
+	for _, v := range slice {
+		if v == find {
+			return true
+		}
+	}
+
+	return false
+}
+
+// Opens a session with the PKCS #11 module
+func openPKCS11Session(lib string, slot uint) (module *pkcs11.Ctx, session pkcs11.SessionHandle, err error) {
 	var slots []uint
 
 	module = pkcs11.New(lib)
@@ -42,12 +55,12 @@ func openPKCS11Session(lib string) (module *pkcs11.Ctx, session pkcs11.SessionHa
 	if err != nil {
 		goto fail
 	}
-
-	if len(slots) == 0 {
+	if !contains(slots, slot) {
+		err = errors.New("invalid slot")
 		goto fail
 	}
 
-	session, err = module.OpenSession(slots[0], pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
+	session, err = module.OpenSession(slot, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 	if err != nil {
 		goto fail
 	}
@@ -64,28 +77,23 @@ fail:
 	return nil, 0, err
 }
 
-// Gets certificates that match the passed in CertIdentifier
-func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (module *pkcs11.Ctx, session pkcs11.SessionHandle, cert *x509.Certificate, matchingCerts []*x509.Certificate, err error) {
+// Gets all certificates within the PKCS #11 session
+func getCerts(module *pkcs11.Ctx, session pkcs11.SessionHandle) (certs []*x509.Certificate, err error) {
 	var sessionCertObjects []pkcs11.ObjectHandle
 	var certObjects []pkcs11.ObjectHandle
 	var templateCrt []*pkcs11.Attribute
-
-	module, session, err = openPKCS11Session(lib)
-	if err != nil {
-		goto fail
-	}
 
 	// Finds certificates within the cryptographic device
 	templateCrt = append(templateCrt, pkcs11.NewAttribute(pkcs11.CKA_CLASS, pkcs11.CKO_CERTIFICATE))
 
 	if err = module.FindObjectsInit(session, templateCrt); err != nil {
-		goto fail
+		return nil, err
 	}
 
 	for true {
 		sessionCertObjects, _, err = module.FindObjects(session, MAX_OBJECT_LIMIT)
 		if err != nil {
-			goto fail
+			return nil, err
 		}
 		if len(sessionCertObjects) == 0 {
 			break
@@ -95,26 +103,47 @@ func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string) (module *pk
 
 	err = module.FindObjectsFinal(session)
 	if err != nil {
-		goto fail
+		return nil, err
 	}
 
-	// Matches certificates based on the CertIdentifier
-	for i := range certObjects {
+	for _, certObject := range certObjects {
 		crtAttributes := []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_VALUE, 0),
 		}
 
-		if crtAttributes, err = module.GetAttributeValue(session, certObjects[i], crtAttributes); err != nil {
-			goto fail
+		if crtAttributes, err = module.GetAttributeValue(session, certObject, crtAttributes); err != nil {
+			return nil, err
 		}
 
 		rawCert := crtAttributes[0].Value
 		curCert, err := x509.ParseCertificate(rawCert)
 		if err != nil {
-			err = errors.New("error parsing certificate")
-			goto fail
+			return nil, errors.New("error parsing certificate")
 		}
-		if certMatches(certIdentifier, curCert) {
+
+		certs = append(certs, curCert)
+	}
+
+	return certs, nil
+}
+
+// Gets certificates that match the passed in CertIdentifier
+func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string, slot uint) (module *pkcs11.Ctx, session pkcs11.SessionHandle, cert *x509.Certificate, matchingCerts []*x509.Certificate, err error) {
+	var certsFound []*x509.Certificate
+
+	module, session, err = openPKCS11Session(lib, slot)
+	if err != nil {
+		goto fail
+	}
+
+	certsFound, err = getCerts(module, session)
+	if err != nil {
+		goto fail
+	}
+
+	// Matches certificates based on the CertIdentifier
+	for _, curCert := range certsFound {
+		if certMatches(certIdentifier, *curCert) {
 			matchingCerts = append(matchingCerts, curCert)
 			return module, session, curCert, matchingCerts, nil
 		}
@@ -145,6 +174,7 @@ func (pkcs11Signer *PKCS11Signer) Public() crypto.PublicKey {
 func (pkcs11Signer *PKCS11Signer) Close() {
 	if module := pkcs11Signer.module; module != nil {
 		if session := pkcs11Signer.session; session != 0 {
+			module.Logout(session)
 			module.CloseSession(session)
 		}
 		module.Finalize()
@@ -178,6 +208,11 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 		return nil, fmt.Errorf("signing initiation failed (%s)", err.Error())
 	}
 
+	err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pkcs11Signer.pin)
+	if err != nil {
+		return nil, fmt.Errorf("user re-authentication failed (%s)", err.Error())
+	}
+
 	sig, err := module.Sign(session, digest)
 	if err != nil {
 		return nil, fmt.Errorf("signing failed (%s)", err.Error())
@@ -187,18 +222,70 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 }
 
 // Gets the x509.Certificate associated with this PKCS11Signer
-func (pkcs11Signer PKCS11Signer) Certificate() (*x509.Certificate, error) {
+func (pkcs11Signer *PKCS11Signer) Certificate() (*x509.Certificate, error) {
 	return pkcs11Signer.cert, nil
 }
 
+// Checks whether the first certificate issues the second
+func certIssues(issuer *x509.Certificate, candidate *x509.Certificate) bool {
+	roots := x509.NewCertPool()
+	roots.AddCert(issuer)
+
+	opts := x509.VerifyOptions{
+		Roots: roots,
+	}
+
+	_, err := candidate.Verify(opts)
+	return err != nil
+}
+
 // Gets the certificate chain associated with this PKCS11Signer
-// Note that this method is unimplemented right now (no certificate chain is returned)
-func (pkcs11Signer PKCS11Signer) CertificateChain() ([]*x509.Certificate, error) {
-	return pkcs11Signer.certChain, nil
+func (pkcs11Signer *PKCS11Signer) CertificateChain() (chain []*x509.Certificate, err error) {
+	module := pkcs11Signer.module
+	session := pkcs11Signer.session
+	chain = append(chain, pkcs11Signer.cert)
+
+	certsFound, err := getCerts(module, session)
+	if err != nil {
+		return nil, err
+	}
+
+	for true {
+		nextInChainFound := false
+		for i, curCert := range certsFound {
+			curLastCert := chain[len(chain)-1]
+			if certIssues(curLastCert, curCert) {
+				nextInChainFound = true
+				chain = append(chain, curCert)
+
+				// Remove current cert, so that it won't be iterated again
+				lastIndex := len(certsFound) - 1
+				certsFound[i] = certsFound[lastIndex]
+				certsFound = certsFound[:lastIndex]
+
+				break
+			}
+		}
+		if !nextInChainFound {
+			break
+		}
+	}
+
+	return chain, nil
+}
+
+// Gets the manufacturer ID for the PKCS #11 module
+func getManufacturerId(module *pkcs11.Ctx) (string, error) {
+	info, err := module.GetInfo()
+	if err != nil {
+		return "", err
+	}
+
+	return info.ManufacturerID, nil
 }
 
 // Checks whether the private key and certificate are associated with each other
-func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate) bool {
+func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, pinPkcs11 string, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate, manufacturerId string) bool {
 	var digestSuffix []byte
 	publicKey := certificate.PublicKey
 	ecdsaPublicKey, isEcKey := publicKey.(*ecdsa.PublicKey)
@@ -212,12 +299,19 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 		digestSuffixArr := sha256.Sum256(append([]byte("IAM RA"), x509.MarshalPKCS1PublicKey(rsaPublicKey)...))
 		digestSuffix = digestSuffixArr[:]
 	}
-	// "AWS Roles Anywhere Credential Helper PKCS11 Test" || PKCS11_TEST_VERSION || SHA256("IAM RA" || PUBLIC_KEY_BYTE_ARRAY)
-	digest := "AWS Roles Anywhere Credential Helper PKCS11 Test" + strconv.Itoa(int(PKCS11_TEST_VERSION)) + string(digestSuffix)
+	// "AWS Roles Anywhere Credential Helper PKCS11 Test" || PKCS11_TEST_VERSION ||
+	// MANUFACTURER_ID || SHA256("IAM RA" || PUBLIC_KEY_BYTE_ARRAY)
+	digest := "AWS Roles Anywhere Credential Helper PKCS11 Test" +
+		strconv.Itoa(int(PKCS11_TEST_VERSION)) + manufacturerId + string(digestSuffix)
 	digestBytes := []byte(digest)
 	hash := sha256.Sum256(digestBytes)
 
 	err := module.SignInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_SHA256_RSA_PKCS, nil)}, privateKeyHandle)
+	if err != nil {
+		return false
+	}
+
+	err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pinPkcs11)
 	if err != nil {
 		return false
 	}
@@ -242,21 +336,22 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 
 // Returns a PKCS11Signer, that can be used to sign a payload through a PKCS11-compatible
 // cryptographic device
-func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 string, certificate *x509.Certificate, certificateChain []*x509.Certificate) (signer Signer, signingAlgorithm string, err error) {
+func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 string, slotPkcs11 uint, certificate *x509.Certificate, certificateChain []*x509.Certificate) (signer Signer, signingAlgorithm string, err error) {
 	var templatePrivateKey []*pkcs11.Attribute
 	var sessionPrivateKeyObjects []pkcs11.ObjectHandle
 	var privateKeyHandle pkcs11.ObjectHandle
 	var pinPkcs11Bytes []byte
 	var module *pkcs11.Ctx
 	var session pkcs11.SessionHandle
+	var manufacturerId string
 
 	if certificate == nil {
-		module, session, certificate, _, err = GetMatchingPKCSCerts(certIdentifier, libPkcs11)
+		module, session, certificate, _, err = GetMatchingPKCSCerts(certIdentifier, libPkcs11, slotPkcs11)
 		if err != nil {
 			goto fail
 		}
 	} else {
-		module, session, err = openPKCS11Session(libPkcs11)
+		module, session, err = openPKCS11Session(libPkcs11, slotPkcs11)
 		if err != nil {
 			goto fail
 		}
@@ -264,7 +359,7 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 
 
 	if pinPkcs11 == "-" {
 		fmt.Fprintln(os.Stderr, "Please enter your user pin:")
-		pinPkcs11Bytes, err = term.ReadPassword(0) // Read from stdin
+		pinPkcs11Bytes, err = term.ReadPassword(int(syscall.Stdin))
 		if err != nil {
 			err = errors.New("unable to read PKCS#11 user pin")
 			goto fail
@@ -292,8 +387,15 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 
 	if err = module.FindObjectsFinal(session); err != nil {
 		goto fail
 	}
+
+	// Get manufacturer ID once, so that it can be used in the test string to sign when testing candidate private keys
+	manufacturerId, err = getManufacturerId(module)
+	if err != nil {
+		goto fail
+	}
+
 	for _, curPrivateKeyHandle := range sessionPrivateKeyObjects {
-		if checkPrivateKeyMatchesCert(module, session, curPrivateKeyHandle, certificate) {
+		if checkPrivateKeyMatchesCert(module, session, pinPkcs11, curPrivateKeyHandle, certificate, manufacturerId) {
 			privateKeyHandle = curPrivateKeyHandle
 		}
 	}
@@ -312,7 +414,7 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 
 		return nil, "", errors.New("unsupported algorithm")
 	}
 
-	return &PKCS11Signer{certificate, nil, module, session, privateKeyHandle}, signingAlgorithm, nil
+	return &PKCS11Signer{certificate, nil, module, session, privateKeyHandle, pinPkcs11}, signingAlgorithm, nil
 
 fail:
 	if module != nil {

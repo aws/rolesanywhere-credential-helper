@@ -2,7 +2,7 @@ package cmd
 
 import (
 	"log"
-	"syscall"
+	"os"
 
 	helper "github.com/aws/rolesanywhere-credential-helper/aws_signing_helper"
 	"github.com/spf13/cobra"
@@ -27,7 +27,7 @@ var updateCmd = &cobra.Command{
 		err := PopulateCredentialsOptions()
 		if err != nil {
 			log.Println(err)
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 		helper.Update(credentialsOptions, profile, once)
 	},

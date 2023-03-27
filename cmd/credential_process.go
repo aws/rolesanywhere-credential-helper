@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"syscall"
+	"os"
 
 	helper "github.com/aws/rolesanywhere-credential-helper/aws_signing_helper"
 	"github.com/spf13/cobra"
@@ -24,18 +24,18 @@ found at: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sourcin
 		err := PopulateCredentialsOptions()
 		if err != nil {
 			log.Println(err)
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 		signer, signingAlgorithm, err := helper.GetSigner(&credentialsOptions)
 		if err != nil {
 			log.Println(err)
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 		defer signer.Close()
 		credentialProcessOutput, err := helper.GenerateCredentials(&credentialsOptions, signer, signingAlgorithm)
 		if err != nil {
 			log.Println(err)
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 		buf, _ := json.Marshal(credentialProcessOutput)
 		fmt.Print(string(buf[:]))

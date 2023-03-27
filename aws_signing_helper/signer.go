@@ -107,23 +107,18 @@ var ignoredHeaderKeys = map[string]bool{
 }
 
 // Find whether the current certificate matches the CertIdentifier
-func certMatches(certIdentifier CertIdentifier, cert *x509.Certificate) bool {
-	certMatches := true
-	for ok := true; ok; ok = false {
-		if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
-			certMatches = false
-			break
-		}
-		if certIdentifier.Issuer != "" && certIdentifier.Issuer != cert.Issuer.String() {
-			certMatches = false
-			break
-		}
-		if certIdentifier.SerialNumber != nil && certIdentifier.SerialNumber.Cmp(cert.SerialNumber) != 0 {
-			certMatches = false
-		}
+func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
+	if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
+		return false
+	}
+	if certIdentifier.Issuer != "" && certIdentifier.Issuer != cert.Issuer.String() {
+		return false
+	}
+	if certIdentifier.SerialNumber != nil && certIdentifier.SerialNumber.Cmp(cert.SerialNumber) != 0 {
+		return false
 	}
 
-	return certMatches
+	return true
 }
 
 // Gets the Signer based on the flags passed in by the user (from which the CredentialsOpts structure is derived)
@@ -136,10 +131,6 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 
 		return GetFileSystemSignerWithCertificate(privateKey, opts.CertificateId, opts.CertificateBundleId)
 	} else if opts.LibPkcs11 != "" && opts.PinPkcs11 != "" {
-		if opts.CheckPkcs11 {
-			//pkcs11GetInfo()
-		}
-
 		var certificate *x509.Certificate
 		if opts.CertificateId != "" {
 			certificates, err := ReadCertificateBundleData(opts.CertificateId)
@@ -159,7 +150,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			}
 		}
 
-		return GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, opts.PinPkcs11, certificate, certificateBundle)
+		return GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, opts.PinPkcs11, opts.SlotPkcs11, certificate, certificateBundle)
 	} else {
 		return GetCertStoreSigner(opts.CertIdentifier)
 	}

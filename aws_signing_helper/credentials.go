@@ -31,7 +31,7 @@ type CredentialsOpts struct {
 	Version             string
 	LibPkcs11           string
 	PinPkcs11           string
-	CheckPkcs11         bool
+	SlotPkcs11          uint
 }
 
 // Function to create session and generate credentials

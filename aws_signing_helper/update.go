@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 )
 
@@ -30,7 +29,7 @@ func Update(credentialsOptions CredentialsOpts, profile string, once bool) {
 	signer, signatureAlgorithm, err := GetSigner(&credentialsOptions)
 	if err != nil {
 		log.Println(err)
-		syscall.Exit(1)
+		os.Exit(1)
 	}
 	defer signer.Close()
 
@@ -38,7 +37,7 @@ func Update(credentialsOptions CredentialsOpts, profile string, once bool) {
 		credentialProcessOutput, err := GenerateCredentials(&credentialsOptions, signer, signatureAlgorithm)
 		if err != nil {
 			log.Println(err)
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 
 		// Assign credential values
@@ -48,21 +47,21 @@ func Update(credentialsOptions CredentialsOpts, profile string, once bool) {
 		refreshableCred.Expiration, _ = time.Parse(time.RFC3339, credentialProcessOutput.Expiration)
 		if (refreshableCred == TemporaryCredential{}) {
 			log.Println("no credentials created")
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 
 		// Get credentials file contents
 		lines, err := GetCredentialsFileContents()
 		if err != nil {
 			log.Println("unable to get credentials file contents")
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 
 		// Write to credentials file
 		err = WriteTo(profile, lines, &refreshableCred)
 		if err != nil {
 			log.Println("unable to write to AWS credentials file")
-			syscall.Exit(1)
+			os.Exit(1)
 		}
 
 		if once {
@@ -94,7 +93,7 @@ func GetCredentialsFileContents() ([]string, error) {
 	readOnlyCredentialsFile, err := os.OpenFile(awsCredentialsPath, os.O_RDONLY|os.O_CREATE, 0600)
 	if err != nil {
 		log.Println("unable to get or create read-only AWS credentials file")
-		syscall.Exit(1)
+		os.Exit(1)
 	}
 	defer readOnlyCredentialsFile.Close()
 
@@ -122,7 +121,7 @@ func WriteTo(profileName string, writeLines []string, cred *TemporaryCredential)
 	destFile, err := GetWriteOnlyCredentialsFile()
 	if err != nil {
 		log.Println("unable to get write-only AWS credentials file")
-		syscall.Exit(1)
+		os.Exit(1)
 	}
 	defer destFile.Close()
 
