@@ -37,7 +37,8 @@ var (
 	profile string
 	once    bool
 
-	port int
+	port     int
+	bindAddr string
 
 	credentialProcessCmd   = flag.NewFlagSet("credential-process", flag.ExitOnError)
 	signStringCmd          = flag.NewFlagSet("sign-string", flag.ExitOnError)
@@ -117,7 +118,8 @@ func setupFlags() {
 			fs.StringVar(&profile, "profile", "default", "The aws profile to use (default 'default')")
 			fs.BoolVar(&once, "once", false, "Update the credentials once")
 		} else if command == "serve" {
-			fs.IntVar(&port, "port", helper.DefaultPort, "The port used to run local server (default: 9911)")
+			fs.IntVar(&port, "port", helper.DefaultPort, fmt.Sprintf("The port used to run local server (default: '%d')", helper.DefaultPort))
+			fs.StringVar(&bindAddr, "bind-addr", helper.DefaultBindAddr, fmt.Sprintf("The address used to run local server. Must be in %+v", helper.AllowedBindAddrs))
 		}
 	}
 }
@@ -270,7 +272,7 @@ func main() {
 			log.Println(msg)
 			os.Exit(1)
 		}
-		helper.Serve(port, credentialsOptions)
+		helper.Serve(bindAddr, port, credentialsOptions)
 	case "":
 		log.Println("No command provided")
 		os.Exit(1)
