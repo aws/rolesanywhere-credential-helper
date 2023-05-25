@@ -119,7 +119,7 @@ func setupFlags() {
 			fs.BoolVar(&once, "once", false, "Update the credentials once")
 		} else if command == "serve" {
 			fs.IntVar(&port, "port", helper.DefaultPort, fmt.Sprintf("The port used to run local server (default: '%d')", helper.DefaultPort))
-			fs.StringVar(&bindAddr, "bind-addr", helper.DefaultBindAddr, fmt.Sprintf("The address used to run local server (default '%s')", helper.DefaultBindAddr))
+			fs.StringVar(&bindAddr, "bind-addr", helper.DefaultBindAddr, fmt.Sprintf("The address used to run local server. Must be in %+v", helper.AllowedBindAddrs))
 		}
 	}
 }

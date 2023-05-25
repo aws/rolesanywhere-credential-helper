@@ -22,6 +22,8 @@ import (
 const DefaultPort = 9911
 const DefaultBindAddr = "127.0.0.1"
 
+var AllowedBindAddrs = []string{"127.0.0.1", "169.254.169.254"}
+
 var RefreshTime = time.Minute * time.Duration(5)
 
 type RefreshableCred struct {
@@ -263,6 +265,11 @@ func AllIssuesHandlers(cred *RefreshableCred, roleName string, opts *Credentials
 func Serve(bindAddr string, port int, credentialsOptions CredentialsOpts) {
 	var refreshableCred = RefreshableCred{}
 
+	if !bindAddrAllowed(bindAddr) {
+		log.Printf("bind address not in %s: ", AllowedBindAddrs)
+		os.Exit(1)
+	}
+
 	roleArn, err := arn.Parse(credentialsOptions.RoleArn)
 	if err != nil {
 		log.Println("invalid role ARN")
@@ -317,4 +324,14 @@ func Serve(bindAddr string, port int, credentialsOptions CredentialsOpts) {
 		log.Println("Httpserver: ListenAndServe() error")
 		os.Exit(1)
 	}
+}
+
+func bindAddrAllowed(addr string) bool {
+	for _, v := range AllowedBindAddrs {
+		if addr == v {
+			return true
+		}
+	}
+
+	return false
 }
