@@ -94,7 +94,7 @@ var signStringCmd = &cobra.Command{
 			digest = crypto.SHA256
 		}
 		var signer crypto.Signer
-		if privateKeyId != "" {
+		if privateKeyId != "" && !strings.HasPrefix(privateKeyId, "pkcs11:") {
 			privateKey, _ := helper.ReadPrivateKeyData(privateKeyId)
 			signer, _, err = helper.GetFileSystemSigner(privateKey)
 			if err != nil {
@@ -107,7 +107,7 @@ var signStringCmd = &cobra.Command{
 				os.Exit(1)
 			}
 			var certificate *x509.Certificate
-			if certificateId != "" {
+			if certificateId != "" && !strings.HasPrefix(certificateId, "pkcs11:") {
 				certificates, err := helper.ReadCertificateBundleData(certificateId)
 
 				if err != nil {
@@ -117,13 +117,17 @@ var signStringCmd = &cobra.Command{
 				certificate = certificates[0]
 			}
 
-			signer, _, err = helper.GetPKCS11Signer(certIdentifier, libPkcs11, pinPkcs11, slotPkcs11, certificate, nil)
+			signer, _, err = helper.GetPKCS11Signer(certIdentifier, libPkcs11, pinPkcs11, slotPkcs11, certificate, nil, privateKeyId, certificateId)
 		} else {
 			signer, _, err = helper.GetCertStoreSigner(certIdentifier)
 			if err != nil {
 				log.Println("unable to create signer using cert selector")
 				os.Exit(1)
 			}
+		}
+		if err != nil {
+		   log.Println(err)
+		   os.Exit(1)
 		}
 		sigBytes, err := signer.Sign(rand.Reader, stringToSign, digest)
 		if err != nil {
