@@ -14,7 +14,9 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"log"
 
+	pkcs11uri "github.com/stefanberger/go-pkcs11uri"
 	"github.com/miekg/pkcs11"
 	"golang.org/x/term"
 )
@@ -55,6 +57,7 @@ func openPKCS11Session(lib string, slot uint) (module *pkcs11.Ctx, session pkcs1
 	if err != nil {
 		goto fail
 	}
+	log.Println("Got slots")
 	if !contains(slots, slot) {
 		err = errors.New("invalid slot")
 		goto fail
@@ -64,6 +67,7 @@ func openPKCS11Session(lib string, slot uint) (module *pkcs11.Ctx, session pkcs1
 	if err != nil {
 		goto fail
 	}
+	log.Println("Got session")
 	return module, session, nil
 
 fail:
@@ -128,7 +132,7 @@ func getCerts(module *pkcs11.Ctx, session pkcs11.SessionHandle) (certs []*x509.C
 }
 
 // Gets certificates that match the passed in CertIdentifier
-func GetMatchingPKCSCerts(certIdentifier CertIdentifier, lib string, slot uint) (module *pkcs11.Ctx, session pkcs11.SessionHandle, cert *x509.Certificate, matchingCerts []*x509.Certificate, err error) {
+func GetMatchingPKCSCerts(certIdentifier CertIdentifier, uri *pkcs11uri.Pkcs11URI, lib string, slot uint) (module *pkcs11.Ctx, session pkcs11.SessionHandle, cert *x509.Certificate, matchingCerts []*x509.Certificate, err error) {
 	var certsFound []*x509.Certificate
 
 	module, session, err = openPKCS11Session(lib, slot)
@@ -208,10 +212,10 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 		return nil, fmt.Errorf("signing initiation failed (%s)", err.Error())
 	}
 
-	err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pkcs11Signer.pin)
-	if err != nil {
-		return nil, fmt.Errorf("user re-authentication failed (%s)", err.Error())
-	}
+//	err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pkcs11Signer.pin)
+//	if err != nil {
+//		return nil, fmt.Errorf("user re-authentication failed (%s)", err.Error())
+//	}
 
 	sig, err := module.Sign(session, digest)
 	if err != nil {
@@ -311,10 +315,10 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 		return false
 	}
 
-	err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pinPkcs11)
-	if err != nil {
-		return false
-	}
+//	err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pinPkcs11)
+//	if err != nil {
+//		return false
+//	}
 
 	signature, err := module.Sign(session, digestBytes[:])
 	if err != nil {
@@ -336,7 +340,7 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 
 // Returns a PKCS11Signer, that can be used to sign a payload through a PKCS11-compatible
 // cryptographic device
-func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 string, slotPkcs11 uint, certificate *x509.Certificate, certificateChain []*x509.Certificate) (signer Signer, signingAlgorithm string, err error) {
+func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 string, slotPkcs11 uint, certificate *x509.Certificate, certificateChain []*x509.Certificate, privateKeyId string, certificateId string) (signer Signer, signingAlgorithm string, err error) {
 	var templatePrivateKey []*pkcs11.Attribute
 	var sessionPrivateKeyObjects []pkcs11.ObjectHandle
 	var privateKeyHandle pkcs11.ObjectHandle
@@ -344,9 +348,15 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 
 	var module *pkcs11.Ctx
 	var session pkcs11.SessionHandle
 	var manufacturerId string
+	var cert_uri *pkcs11uri.Pkcs11URI
 
 	if certificate == nil {
-		module, session, certificate, _, err = GetMatchingPKCSCerts(certIdentifier, libPkcs11, slotPkcs11)
+		cert_uri = pkcs11uri.New()
+		err = cert_uri.Parse(certificateId)
+	        if (err != nil) {
+		    goto fail
+		}
+		module, session, certificate, _, err = GetMatchingPKCSCerts(certIdentifier, cert_uri, libPkcs11, slotPkcs11)
 		if err != nil {
 			goto fail
 		}

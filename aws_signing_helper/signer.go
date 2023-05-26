@@ -123,7 +123,7 @@ func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
 
 // Gets the Signer based on the flags passed in by the user (from which the CredentialsOpts structure is derived)
 func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string, err error) {
-	if opts.PrivateKeyId != "" {
+	if opts.PrivateKeyId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
 		privateKey, err := ReadPrivateKeyData(opts.PrivateKeyId)
 		if err != nil {
 			return nil, "", err
@@ -132,7 +132,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		return GetFileSystemSignerWithCertificate(privateKey, opts.CertificateId, opts.CertificateBundleId)
 	} else if opts.LibPkcs11 != "" && opts.PinPkcs11 != "" {
 		var certificate *x509.Certificate
-		if opts.CertificateId != "" {
+		if opts.CertificateId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
 			certificates, err := ReadCertificateBundleData(opts.CertificateId)
 
 			if err != nil {
@@ -150,7 +150,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			}
 		}
 
-		return GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, opts.PinPkcs11, opts.SlotPkcs11, certificate, certificateBundle)
+		return GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, opts.PinPkcs11, opts.SlotPkcs11, certificate, certificateBundle, opts.PrivateKeyId, opts.CertificateId)
 	} else {
 		return GetCertStoreSigner(opts.CertIdentifier)
 	}
