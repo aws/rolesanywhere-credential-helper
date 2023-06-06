@@ -44,22 +44,52 @@ func contains(slice []uint, find uint) bool {
 	return false
 }
 
-// Opens a session with the PKCS #11 module
-func openPKCS11Session(lib string, slot uint) (module *pkcs11.Ctx, session pkcs11.SessionHandle, err error) {
-	var slots []uint
+type SlotIdInfo struct {
+	id	uint
+	info	pkcs11.SlotInfo
+}
+
+// Initialize and enumerate slots in the PKCS#11 module
+func openPKCS11Module(lib string) (module *pkcs11.Ctx, slots []SlotIdInfo, err error) {
+	var slot_ids []uint
 
 	module = pkcs11.New(lib)
 	if err = module.Initialize(); err != nil {
 		goto fail
 	}
 
-	slots, err = module.GetSlotList(true)
+	slot_ids, err = module.GetSlotList(true)
 	if err != nil {
 		goto fail
 	}
-	log.Println("Got slots")
-	if !contains(slots, slot) {
-		err = errors.New("invalid slot")
+
+	for _, slotid := range slot_ids {
+		var slotidinfo SlotIdInfo
+		var slot_err error
+
+		slotidinfo.id = slotid
+		slotidinfo.info, slot_err = module.GetSlotInfo(slotid)
+
+		if (slot_err != nil) {
+			slots = append(slots, slotidinfo)
+		}
+	}
+
+	return module, slots, nil
+
+fail:
+	if module != nil {
+		module.Finalize()
+		module.Destroy()
+	}
+	return nil, nil, err
+}
+
+// Opens a session with the PKCS #11 module
+func openPKCS11Session(lib string, slot uint) (module *pkcs11.Ctx, session pkcs11.SessionHandle, err error) {
+
+	module, _, err = openPKCS11Module(lib)
+	if err != nil {
 		goto fail
 	}
 
