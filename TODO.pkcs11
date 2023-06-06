@@ -1,0 +1,33 @@
+
+
+
+TODO for PKCS#11 support
+
+
+ • Kill the separate pkcs11-lib option and use p11-kit-proxy by default, or
+   the module-path from the PKCS#11 URI.
+
+ • Kill the separate pkcs11-pin option and use the pin-value from the URI.
+
+ • Certificate is *optional*; it's only a handle to find a matching key. But
+   it's useful because it may not have the CKA_PRIVATE flag and can thus be
+   visible without logging in, and means that the user doesn't have to uniquely
+   specify the token.
+
+ • Implement URI parsing and lookup for key, following the cert example (and
+   noting that cert is optional.
+
+ • Note the CKA_ID and CKA_LABEL of the certificate which was found, and look
+   for a key as described in §8.2 of draft-woodhouse-cert-best-practice.
+
+ • Restore the CKU_CONTEXT_SPECIFIC_LOGIN only when appropriate (see when libp11
+   does it)
+
+Ultimately this should Just Work™ when I do:
+
+ $ build/bin/aws_signing_helper sign-string --certificate pkcs11:token=openconnect-test\;object=RSA?pin-value=1234 <<< Test
+
+References:
+  http://david.woodhou.se/draft-woodhouse-cert-best-practice.html#rfc.section.8
+  https://datatracker.ietf.org/doc/html/rfc7512
+  https://gitlab.com/openconnect/openconnect/-/blob/v9.12/openssl-pkcs11.c
