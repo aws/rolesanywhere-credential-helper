@@ -207,8 +207,6 @@ func PopulateCredentialsOptions() error {
 		Debug:               debug,
 		Version:             Version,
 		LibPkcs11:           libPkcs11,
-		PinPkcs11:           pinPkcs11,
-		SlotPkcs11:          slotPkcs11,
 	}
 
 	return nil
