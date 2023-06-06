@@ -42,7 +42,7 @@ var readCertificateDataCmd = &cobra.Command{
 		} else {
 			var certs []*x509.Certificate
 			if libPkcs11 != "" {
-				_, _, _, certs, err = helper.GetMatchingPKCSCerts(certIdentifier, nil, libPkcs11, slotPkcs11)
+				_, _, _, _, certs, err = helper.GetMatchingPKCSCerts(certIdentifier, nil, libPkcs11, "")
 				if err != nil {
 					log.Println(err)
 					os.Exit(1)
