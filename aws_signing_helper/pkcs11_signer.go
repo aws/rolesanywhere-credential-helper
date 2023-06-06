@@ -100,7 +100,16 @@ func matchSlots(slots []SlotIdInfo, uri *pkcs11uri.Pkcs11URI) (matches []SlotIdI
 func openPKCS11Module(lib string) (module *pkcs11.Ctx, slots []SlotIdInfo, err error) {
 	var slot_ids []uint
 
+	// In a properly configured system, nobody should need to override this.
+	if lib == "" {
+		lib = "p11-kit-proxy.so"
+	}
+
 	module = pkcs11.New(lib)
+	if module == nil {
+		err = errors.New("Failed to load provider library " + lib)
+		goto fail
+	}
 	if err = module.Initialize(); err != nil {
 		goto fail
 	}
@@ -140,6 +149,7 @@ fail:
 
 // Opens a session with the PKCS #11 module
 func openPKCS11Session(lib string, slot uint, uri *pkcs11uri.Pkcs11URI) (module *pkcs11.Ctx, session pkcs11.SessionHandle, err error) {
+
 	module, _, err = openPKCS11Module(lib)
 	if err != nil {
 		goto fail
@@ -471,7 +481,7 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 
 // Returns a PKCS11Signer, that can be used to sign a payload through a PKCS11-compatible
 // cryptographic device
-func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 string, slotPkcs11 uint, certificate *x509.Certificate, certificateChain []*x509.Certificate, privateKeyId string, certificateId string) (signer Signer, signingAlgorithm string, err error) {
+func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificate *x509.Certificate, certificateChain []*x509.Certificate, privateKeyId string, certificateId string) (signer Signer, signingAlgorithm string, err error) {
 	var templatePrivateKey []*pkcs11.Attribute
 	var sessionPrivateKeyObjects []pkcs11.ObjectHandle
 	var privateKeyHandle pkcs11.ObjectHandle
@@ -482,6 +492,7 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 
 	var cert_uri *pkcs11uri.Pkcs11URI
 	var logged_in bool
 	var slots []SlotIdInfo
+	var pinPkcs11 string
 
 	module, slots, err = openPKCS11Module(libPkcs11)
 	if err != nil {
@@ -494,12 +505,8 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, pinPkcs11 
 	        if (err != nil) {
 		    goto fail
 		}
+		pinPkcs11, _ := cert_uri.GetQueryAttribute("pin-value", false)
 		session, logged_in, certificate, _, err = getMatchingCerts(module, slots, certIdentifier, cert_uri, pinPkcs11)
-		if err != nil {
-			goto fail
-		}
-	} else {
-		module, session, err = openPKCS11Session(libPkcs11, slotPkcs11, nil)
 		if err != nil {
 			goto fail
 		}

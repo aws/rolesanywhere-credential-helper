@@ -130,7 +130,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		}
 
 		return GetFileSystemSignerWithCertificate(privateKey, opts.CertificateId, opts.CertificateBundleId)
-	} else if opts.LibPkcs11 != "" && opts.PinPkcs11 != "" {
+	} else if strings.HasPrefix(opts.PrivateKeyId, "pkcs11:") {
 		var certificate *x509.Certificate
 		if opts.CertificateId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
 			certificates, err := ReadCertificateBundleData(opts.CertificateId)
@@ -150,7 +150,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			}
 		}
 
-		return GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, opts.PinPkcs11, opts.SlotPkcs11, certificate, certificateBundle, opts.PrivateKeyId, opts.CertificateId)
+		return GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, certificate, certificateBundle, opts.PrivateKeyId, opts.CertificateId)
 	} else {
 		return GetCertStoreSigner(opts.CertIdentifier)
 	}
