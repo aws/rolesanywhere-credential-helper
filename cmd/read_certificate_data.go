@@ -5,6 +5,7 @@ import (
 	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
+	"strings"
 	"fmt"
 	"log"
 	"os"
@@ -19,8 +20,6 @@ func init() {
 	readCertificateDataCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify 
 a certificate from a certificate store. Can be passed in either as string or a file name (prefixed by "file://")`)
 	readCertificateDataCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
-	readCertificateDataCmd.PersistentFlags().UintVar(&slotPkcs11, "pkcs11-slot", 0, "PKCS #11 slot in which to search for the certificate")
-	readCertificateDataCmd.MarkFlagsRequiredTogether("pkcs11-lib")
 }
 
 var readCertificateDataCmd = &cobra.Command{
@@ -35,31 +34,31 @@ var readCertificateDataCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		if libPkcs11 == "" && certIdentifier == (helper.CertIdentifier{}) {
+		var certs []*x509.Certificate
+
+		if strings.HasPrefix(certificateId, "pkcs11:") {
+			certs, err = helper.GetMatchingPKCSCerts(certIdentifier, certificateId, libPkcs11)
+			if err != nil {
+				log.Println(err)
+				os.Exit(1)
+			}
+		} else if certificateId != "" && certIdentifier == (helper.CertIdentifier{}) {
 			data, _ := helper.ReadCertificateData(certificateId)
 			buf, _ := json.Marshal(data)
 			fmt.Print(string(buf[:]))
+			// Leaves 'certs' empty
 		} else {
-			var certs []*x509.Certificate
-			if libPkcs11 != "" {
-				_, _, _, _, _, certs, err = helper.GetMatchingPKCSCerts(certIdentifier, nil, libPkcs11, "")
-				if err != nil {
-					log.Println(err)
-					os.Exit(1)
-				}
-			} else {
-				certs, err = helper.GetMatchingCerts(certIdentifier)
-				if err != nil {
-					log.Println(err)
-					os.Exit(1)
-				}
+			certs, err = helper.GetMatchingCerts(certIdentifier)
+			if err != nil {
+				log.Println(err)
+				os.Exit(1)
 			}
-			for index, cert := range certs {
-				fingerprint := sha1.Sum(cert.Raw) // nosemgrep
-				fingerprintHex := hex.EncodeToString(fingerprint[:])
-				fmt.Printf("Matching identities\n")
-				fmt.Printf("%d) %s \"%s\"\n", index+1, fingerprintHex, cert.Subject.String())
-			}
+		}
+		for index, cert := range certs {
+			fingerprint := sha1.Sum(cert.Raw) // nosemgrep
+			fingerprintHex := hex.EncodeToString(fingerprint[:])
+			fmt.Printf("Matching identities\n")
+			fmt.Printf("%d) %s \"%s\"\n", index+1, fingerprintHex, cert.Subject.String())
 		}
 	},
 }
