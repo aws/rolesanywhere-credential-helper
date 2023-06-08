@@ -194,8 +194,14 @@ func getFindTemplate(uri *pkcs11uri.Pkcs11URI, class uint) (template []*pkcs11.A
 	return template
 }
 
+type CertObjInfo struct {
+	id	[]byte
+	label	[]byte
+	x509	*x509.Certificate
+}
+
 // Gets all certificates within the PKCS #11 session
-func getCerts(module *pkcs11.Ctx, session pkcs11.SessionHandle, uri *pkcs11uri.Pkcs11URI, certIdentifier CertIdentifier) (certs []*x509.Certificate, err error) {
+func getCerts(module *pkcs11.Ctx, session pkcs11.SessionHandle, uri *pkcs11uri.Pkcs11URI, certIdentifier CertIdentifier, single bool) (certs []CertObjInfo, err error) {
 	var sessionCertObjects []pkcs11.ObjectHandle
 	var certObjects []pkcs11.ObjectHandle
 	var templateCrt []*pkcs11.Attribute
@@ -227,19 +233,33 @@ func getCerts(module *pkcs11.Ctx, session pkcs11.SessionHandle, uri *pkcs11uri.P
 		crtAttributes := []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_VALUE, 0),
 		}
-
 		if crtAttributes, err = module.GetAttributeValue(session, certObject, crtAttributes); err != nil {
 			return nil, err
 		}
 
 		rawCert := crtAttributes[0].Value
-		curCert, err := x509.ParseCertificate(rawCert)
+
+		var cert_obj CertObjInfo
+
+		cert_obj.x509, err = x509.ParseCertificate(rawCert)
 		if err != nil {
 			return nil, errors.New("error parsing certificate")
 		}
 
-		if certMatches(certIdentifier, *curCert) {
-			certs = append(certs, curCert)
+		if certMatches(certIdentifier, *cert_obj.x509) {
+			crtAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_ID, 0)
+			crtAttributes, err = module.GetAttributeValue(session, certObject, crtAttributes)
+			if err == nil {
+				cert_obj.id = crtAttributes[0].Value
+			}
+
+			crtAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0)
+			crtAttributes, err = module.GetAttributeValue(session, certObject, crtAttributes)
+			if err == nil {
+				cert_obj.label = crtAttributes[0].Value
+			}
+
+			certs = append(certs, cert_obj)
 		}
 	}
 
@@ -247,7 +267,7 @@ func getCerts(module *pkcs11.Ctx, session pkcs11.SessionHandle, uri *pkcs11uri.P
 }
 
 // Gets certificates that match the passed in CertIdentifier
-func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, certIdentifier CertIdentifier, uri *pkcs11uri.Pkcs11URI, pinPkcs11 string) (session pkcs11.SessionHandle, slot_nr uint, logged_in bool, cert *x509.Certificate, matchingCerts []*x509.Certificate, err error) {
+func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, certIdentifier CertIdentifier, uri *pkcs11uri.Pkcs11URI, single bool, pinPkcs11 *string) (session pkcs11.SessionHandle, slot_nr uint, logged_in bool, matchingCerts []CertObjInfo, err error) {
 	if uri != nil {
 		slots = matchSlots(slots, uri)
 	}
@@ -258,26 +278,26 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, certIdentifier Cer
 			continue
 		}
 
-		matchingCerts, err = getCerts(module, session, uri, certIdentifier)
+		matchingCerts, err = getCerts(module, session, uri, certIdentifier, single)
 		if err == nil && len(matchingCerts) > 0 {
-			return session, slot.id, false, matchingCerts[0], matchingCerts, nil
+			return session, slot.id, false, matchingCerts, nil
 		}
 		module.CloseSession(session)
 	}
 
-	if (len(slots) == 1 && pinPkcs11 != "") {
+	if (len(slots) == 1 && *pinPkcs11 != "") {
 		session, err = module.OpenSession(slots[0].id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 		if err != nil {
 			goto no_certs
 		}
 
-		err = module.Login(session, pkcs11.CKU_USER, pinPkcs11)
+		err = module.Login(session, pkcs11.CKU_USER, *pinPkcs11)
 		if err != nil {
 			goto no_certs
 		}
-		matchingCerts, err = getCerts(module, session, uri, certIdentifier)
+		matchingCerts, err = getCerts(module, session, uri, certIdentifier, single)
 		if err == nil && len(matchingCerts) > 0 {
-			return session, slots[0].id, true, matchingCerts[0], matchingCerts, nil
+			return session, slots[0].id, true, matchingCerts, nil
 		}
 		module.CloseSession(session)
 	}
@@ -285,21 +305,34 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, certIdentifier Cer
 no_certs:
 	err = errors.New("no matching certificates")
 
-	return 0, 0, false, nil, nil, err
+	return 0, 0, false, nil, err
 }
 
-func GetMatchingPKCSCerts(certIdentifier CertIdentifier, uri *pkcs11uri.Pkcs11URI, lib string, pinPkcs11 string) (module *pkcs11.Ctx, session pkcs11.SessionHandle, slot_nr uint, logged_in bool, cert *x509.Certificate, matchingCerts []*x509.Certificate, err error) {
+func GetMatchingPKCSCerts(certIdentifier CertIdentifier, uristr string, lib string) (matchingCerts []*x509.Certificate, err error) {
 	var slots []SlotIdInfo
+	var module *pkcs11.Ctx
+	var session pkcs11.SessionHandle
+	var uri *pkcs11uri.Pkcs11URI
+	var pin string
+	var cert_objs []CertObjInfo
+
+	uri = pkcs11uri.New()
+	err = uri.Parse(uristr)
+	if err != nil {
+		return nil, err
+	}
+
+	pin, _ = uri.GetQueryAttribute("pin-value", false)
 
 	module, slots, err = openPKCS11Module(lib)
 	if err != nil {
-		return nil, 0, 0, false, nil, nil, err
+		return nil, err
 	}
 
-	session, slot_nr, logged_in, cert, matchingCerts, err = getMatchingCerts(module, slots, certIdentifier, uri, pinPkcs11)
+	session, _, _, cert_objs, err = getMatchingCerts(module, slots, certIdentifier, uri, false, &pin)
 
-	if (err != nil) {
-		return module, session, slot_nr, logged_in, cert, matchingCerts, nil
+	if session != 0 {
+		module.CloseSession(session)
 	}
 
 	if module != nil {
@@ -307,8 +340,12 @@ func GetMatchingPKCSCerts(certIdentifier CertIdentifier, uri *pkcs11uri.Pkcs11UR
 		module.Destroy()
 	}
 
-	return nil, 0, 0, false, nil, nil, err
+	for _, obj := range cert_objs {
+		matchingCerts = append(matchingCerts, obj.x509)
+	}
+	return matchingCerts, err
 }
+
 // Returns the public key associated with this PKCS11Signer
 func (pkcs11Signer *PKCS11Signer) Public() crypto.PublicKey {
 	return pkcs11Signer.cert.PublicKey
@@ -390,7 +427,7 @@ func (pkcs11Signer *PKCS11Signer) CertificateChain() (chain []*x509.Certificate,
 	chain = append(chain, pkcs11Signer.cert)
 
 	var no_identifier CertIdentifier
-	certsFound, err := getCerts(module, session, nil, no_identifier)
+	certsFound, err := getCerts(module, session, nil, no_identifier, false)
 	if err != nil {
 		return nil, err
 	}
@@ -399,9 +436,9 @@ func (pkcs11Signer *PKCS11Signer) CertificateChain() (chain []*x509.Certificate,
 		nextInChainFound := false
 		for i, curCert := range certsFound {
 			curLastCert := chain[len(chain)-1]
-			if certIssues(curLastCert, curCert) {
+			if certIssues(curLastCert, curCert.x509) {
 				nextInChainFound = true
-				chain = append(chain, curCert)
+				chain = append(chain, curCert.x509)
 
 				// Remove current cert, so that it won't be iterated again
 				lastIndex := len(certsFound) - 1
@@ -495,6 +532,7 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificat
 	var slot_nr uint
 	var slots []SlotIdInfo
 	var pinPkcs11 string
+	var cert_obj []CertObjInfo
 
 	module, slots, err = openPKCS11Module(libPkcs11)
 	if err != nil {
@@ -508,10 +546,11 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificat
 		    goto fail
 		}
 		pinPkcs11, _ := cert_uri.GetQueryAttribute("pin-value", false)
-		session, slot_nr, logged_in, certificate, _, err = getMatchingCerts(module, slots, certIdentifier, cert_uri, pinPkcs11)
+		session, slot_nr, logged_in, cert_obj, err = getMatchingCerts(module, slots, certIdentifier, cert_uri, true, &pinPkcs11)
 		if err != nil {
 			goto fail
 		}
+		certificate = cert_obj[0].x509
 	}
 
 	if (privateKeyId != "") {
