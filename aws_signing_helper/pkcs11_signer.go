@@ -15,7 +15,8 @@ import (
 	"strings"
 	"syscall"
 	"log"
-
+	"unsafe"
+	
 	pkcs11uri "github.com/stefanberger/go-pkcs11uri"
 	"github.com/miekg/pkcs11"
 	"golang.org/x/term"
@@ -31,6 +32,7 @@ type PKCS11Signer struct {
 	session          pkcs11.SessionHandle
 	privateKeyHandle pkcs11.ObjectHandle
 	pin              string
+	keyType		 uint
 }
 
 // Helper function to check whether the passed in []uint contains a given element
@@ -368,10 +370,10 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 	module := pkcs11Signer.module
 	session := pkcs11Signer.session
 	privateKeyHandle := pkcs11Signer.privateKeyHandle
-	cert := pkcs11Signer.cert
+	keyType := pkcs11Signer.keyType
 
 	var mechanism uint
-	if cert.PublicKeyAlgorithm == x509.ECDSA {
+	if keyType == pkcs11.CKK_EC {
 		mechanism = pkcs11.CKM_ECDSA
 	} else {
 		switch opts.HashFunc() {
@@ -516,6 +518,20 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 	return false
 }
 
+func bytesToUint(b []byte) (res uint) {
+	if len(b) == 4 {
+		var p32 *uint32
+		p32 = (*uint32)(unsafe.Pointer(&b[0]))
+		return uint(*p32)
+	}
+	if len(b) == 8 {
+		var p64 *uint64
+		p64 = (*uint64)(unsafe.Pointer(&b[0]))
+		return uint(*p64)
+	}
+	return 0xFFFFFFFF
+}
+
 // Returns a PKCS11Signer, that can be used to sign a payload through a PKCS11-compatible
 // cryptographic device
 func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificate *x509.Certificate, certificateChain []*x509.Certificate, privateKeyId string, certificateId string) (signer Signer, signingAlgorithm string, err error) {
@@ -533,13 +549,15 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificat
 	var slots []SlotIdInfo
 	var pinPkcs11 string
 	var cert_obj []CertObjInfo
+	var keyAttributes  []*pkcs11.Attribute
+	var keyType uint
 
 	module, slots, err = openPKCS11Module(libPkcs11)
 	if err != nil {
 		goto fail
 	}
 
-	if certificate == nil {
+	if certificate == nil && certificateId != "" {
 		cert_uri = pkcs11uri.New()
 		err = cert_uri.Parse(certificateId)
 	        if (err != nil) {
@@ -631,26 +649,36 @@ got_slot:
 	}
 
 	for _, curPrivateKeyHandle := range sessionPrivateKeyObjects {
-		if checkPrivateKeyMatchesCert(module, session, pinPkcs11, curPrivateKeyHandle, certificate, manufacturerId) {
+		if certificate == nil ||
+		   checkPrivateKeyMatchesCert(module, session, pinPkcs11, curPrivateKeyHandle, certificate, manufacturerId) {
 			privateKeyHandle = curPrivateKeyHandle
+			break
 		}
 	}
+
 	if privateKeyHandle == 0 {
 		err = errors.New("unable to find matching private key")
 		goto fail
 	}
 
 	// Find the signing algorithm
-	switch certificate.PublicKey.(type) {
-	case *ecdsa.PublicKey:
+	keyAttributes = []*pkcs11.Attribute{
+		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, 0),
+	}
+	if keyAttributes, err = module.GetAttributeValue(session, privateKeyHandle, keyAttributes); err != nil {
+		goto fail
+	}
+	keyType = bytesToUint(keyAttributes[0].Value)
+	switch (keyType) {
+	case pkcs11.CKK_EC:
 		signingAlgorithm = aws4_x509_ecdsa_sha256
-	case *rsa.PublicKey:
+	case pkcs11.CKK_RSA:
 		signingAlgorithm = aws4_x509_rsa_sha256
 	default:
 		return nil, "", errors.New("unsupported algorithm")
 	}
 
-	return &PKCS11Signer{certificate, nil, module, session, privateKeyHandle, pinPkcs11}, signingAlgorithm, nil
+	return &PKCS11Signer{certificate, nil, module, session, privateKeyHandle, pinPkcs11, keyType}, signingAlgorithm, nil
 
 fail:
 	if module != nil {
