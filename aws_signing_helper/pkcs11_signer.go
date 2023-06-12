@@ -350,7 +350,10 @@ func GetMatchingPKCSCerts(certIdentifier CertIdentifier, uristr string, lib stri
 
 // Returns the public key associated with this PKCS11Signer
 func (pkcs11Signer *PKCS11Signer) Public() crypto.PublicKey {
-	return pkcs11Signer.cert.PublicKey
+	if pkcs11Signer.cert != nil {
+		return pkcs11Signer.cert.PublicKey
+	}
+	return nil
 }
 
 // Closes this PKCS11Signer
