@@ -394,10 +394,12 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 		return nil, fmt.Errorf("signing initiation failed (%s)", err.Error())
 	}
 
-//	err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pkcs11Signer.pin)
-//	if err != nil {
-//		return nil, fmt.Errorf("user re-authentication failed (%s)", err.Error())
-//	}
+	if pkcs11Signer.pin != "" {
+		err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pkcs11Signer.pin)
+		if err != nil {
+			return nil, fmt.Errorf("user re-authentication failed (%s)", err.Error())
+		}
+	}
 
 	sig, err := module.Sign(session, digest)
 	if err != nil {
@@ -472,7 +474,7 @@ func getManufacturerId(module *pkcs11.Ctx) (string, error) {
 }
 
 // Checks whether the private key and certificate are associated with each other
-func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, pinPkcs11 string, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate, manufacturerId string) bool {
+func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, alwaysAuth uint, pinPkcs11 string, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate, manufacturerId string) bool {
 	var digestSuffix []byte
 	publicKey := certificate.PublicKey
 	ecdsaPublicKey, isEcKey := publicKey.(*ecdsa.PublicKey)
@@ -498,10 +500,12 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 		return false
 	}
 
-//	err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pinPkcs11)
-//	if err != nil {
-//		return false
-//	}
+	if alwaysAuth != 0 && pinPkcs11 != "" {
+		err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pinPkcs11)
+		if err != nil {
+			return false
+		}
+	}
 
 	signature, err := module.Sign(session, digestBytes[:])
 	if err != nil {
@@ -521,18 +525,26 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 	return false
 }
 
-func bytesToUint(b []byte) (res uint) {
+func bytesToUint(b []byte) (res uint, err error) {
+	if len(b) == 1 {
+		return uint(b[0]), nil
+	}
+	if len(b) == 2 {
+		var p16 *uint16
+		p16 = (*uint16)(unsafe.Pointer(&b[0]))
+		return uint(*p16), nil
+	}
 	if len(b) == 4 {
 		var p32 *uint32
 		p32 = (*uint32)(unsafe.Pointer(&b[0]))
-		return uint(*p32)
+		return uint(*p32), nil
 	}
 	if len(b) == 8 {
 		var p64 *uint64
 		p64 = (*uint64)(unsafe.Pointer(&b[0]))
-		return uint(*p64)
+		return uint(*p64), nil
 	}
-	return 0xFFFFFFFF
+	return 0, errors.New("Unsupported integer size in bytesToUint")
 }
 
 // Returns a PKCS11Signer, that can be used to sign a payload through a PKCS11-compatible
@@ -554,6 +566,7 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificat
 	var cert_obj []CertObjInfo
 	var keyAttributes  []*pkcs11.Attribute
 	var keyType uint
+	var alwaysAuth uint
 
 	module, slots, err = openPKCS11Module(libPkcs11)
 	if err != nil {
@@ -652,8 +665,32 @@ got_slot:
 	}
 
 	for _, curPrivateKeyHandle := range sessionPrivateKeyObjects {
+		// Find the signing algorithm
+		keyAttributes = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, 0),
+		}
+		if keyAttributes, err = module.GetAttributeValue(session, curPrivateKeyHandle, keyAttributes); err != nil {
+			continue
+		}
+		keyType, err = bytesToUint(keyAttributes[0].Value)
+		if err != nil {
+			goto fail
+		}
+
+		keyAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_ALWAYS_AUTHENTICATE, 0)
+		keyAttributes, err = module.GetAttributeValue(session, curPrivateKeyHandle, keyAttributes)
+		if err == nil {
+			alwaysAuth, err = bytesToUint(keyAttributes[0].Value)
+			if err != nil {
+				goto fail
+			}
+		} else {
+			alwaysAuth = 0
+		}
+
+
 		if certificate == nil ||
-		   checkPrivateKeyMatchesCert(module, session, pinPkcs11, curPrivateKeyHandle, certificate, manufacturerId) {
+			checkPrivateKeyMatchesCert(module, session, alwaysAuth, pinPkcs11, curPrivateKeyHandle, certificate, manufacturerId) {
 			privateKeyHandle = curPrivateKeyHandle
 			break
 		}
@@ -664,14 +701,6 @@ got_slot:
 		goto fail
 	}
 
-	// Find the signing algorithm
-	keyAttributes = []*pkcs11.Attribute{
-		pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, 0),
-	}
-	if keyAttributes, err = module.GetAttributeValue(session, privateKeyHandle, keyAttributes); err != nil {
-		goto fail
-	}
-	keyType = bytesToUint(keyAttributes[0].Value)
 	switch (keyType) {
 	case pkcs11.CKK_EC:
 		signingAlgorithm = aws4_x509_ecdsa_sha256
@@ -679,6 +708,10 @@ got_slot:
 		signingAlgorithm = aws4_x509_rsa_sha256
 	default:
 		return nil, "", errors.New("unsupported algorithm")
+	}
+
+	if alwaysAuth == 0 {
+		pinPkcs11 = ""
 	}
 
 	return &PKCS11Signer{certificate, nil, module, session, privateKeyHandle, pinPkcs11, keyType}, signingAlgorithm, nil
