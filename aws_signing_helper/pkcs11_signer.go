@@ -377,6 +377,8 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 
 	var mechanism uint
 	if keyType == pkcs11.CKK_EC {
+		hash := sha256.Sum256(digest)
+		digest = hash[:]
 		mechanism = pkcs11.CKM_ECDSA
 	} else {
 		switch opts.HashFunc() {
@@ -406,6 +408,9 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 		return nil, fmt.Errorf("signing failed (%s)", err.Error())
 	}
 
+	if mechanism == pkcs11.CKM_ECDSA {
+		sig = encode_ecdsa_sig_value(sig)
+	}
 	return sig, nil
 }
 
@@ -473,20 +478,72 @@ func getManufacturerId(module *pkcs11.Ctx) (string, error) {
 	return info.ManufacturerID, nil
 }
 
+func encode_bignum(value []byte) (asn1 []byte) {
+
+	// ASN.1 INTEGER is signed; prepend a zero if needed
+	if value[0] >= 0x80 {
+		value = append([]byte{0x00}, value...)
+	} else {
+		for value[0] == 0x00 && len(value) > 1 && value[1] < 0x80 {
+			value = value[1:]
+		}
+	}
+
+	asn1 = append(asn1, 0x02) // INTEGER
+	asn1 = append(asn1, byte(len(value)))
+	asn1 = append(asn1[:], value[:]...)
+	return asn1
+}
+
+func encode_ecdsa_sig_value(signature []byte) (asn1 []byte) {
+	siglen := len(signature) / 2
+
+	r := encode_bignum(signature[:siglen])
+	s := encode_bignum(signature[siglen:])
+
+	derlen := len(r) + len(s)
+
+	asn1 = append(asn1, 0x30) // SEQUENCE
+	if derlen < 0x80 {
+		asn1 = append(asn1, byte(derlen)) // Length indeterminate
+	} else if derlen < 0xff {
+		asn1 = append(asn1, 0x81)
+		asn1 = append(asn1, byte(derlen))
+	} else {
+		asn1 = append(asn1, 0x82)
+		asn1 = append(asn1, byte(derlen >> 8))
+		asn1 = append(asn1, byte(derlen & 0xff))
+	}
+
+	asn1 = append(asn1[:], r[:]...)
+	asn1 = append(asn1[:], s[:]...)
+
+	return asn1
+}
+
 // Checks whether the private key and certificate are associated with each other
-func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, alwaysAuth uint, pinPkcs11 string, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate, manufacturerId string) bool {
+func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, keyType uint, alwaysAuth uint, pinPkcs11 string, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate, manufacturerId string) bool {
 	var digestSuffix []byte
+	var mechanism uint
 	publicKey := certificate.PublicKey
 	ecdsaPublicKey, isEcKey := publicKey.(*ecdsa.PublicKey)
 	if isEcKey {
 		digestSuffixArr := sha256.Sum256(append([]byte("IAM RA"), elliptic.Marshal(ecdsaPublicKey, ecdsaPublicKey.X, ecdsaPublicKey.Y)...))
 		digestSuffix = digestSuffixArr[:]
+		mechanism = pkcs11.CKM_ECDSA
+		if keyType != pkcs11.CKK_EC {
+			return false
+		}
 	}
 
 	rsaPublicKey, isRsaKey := publicKey.(*rsa.PublicKey)
 	if isRsaKey {
 		digestSuffixArr := sha256.Sum256(append([]byte("IAM RA"), x509.MarshalPKCS1PublicKey(rsaPublicKey)...))
 		digestSuffix = digestSuffixArr[:]
+		mechanism = pkcs11.CKM_SHA256_RSA_PKCS
+		if keyType != pkcs11.CKK_RSA {
+			return false
+		}
 	}
 	// "AWS Roles Anywhere Credential Helper PKCS11 Test" || PKCS11_TEST_VERSION ||
 	// MANUFACTURER_ID || SHA256("IAM RA" || PUBLIC_KEY_BYTE_ARRAY)
@@ -494,8 +551,12 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 		strconv.Itoa(int(PKCS11_TEST_VERSION)) + manufacturerId + string(digestSuffix)
 	digestBytes := []byte(digest)
 	hash := sha256.Sum256(digestBytes)
+	if isEcKey {
+		// For CKM_ECDSA we pass in a hash, not the plain message
+		digestBytes = hash[:]
+	}
 
-	err := module.SignInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(pkcs11.CKM_SHA256_RSA_PKCS, nil)}, privateKeyHandle)
+	err := module.SignInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, nil)}, privateKeyHandle)
 	if err != nil {
 		return false
 	}
@@ -506,13 +567,13 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 			return false
 		}
 	}
-
-	signature, err := module.Sign(session, digestBytes[:])
+	signature, err := module.Sign(session, digestBytes)
 	if err != nil {
 		return false
 	}
 
 	if isEcKey {
+		signature = encode_ecdsa_sig_value(signature)
 		valid := ecdsa.VerifyASN1(ecdsaPublicKey, hash[:], signature)
 		return valid
 	}
@@ -690,7 +751,7 @@ got_slot:
 
 
 		if certificate == nil ||
-			checkPrivateKeyMatchesCert(module, session, alwaysAuth, pinPkcs11, curPrivateKeyHandle, certificate, manufacturerId) {
+			checkPrivateKeyMatchesCert(module, session, keyType, alwaysAuth, pinPkcs11, curPrivateKeyHandle, certificate, manufacturerId) {
 			privateKeyHandle = curPrivateKeyHandle
 			break
 		}
