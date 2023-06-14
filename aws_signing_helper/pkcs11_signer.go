@@ -582,6 +582,30 @@ func bytesToUint(b []byte) (res uint, err error) {
 	return 0, errors.New("Unsupported integer size in bytesToUint")
 }
 
+
+/*
+ * Lifted from pkcs11uri.go because it doesn't let us set an attribute
+ * from a []byte; only a pct-encoded string.
+ * https://github.com/stefanberger/go-pkcs11uri/issues/11
+ */
+
+// upper character hex digits needed for pct-encoding
+const hexchar = "0123456789ABCDEF"
+
+// escapeAll pct-escapes all characters in the string
+func escapeAll(s []byte) string {
+        res := make([]byte, len(s)*3)
+        j := 0
+        for i := 0; i < len(s); i++ {
+                c := s[i]
+                res[j] = '%'
+                res[j+1] = hexchar[c>>4]
+                res[j+2] = hexchar[c&0xf]
+                j += 3
+        }
+        return string(res)
+}
+
 // Returns a PKCS11Signer, that can be used to sign a payload through a PKCS11-compatible
 // cryptographic device
 func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificate *x509.Certificate, certificateChain []*x509.Certificate, privateKeyId string, certificateId string) (signer Signer, signingAlgorithm string, err error) {
@@ -679,7 +703,7 @@ got_slot:
 			goto fail
 		}
 	}
-
+retry_search:
 	templatePrivateKey = getFindTemplate(key_uri, pkcs11.CKO_PRIVATE_KEY)
 
 	if err = module.FindObjectsInit(session, templatePrivateKey); err != nil {
@@ -732,6 +756,24 @@ got_slot:
 	}
 
 	if privateKeyHandle == 0 {
+		/*
+		 * "If the key is not found and the original search was by
+		 * CKA_LABEL of the certificate, then repeat the search using
+		 * the CKA_ID of the certificate that was actually found, but
+		 * not requiring a CKA_LABEL match."
+		 *
+		 * http://david.woodhou.se/draft-woodhouse-cert-best-practice.html#rfc.section.8.2
+		 */
+		if (privateKeyId == "" || privateKeyId == certificateId) &&
+			certificate != nil && cert_obj[0].id != nil {
+			_, key_had_label := key_uri.GetPathAttribute("object", false)
+			if key_had_label {
+				key_uri.RemovePathAttribute("object")
+				key_uri.SetPathAttribute("id", escapeAll(cert_obj[0].id))
+				goto retry_search
+			}
+		}
+
 		err = errors.New("unable to find matching private key")
 		goto fail
 	}
