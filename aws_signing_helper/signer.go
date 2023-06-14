@@ -190,9 +190,9 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 	if strings.HasPrefix(privateKeyId, "pkcs11:") {
 		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId)
 	} else {
-		_, err := parseDERFromPEM(privateKeyId, "TSS2 PRIVATE KEY")
+		tpmkey, err := parseDERFromPEM(privateKeyId, "TSS2 PRIVATE KEY")
 		if err == nil {
-			return nil, "", errors.New("TPMv2 support not implemented yet")
+			return GetTPMv2Signer(certificate, certificateChain, tpmkey)
 		}
 
 		privateKey, err := ReadPrivateKeyData(privateKeyId)
