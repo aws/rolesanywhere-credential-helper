@@ -2,13 +2,19 @@ package aws_signing_helper
 
 import (
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/sha1"
+	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/pem"
 	"errors"
 	"io"
+	"math/big"
 
 	tpm2 "github.com/google/go-tpm/tpm2"
+	tpmutil "github.com/google/go-tpm/tpmutil"
 )
 
 type tpm2_TPMPolicy struct {
@@ -46,6 +52,26 @@ func handleIsPersistent(h int) bool {
 	return (h >> 24) == int(tpm2.HandleTypePersistent)
 }
 
+var primaryParams = tpm2.Public{
+	Type:       tpm2.AlgECC,
+	NameAlg:    tpm2.AlgSHA256,
+	Attributes: tpm2.FlagUserWithAuth | tpm2.FlagRestricted | tpm2.FlagDecrypt | tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagNoDA | tpm2.FlagSensitiveDataOrigin,
+	ECCParameters: &tpm2.ECCParams{
+		Symmetric: &tpm2.SymScheme{
+			Alg:     tpm2.AlgAES,
+			KeyBits: 128,
+			Mode:    tpm2.AlgCFB,
+		},
+		Sign: &tpm2.SigScheme{
+			Alg: tpm2.AlgNull,
+		},
+		CurveID: tpm2.CurveNISTP256,
+		KDF: &tpm2.KDFScheme{
+			Alg: tpm2.AlgNull,
+		},
+	},
+}
+
 // Returns the public key associated with this TPMv2Signer
 func (tpmv2Signer *TPMv2Signer) Public() crypto.PublicKey {
 	ret, _ := tpmv2Signer.public.Key()
@@ -58,7 +84,90 @@ func (tpmv2Signer *TPMv2Signer) Close() {
 
 // Implements the crypto.Signer interface and signs the passed in digest
 func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-	return nil, errors.New("Not implemented yet")
+	rw, err := tpm2.OpenTPM("/dev/tpmrm0")
+	if err != nil {
+		return nil, err
+	}
+	defer rw.Close()
+
+	parentHandle := tpmutil.Handle(tpmv2Signer.tpmData.Parent)
+	if !handleIsPersistent(tpmv2Signer.tpmData.Parent) {
+		parentHandle, _, err = tpm2.CreatePrimary(rw, tpmutil.Handle(tpmv2Signer.tpmData.Parent), tpm2.PCRSelection{}, "", "", primaryParams)
+		if err != nil {
+			return nil, err
+		}
+		defer tpm2.FlushContext(rw, parentHandle)
+	}
+
+	keyHandle, _, err := tpm2.Load(rw, parentHandle, "", tpmv2Signer.tpmData.Pubkey[2:], tpmv2Signer.tpmData.Privkey[2:])
+	if err != nil {
+		return nil, err
+	}
+	defer tpm2.FlushContext(rw, keyHandle)
+
+	var algo tpm2.Algorithm
+	var shadigest []byte
+
+	switch opts.HashFunc() {
+	case crypto.SHA256:
+		sha256digest := sha256.Sum256(digest)
+		shadigest = sha256digest[:]
+	case crypto.SHA384:
+		sha384digest := sha512.Sum384(digest)
+		shadigest = sha384digest[:]
+	case crypto.SHA512:
+		sha512digest := sha512.Sum512(digest)
+		shadigest = sha512digest[:]
+	}
+
+	// For an EC key we lie to the TPM about what the hash is.
+	// It doesn't actually matter what the original digest was;
+	// the algo we feed to the TPM is *purely* based on the
+	// size of the curve itself. We truncate the actual digest,
+	// or pad with zeroes, to the byte size of the key.
+	pubKey, err := tpmv2Signer.public.Key()
+	if err != nil {
+		return nil, err
+	}
+	ecPubKey, ok := pubKey.(*ecdsa.PublicKey)
+	if !ok {
+		return nil, errors.New("Failed to obtain ecdsa.PublicKey")
+	}
+	bitSize := ecPubKey.Curve.Params().BitSize
+	byteSize := (bitSize + 7) / 8
+	if byteSize > sha512.Size {
+		byteSize = sha512.Size
+	}
+	switch byteSize {
+	case sha512.Size:
+		algo = tpm2.AlgSHA512
+	case sha512.Size384:
+		algo = tpm2.AlgSHA384
+	case sha512.Size256:
+		algo = tpm2.AlgSHA256
+	case sha1.Size:
+		algo = tpm2.AlgSHA1
+	default:
+		return nil, errors.New("Unsupported curve")
+	}
+
+	if len(shadigest) > byteSize {
+		shadigest = shadigest[:byteSize]
+	}
+	for len(shadigest) < byteSize {
+		shadigest = append([]byte{0}, shadigest...)
+	}
+
+	sig, err := tpm2.Sign(rw, keyHandle, "", shadigest, nil,
+		&tpm2.SigScheme{Alg: tpm2.AlgECDSA, Hash: algo})
+	if err != nil {
+		return nil, err
+	}
+	signature, err = asn1.Marshal(struct {
+		R *big.Int
+		S *big.Int
+	}{sig.ECC.R, sig.ECC.S})
+	return signature, err
 }
 
 // Gets the x509.Certificate associated with this TPMv2Signer

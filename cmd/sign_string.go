@@ -101,7 +101,7 @@ var signStringCmd = &cobra.Command{
 		}
 		sigBytes, err := signer.Sign(rand.Reader, stringToSign, digest)
 		if err != nil {
-			log.Println("unable to sign the digest")
+			log.Println("unable to sign the digest:", err)
 			os.Exit(1)
 		}
 		sigStr := hex.EncodeToString(sigBytes)
