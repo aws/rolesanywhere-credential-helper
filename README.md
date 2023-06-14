@@ -131,9 +131,38 @@ Also note that the above step can be done through a [Powershell cmdlet](https://
 
 #### PKCS#11 Integration
 
-The credential helper also supports integration with PKCS #11 modules. There are two modes in which this integration can be used. First, a "hybrid" mode is supported, where the certificate is found on the file system and the private key is found within the PKCS #11 module. And the second mode is when both the certificate and the private key are found within the PKCS #11 module. If the certificate can be found within the PKCS #11 module, it can be referenced through the `--cert-selector` flag.
+As you should expect from all applications which use keys and certificates, you can simply give a
+[PKCS#11 URI](https://datatracker.ietf.org/doc/html/rfc7512) in place of a filename in order to
+use certificates and/or keys from hardware or software PKCS#11 tokens / HSMs. A hybrid mode
+using a certificate from a file but only the key in PKCS#11 is also supported. Some examples:
 
-Parameters relevant to the PKCS #11 integration include `--pkcs11-lib` (the path to the dynamic library that implements the PKCS #11 interface for the module to use), `--pkcs11-pin` (the pin of the PKCS #11 normal user using the module), and `pkcs11-slot` (the slot to search for the private key and potentially the certificate as well).
+  * `--certificate 'pkcs11:manufacturer=piv_II;id=%01'`
+  * `--certificate 'pkcs11:object=My%20RA%20key'`
+  * `--certificate client-cert.pem --private-key 'pkcs11:model=SoftHSM%20v2;object=My%20RA%20key'`
+
+Some documentation which may assist with finding the correct URI for
+your key can be found [here](https://www.infradead.org/openconnect/pkcs11.html).
+
+Most Linux and similar *nix systems use
+[p11-kit](https://p11-glue.github.io/p11-glue/p11-kit/manual/config.html)
+to provide consistent system-wide and per-user configuration of
+available PKCS#11 providers. Any properly packaged provider module
+will register itself with p11-kit and will be automatically visible
+through the `p11-kit-proxy.so` provider which is used by default.
+
+If you have a poorly packaged provider module from a vendor, then
+after you have filed a bug you can manually create a p11-kit [module
+file](https://p11-glue.github.io/p11-glue/p11-kit/manual/pkcs11-conf.html)
+for it.
+
+For systems or containers which lack p11-kit, a specific PKCS#11
+provider library can be specified using the `--pkcs11-lib` command
+line option.
+
+The PKCS#11 URI is itself a set of search terms to find a matching object
+in the PKCS#11 token, but if that is not sufficient to uniquely identify
+the certificate, further refinement of matching certificates can be
+achieved through the `--cert-selector` flag.
 
 ### update
 
