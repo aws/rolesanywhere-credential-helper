@@ -82,6 +82,26 @@ func (tpmv2Signer *TPMv2Signer) Public() crypto.PublicKey {
 func (tpmv2Signer *TPMv2Signer) Close() {
 }
 
+func padPKCS1_15(input []byte, size uint) (output []byte, err error) {
+	var PKCS1_PAD_OVERHEAD = 11
+
+	if uint(len(input)+PKCS1_PAD_OVERHEAD) > size {
+		return nil, errors.New("Digest too large for RSA signature")
+	}
+
+	padlen := size - uint(len(input))
+	output = make([]byte, size)
+	output[0] = 0x00
+	output[1] = 0x01
+	var i uint
+	for i = 2; i < padlen-1; i++ {
+		output[i] = 0xff
+	}
+	output[padlen-1] = 0x00
+	copy(output[padlen:], input)
+	return output, nil
+}
+
 // Implements the crypto.Signer interface and signs the passed in digest
 func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	rw, err := tpm2.OpenTPM("/dev/tpmrm0")
@@ -107,67 +127,99 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 
 	var algo tpm2.Algorithm
 	var shadigest []byte
+	var asn1Prefix []byte
 
 	switch opts.HashFunc() {
 	case crypto.SHA256:
 		sha256digest := sha256.Sum256(digest)
 		shadigest = sha256digest[:]
+		algo = tpm2.AlgSHA256
+		asn1Prefix = []byte{0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20}
 	case crypto.SHA384:
 		sha384digest := sha512.Sum384(digest)
 		shadigest = sha384digest[:]
+		algo = tpm2.AlgSHA384
+		asn1Prefix = []byte{0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05, 0x00, 0x04, 0x30}
 	case crypto.SHA512:
 		sha512digest := sha512.Sum512(digest)
 		shadigest = sha512digest[:]
-	}
-
-	// For an EC key we lie to the TPM about what the hash is.
-	// It doesn't actually matter what the original digest was;
-	// the algo we feed to the TPM is *purely* based on the
-	// size of the curve itself. We truncate the actual digest,
-	// or pad with zeroes, to the byte size of the key.
-	pubKey, err := tpmv2Signer.public.Key()
-	if err != nil {
-		return nil, err
-	}
-	ecPubKey, ok := pubKey.(*ecdsa.PublicKey)
-	if !ok {
-		return nil, errors.New("Failed to obtain ecdsa.PublicKey")
-	}
-	bitSize := ecPubKey.Curve.Params().BitSize
-	byteSize := (bitSize + 7) / 8
-	if byteSize > sha512.Size {
-		byteSize = sha512.Size
-	}
-	switch byteSize {
-	case sha512.Size:
 		algo = tpm2.AlgSHA512
-	case sha512.Size384:
-		algo = tpm2.AlgSHA384
-	case sha512.Size256:
-		algo = tpm2.AlgSHA256
-	case sha1.Size:
-		algo = tpm2.AlgSHA1
-	default:
-		return nil, errors.New("Unsupported curve")
+		asn1Prefix = []byte{0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40}
 	}
 
-	if len(shadigest) > byteSize {
-		shadigest = shadigest[:byteSize]
-	}
-	for len(shadigest) < byteSize {
-		shadigest = append([]byte{0}, shadigest...)
-	}
+	if tpmv2Signer.public.Type == tpm2.AlgECC {
 
-	sig, err := tpm2.Sign(rw, keyHandle, "", shadigest, nil,
-		&tpm2.SigScheme{Alg: tpm2.AlgECDSA, Hash: algo})
-	if err != nil {
-		return nil, err
+		// For an EC key we lie to the TPM about what the hash is.
+		// It doesn't actually matter what the original digest was;
+		// the algo we feed to the TPM is *purely* based on the
+		// size of the curve itself. We truncate the actual digest,
+		// or pad with zeroes, to the byte size of the key.
+		pubKey, err := tpmv2Signer.public.Key()
+		if err != nil {
+			return nil, err
+		}
+		ecPubKey, ok := pubKey.(*ecdsa.PublicKey)
+		if !ok {
+			return nil, errors.New("Failed to obtain ecdsa.PublicKey")
+		}
+		bitSize := ecPubKey.Curve.Params().BitSize
+		byteSize := (bitSize + 7) / 8
+		if byteSize > sha512.Size {
+			byteSize = sha512.Size
+		}
+		switch byteSize {
+		case sha512.Size:
+			algo = tpm2.AlgSHA512
+		case sha512.Size384:
+			algo = tpm2.AlgSHA384
+		case sha512.Size256:
+			algo = tpm2.AlgSHA256
+		case sha1.Size:
+			algo = tpm2.AlgSHA1
+		default:
+			return nil, errors.New("Unsupported curve")
+		}
+
+		if len(shadigest) > byteSize {
+			shadigest = shadigest[:byteSize]
+		}
+
+		for len(shadigest) < byteSize {
+			shadigest = append([]byte{0}, shadigest...)
+		}
+
+		sig, err := tpm2.Sign(rw, keyHandle, "", shadigest, nil,
+			&tpm2.SigScheme{Alg: tpm2.AlgECDSA, Hash: algo})
+		if err != nil {
+			return nil, err
+		}
+		signature, err = asn1.Marshal(struct {
+			R *big.Int
+			S *big.Int
+		}{sig.ECC.R, sig.ECC.S})
+		if err != nil {
+			return nil, err
+		}
+	} else {
+		// Both OpenSSL ENGINEs perform a raw RSA Decrypt operation,
+		// having done the ASN.1 encoding of the hash OID and the
+		// actual, and the PKCS#1 v1.5 padding, in software. This
+		// is because the TPM needs to *know* the digest in order
+		// to use the Sign operation, and TPMs often don't support
+		// many digest algorithms. The IBM/Bottomley engine even
+		// creates keys without the Sign capability by default.
+		padded, err := padPKCS1_15(append(asn1Prefix, shadigest...),
+			uint(tpmv2Signer.public.RSAParameters.KeyBits/8))
+		if err != nil {
+			return nil, err
+		}
+
+		signature, err = tpm2.RSADecrypt(rw, keyHandle, "", padded, &tpm2.AsymScheme{Alg: tpm2.AlgNull}, "")
+		if err != nil {
+			return nil, err
+		}
 	}
-	signature, err = asn1.Marshal(struct {
-		R *big.Int
-		S *big.Int
-	}{sig.ECC.R, sig.ECC.S})
-	return signature, err
+	return signature, nil
 }
 
 // Gets the x509.Certificate associated with this TPMv2Signer
