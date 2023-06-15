@@ -7,6 +7,8 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
+	"math/big"
 	"errors"
 	"fmt"
 	"io"
@@ -409,7 +411,11 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 	}
 
 	if mechanism == pkcs11.CKM_ECDSA {
-		sig = encode_ecdsa_sig_value(sig)
+		sig, err = encode_ecdsa_sig_value(sig)
+		if err != nil {
+			return nil, err
+		}
+
 	}
 	return sig, nil
 }
@@ -478,47 +484,12 @@ func getManufacturerId(module *pkcs11.Ctx) (string, error) {
 	return info.ManufacturerID, nil
 }
 
-func encode_bignum(value []byte) (asn1 []byte) {
-
-	// ASN.1 INTEGER is signed; prepend a zero if needed
-	if value[0] >= 0x80 {
-		value = append([]byte{0x00}, value...)
-	} else {
-		for value[0] == 0x00 && len(value) > 1 && value[1] < 0x80 {
-			value = value[1:]
-		}
-	}
-
-	asn1 = append(asn1, 0x02) // INTEGER
-	asn1 = append(asn1, byte(len(value)))
-	asn1 = append(asn1[:], value[:]...)
-	return asn1
-}
-
-func encode_ecdsa_sig_value(signature []byte) (asn1 []byte) {
+func encode_ecdsa_sig_value(signature []byte) (out []byte, err error) {
 	siglen := len(signature) / 2
 
-	r := encode_bignum(signature[:siglen])
-	s := encode_bignum(signature[siglen:])
-
-	derlen := len(r) + len(s)
-
-	asn1 = append(asn1, 0x30) // SEQUENCE
-	if derlen < 0x80 {
-		asn1 = append(asn1, byte(derlen)) // Length indeterminate
-	} else if derlen < 0xff {
-		asn1 = append(asn1, 0x81)
-		asn1 = append(asn1, byte(derlen))
-	} else {
-		asn1 = append(asn1, 0x82)
-		asn1 = append(asn1, byte(derlen >> 8))
-		asn1 = append(asn1, byte(derlen & 0xff))
-	}
-
-	asn1 = append(asn1[:], r[:]...)
-	asn1 = append(asn1[:], s[:]...)
-
-	return asn1
+	return asn1.Marshal(struct {R *big.Int; S *big.Int}{
+		big.NewInt(0).SetBytes(signature[:siglen]),
+		big.NewInt(0).SetBytes(signature[siglen:])})
 }
 
 // Checks whether the private key and certificate are associated with each other
@@ -573,7 +544,10 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 	}
 
 	if isEcKey {
-		signature = encode_ecdsa_sig_value(signature)
+		signature, err = encode_ecdsa_sig_value(signature)
+		if err != nil {
+			return false
+		}
 		valid := ecdsa.VerifyASN1(ecdsaPublicKey, hash[:], signature)
 		return valid
 	}
