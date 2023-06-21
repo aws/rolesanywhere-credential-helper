@@ -123,7 +123,7 @@ func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
 
 // Gets the Signer based on the flags passed in by the user (from which the CredentialsOpts structure is derived)
 func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string, err error) {
-	if opts.PrivateKeyId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
+	if opts.PrivateKeyId != "" && !strings.HasPrefix(opts.PrivateKeyId, "pkcs11:") {
 		privateKey, err := ReadPrivateKeyData(opts.PrivateKeyId)
 		if err != nil {
 			return nil, "", err
