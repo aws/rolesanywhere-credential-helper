@@ -34,6 +34,7 @@ import (
 	"crypto/elliptic"
 	"crypto/rsa"
 	"crypto/sha256"
+	"crypto/sha512"
 	"crypto/x509"
 	"encoding/asn1"
 	"math/big"
@@ -458,8 +459,17 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 	// e.g. https://github.com/ThalesIgnite/crypto11/blob/master/rsa.go#L230
 	var mechanism uint
 	if keyType == pkcs11.CKK_EC {
-		hash := sha256.Sum256(digest)
-		digest = hash[:]
+		switch opts.HashFunc() {
+		case crypto.SHA256:
+		        hash := sha256.Sum256(digest)
+			digest = hash[:]
+		case crypto.SHA384:
+			hash := sha512.Sum384(digest)
+			digest = hash[:]
+		case crypto.SHA512:
+			hash := sha512.Sum512(digest)
+			digest = hash[:]
+		}
 		mechanism = pkcs11.CKM_ECDSA
 	} else {
 		switch opts.HashFunc() {
