@@ -123,36 +123,52 @@ func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
 
 // Gets the Signer based on the flags passed in by the user (from which the CredentialsOpts structure is derived)
 func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string, err error) {
-	if opts.PrivateKeyId != "" && !strings.HasPrefix(opts.PrivateKeyId, "pkcs11:") {
-		privateKey, err := ReadPrivateKeyData(opts.PrivateKeyId)
+	var certificate *x509.Certificate
+	var certificateChain []*x509.Certificate
+
+	privateKeyId := opts.PrivateKeyId
+	if privateKeyId == "" {
+		if opts.CertificateId == "" {
+			return GetCertStoreSigner(opts.CertIdentifier)
+		}
+		privateKeyId = opts.CertificateId
+	}
+
+	if opts.CertificateId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
+		certificateData, err := ReadCertificateData(opts.CertificateId)
+		if err != nil {
+			return nil, "", err
+		}
+		certificateDerData, err := base64.StdEncoding.DecodeString(certificateData.CertificateData)
+		if err != nil {
+			return nil, "", err
+		}
+		certificate, err = x509.ParseCertificate([]byte(certificateDerData))
 		if err != nil {
 			return nil, "", err
 		}
 
-		return GetFileSystemSignerWithCertificate(privateKey, opts.CertificateId, opts.CertificateBundleId)
-	} else if strings.HasPrefix(opts.PrivateKeyId, "pkcs11:") {
-		var certificate *x509.Certificate
-		if opts.CertificateId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
-			certificates, err := ReadCertificateBundleData(opts.CertificateId)
+	}
 
-			if err != nil {
-				return nil, "", errors.New("unable to read certificate")
-			}
-			certificate = certificates[0]
+	if opts.CertificateBundleId != "" {
+		certificateChainPointers, err := ReadCertificateBundleData(opts.CertificateBundleId)
+		if err != nil {
+			return nil, "", err
 		}
-
-		var certificateBundle []*x509.Certificate
-		if opts.CertificateBundleId != "" {
-			certificateBundle, err = ReadCertificateBundleData(opts.CertificateId)
-
-			if err != nil {
-				return nil, "", errors.New("unable to read certificate bundle")
-			}
+		for _, certificate := range certificateChainPointers {
+			certificateChain = append(certificateChain, certificate)
 		}
+	}
 
-		return GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, certificate, certificateBundle, opts.PrivateKeyId, opts.CertificateId)
+	if strings.HasPrefix(privateKeyId, "pkcs11:") {
+		return GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId)
 	} else {
-		return GetCertStoreSigner(opts.CertIdentifier)
+		privateKey, err := ReadPrivateKeyData(privateKeyId)
+		if err != nil {
+			return nil, "", err
+		}
+
+		return GetFileSystemSigner(privateKey, certificate, certificateChain)
 	}
 }
 
