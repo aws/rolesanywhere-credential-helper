@@ -7,7 +7,6 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/x509"
-	"encoding/base64"
 	"errors"
 	"io"
 	"log"
@@ -72,44 +71,8 @@ func (fileSystemSigner FileSystemSigner) CertificateChain() ([]*x509.Certificate
 }
 
 // Returns a FileSystemSigner, that signs a payload using the
-// private key passed in and also includes information about the associated
-// certificate
-func GetFileSystemSignerWithCertificate(privateKey crypto.PrivateKey, certificateId string, certificateBundleId string) (signer Signer, signingAlgorithm string, err error) {
-	signer, signingAlgorithm, err = GetFileSystemSigner(privateKey)
-	if err != nil {
-		return nil, "", err
-	}
-	fileSystemSigner := signer.(FileSystemSigner)
-
-	certificateData, err := ReadCertificateData(certificateId)
-	if err != nil {
-		return nil, "", err
-	}
-	certificateDerData, err := base64.StdEncoding.DecodeString(certificateData.CertificateData)
-	if err != nil {
-		return nil, "", err
-	}
-	certificate, err := x509.ParseCertificate([]byte(certificateDerData))
-	if err != nil {
-		return nil, "", err
-	}
-	var certificateChain []*x509.Certificate
-	if certificateBundleId != "" {
-		certificateChainPointers, err := ReadCertificateBundleData(certificateBundleId)
-		if err != nil {
-			return nil, "", err
-		}
-		for _, certificate := range certificateChainPointers {
-			certificateChain = append(certificateChain, certificate)
-		}
-	}
-
-	return FileSystemSigner{fileSystemSigner.PrivateKey, certificate, certificateChain}, signingAlgorithm, nil
-}
-
-// Returns a FileSystemSigner, that signs a payload using the
 // private key passed in
-func GetFileSystemSigner(privateKey crypto.PrivateKey) (signer Signer, signingAlgorithm string, err error) {
+func GetFileSystemSigner(privateKey crypto.PrivateKey, certificate *x509.Certificate, certificateChain []*x509.Certificate) (signer Signer, signingAlgorithm string, err error) {
 	// Find the signing algorithm
 	_, isRsaKey := privateKey.(rsa.PrivateKey)
 	if isRsaKey {
@@ -124,5 +87,5 @@ func GetFileSystemSigner(privateKey crypto.PrivateKey) (signer Signer, signingAl
 		return nil, "", errors.New("unsupported algorithm")
 	}
 
-	return FileSystemSigner{privateKey, nil, nil}, signingAlgorithm, nil
+	return FileSystemSigner{privateKey, certificate, certificateChain}, signingAlgorithm, nil
 }
