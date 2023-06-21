@@ -4,7 +4,6 @@ import (
 	"bufio"
 	"crypto"
 	"crypto/rand"
-	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -90,34 +89,14 @@ var signStringCmd = &cobra.Command{
 			digest = crypto.SHA256
 		}
 		var signer crypto.Signer
-		if privateKeyId != "" && !strings.HasPrefix(privateKeyId, "pkcs11:") {
-			privateKey, _ := helper.ReadPrivateKeyData(privateKeyId)
-			signer, _, err = helper.GetFileSystemSigner(privateKey)
-			if err != nil {
-				log.Println("unable to create signer with the referenced private key")
-				os.Exit(1)
-			}
-		} else if strings.HasPrefix(privateKeyId, "pkcs11:") ||
-			(privateKeyId == "" && strings.HasPrefix(certificateId, "pkcs11:")) {
-			var certificate *x509.Certificate
-			if certificateId != "" && !strings.HasPrefix(certificateId, "pkcs11:") {
-				certificates, err := helper.ReadCertificateBundleData(certificateId)
-
-				if err != nil {
-					log.Println("unable to read certificate")
-					os.Exit(1)
-				}
-				certificate = certificates[0]
-			}
-
-			signer, _, err = helper.GetPKCS11Signer(certIdentifier, libPkcs11, certificate, nil, privateKeyId, certificateId)
-		} else {
-			signer, _, err = helper.GetCertStoreSigner(certIdentifier)
-			if err != nil {
-				log.Println("unable to create signer using cert selector")
-				os.Exit(1)
-			}
+		credOpts := helper.CredentialsOpts{
+			PrivateKeyId: privateKeyId,
+			CertificateId: certificateId,
+			LibPkcs11: libPkcs11,
+			CertIdentifier: certIdentifier,
 		}
+
+		signer, _, err = helper.GetSigner(&credOpts)
 		if err != nil {
 		   log.Println(err)
 		   os.Exit(1)
