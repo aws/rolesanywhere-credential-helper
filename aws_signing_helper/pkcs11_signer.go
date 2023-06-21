@@ -45,6 +45,7 @@ import (
 	"strings"
 	"syscall"
 	"unsafe"
+	"runtime"
 
 	pkcs11uri "github.com/stefanberger/go-pkcs11uri"
 	"github.com/miekg/pkcs11"
@@ -135,7 +136,14 @@ func openPKCS11Module(lib string) (module *pkcs11.Ctx, slots []SlotIdInfo, err e
 
 	// In a properly configured system, nobody should need to override this.
 	if lib == "" {
-		lib = "p11-kit-proxy.so"
+		switch runtime.GOOS {
+		case "darwin":
+			lib = "p11-kit-proxy.dylib"
+		case "windows":
+			lib = "p11-kit-proxy.dll"
+		default:
+			lib = "p11-kit-proxy.so"
+		}
 	}
 
 	module = pkcs11.New(lib)
