@@ -37,19 +37,19 @@ import (
 	"crypto/sha512"
 	"crypto/x509"
 	"encoding/asn1"
-	"math/big"
 	"errors"
 	"fmt"
 	"io"
+	"math/big"
 	"os"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
 	"unsafe"
-	"runtime"
 
-	pkcs11uri "github.com/stefanberger/go-pkcs11uri"
 	"github.com/miekg/pkcs11"
+	pkcs11uri "github.com/stefanberger/go-pkcs11uri"
 	"golang.org/x/term"
 )
 
@@ -63,7 +63,7 @@ type PKCS11Signer struct {
 	session          pkcs11.SessionHandle
 	privateKeyHandle pkcs11.ObjectHandle
 	pin              string
-	keyType		 uint
+	keyType          uint
 }
 
 // Helper function to check whether the passed in []uint contains a given element
@@ -79,8 +79,8 @@ func contains(slice []uint, find uint) bool {
 
 // Used to enumerate slots with all token/slot info for matching
 type SlotIdInfo struct {
-	id	uint
-	info	pkcs11.SlotInfo
+	id      uint
+	info    pkcs11.SlotInfo
 	tokinfo pkcs11.TokenInfo
 }
 
@@ -118,11 +118,11 @@ func matchSlots(slots []SlotIdInfo, uri *pkcs11uri.Pkcs11URI) (matches []SlotIdI
 			continue
 		}
 		if mismatchAttr(uri, "token", slot.tokinfo.Label) ||
-		   mismatchAttr(uri, "model", slot.tokinfo.Model) ||
-		   mismatchAttr(uri, "manufacturer", slot.tokinfo.ManufacturerID) ||
-		   mismatchAttr(uri, "serial", slot.tokinfo.SerialNumber) ||
-   		   mismatchAttr(uri, "slot-description", slot.info.SlotDescription) ||
-   		   mismatchAttr(uri, "slot-manufacturer", slot.info.ManufacturerID) {
+			mismatchAttr(uri, "model", slot.tokinfo.Model) ||
+			mismatchAttr(uri, "manufacturer", slot.tokinfo.ManufacturerID) ||
+			mismatchAttr(uri, "serial", slot.tokinfo.SerialNumber) ||
+			mismatchAttr(uri, "slot-description", slot.info.SlotDescription) ||
+			mismatchAttr(uri, "slot-manufacturer", slot.info.ManufacturerID) {
 			continue
 		}
 		matches = append(matches, slot)
@@ -167,11 +167,11 @@ func openPKCS11Module(lib string) (module *pkcs11.Ctx, slots []SlotIdInfo, err e
 
 		slotidinfo.id = slotid
 		slotidinfo.info, slot_err = module.GetSlotInfo(slotid)
-		if (slot_err != nil) {
+		if slot_err != nil {
 			continue
 		}
 		slotidinfo.tokinfo, slot_err = module.GetTokenInfo(slotid)
-		if (slot_err != nil) {
+		if slot_err != nil {
 			continue
 		}
 
@@ -237,12 +237,11 @@ func getFindTemplate(uri *pkcs11uri.Pkcs11URI, class uint) (template []*pkcs11.A
 	return template
 }
 
-
 // In our list of certs we want to remember the CKA_ID/CKA_LABEL too
 type CertObjInfo struct {
-	id	[]byte
-	label	[]byte
-	x509	*x509.Certificate
+	id    []byte
+	label []byte
+	x509  *x509.Certificate
 }
 
 // Gets certificate(s) within the PKCS #11 session (i.e. a given token) that
@@ -351,7 +350,6 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, certIdentifier Cer
 		module.CloseSession(session)
 	}
 
-
 	// http://david.woodhou.se/draft-woodhouse-cert-best-practice.html#rfc.section.8.1
 	//
 	// "If no match is found, and precisely one token was matched by the
@@ -362,7 +360,7 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, certIdentifier Cer
 	// login should only be attempted if there is precisely one token
 	// which matches the URI, and not if there are multiple possible
 	// tokens in which the object could reside."
-	if (len(slots) == 1 && *pinPkcs11 != "") {
+	if len(slots) == 1 && *pinPkcs11 != "" {
 		session, err = module.OpenSession(slots[0].id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 		if err != nil {
 			goto no_certs
@@ -461,7 +459,7 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 	if keyType == pkcs11.CKK_EC {
 		switch opts.HashFunc() {
 		case crypto.SHA256:
-		        hash := sha256.Sum256(digest)
+			hash := sha256.Sum256(digest)
 			digest = hash[:]
 		case crypto.SHA384:
 			hash := sha512.Sum384(digest)
@@ -501,7 +499,6 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 	if err != nil {
 		return nil, fmt.Errorf("signing failed (%s)", err.Error())
 	}
-
 
 	// Yay, we have to do the ASN.1 encoding of the R, S values ourselves.
 	if mechanism == pkcs11.CKM_ECDSA {
@@ -593,7 +590,10 @@ func getManufacturerId(module *pkcs11.Ctx) (string, error) {
 func encode_ecdsa_sig_value(signature []byte) (out []byte, err error) {
 	siglen := len(signature) / 2
 
-	return asn1.Marshal(struct {R *big.Int; S *big.Int}{
+	return asn1.Marshal(struct {
+		R *big.Int
+		S *big.Int
+	}{
 		big.NewInt(0).SetBytes(signature[:siglen]),
 		big.NewInt(0).SetBytes(signature[siglen:])})
 }
@@ -690,7 +690,6 @@ func bytesToUint(b []byte) (res uint, err error) {
 	return 0, errors.New("Unsupported integer size in bytesToUint")
 }
 
-
 /*
  * Lifted from pkcs11uri.go because it doesn't let us set an attribute
  * from a []byte; only a pct-encoded string.
@@ -702,16 +701,16 @@ const hexchar = "0123456789ABCDEF"
 
 // escapeAll pct-escapes all characters in the string
 func escapeAll(s []byte) string {
-        res := make([]byte, len(s)*3)
-        j := 0
-        for i := 0; i < len(s); i++ {
-                c := s[i]
-                res[j] = '%'
-                res[j+1] = hexchar[c>>4]
-                res[j+2] = hexchar[c&0xf]
-                j += 3
-        }
-        return string(res)
+	res := make([]byte, len(s)*3)
+	j := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		res[j] = '%'
+		res[j+1] = hexchar[c>>4]
+		res[j+2] = hexchar[c&0xf]
+		j += 3
+	}
+	return string(res)
 }
 
 // Given an optional certificate either as *x509.Certificate (because it was
@@ -733,7 +732,7 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificat
 	var slots []SlotIdInfo
 	var pinPkcs11 string
 	var cert_obj []CertObjInfo
-	var keyAttributes  []*pkcs11.Attribute
+	var keyAttributes []*pkcs11.Attribute
 	var keyType uint
 	var alwaysAuth uint
 
@@ -746,8 +745,8 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificat
 	if certificate == nil && certificateId != "" {
 		cert_uri = pkcs11uri.New()
 		err = cert_uri.Parse(certificateId)
-	        if (err != nil) {
-		    goto fail
+		if err != nil {
+			goto fail
 		}
 		pinPkcs11, _ := cert_uri.GetQueryAttribute("pin-value", false)
 		session, slot_nr, logged_in, cert_obj, err = getMatchingCerts(module, slots, certIdentifier, cert_uri, &pinPkcs11)
@@ -760,14 +759,14 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificat
 	// If no explicit private-key option was given, use it. Otherwise
 	// we look in the same place as the certificate URI as directed by
 	// http://david.woodhou.se/draft-woodhouse-cert-best-practice.html#rfc.section.8.2
-	if (privateKeyId != "") {
+	if privateKeyId != "" {
 		key_uri = pkcs11uri.New()
 		err = key_uri.Parse(privateKeyId)
-		if (err != nil) {
+		if err != nil {
 			goto fail
 		}
 	} else {
-		key_uri = cert_uri;
+		key_uri = cert_uri
 	}
 	pinPkcs11, _ = key_uri.GetQueryAttribute("pin-value", false)
 
@@ -873,7 +872,6 @@ retry_search:
 			alwaysAuth = 0
 		}
 
-
 		if certificate == nil ||
 			checkPrivateKeyMatchesCert(module, session, keyType, alwaysAuth, pinPkcs11, curPrivateKeyHandle, certificate, manufacturerId) {
 			privateKeyHandle = curPrivateKeyHandle
@@ -904,7 +902,7 @@ retry_search:
 		goto fail
 	}
 
-	switch (keyType) {
+	switch keyType {
 	case pkcs11.CKK_EC:
 		signingAlgorithm = aws4_x509_ecdsa_sha256
 	case pkcs11.CKK_RSA:

@@ -126,16 +126,17 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 		t.Fail()
 	}
 
-	certificateId := "../tst/certs/rsa-2048-sha256-cert.pem"
+	certificateList, _ := ReadCertificateBundleData("../tst/certs/rsa-2048-sha256-cert.pem")
+	certificate := certificateList[0]
 	privateKey, _ := ReadPrivateKeyData("../tst/certs/rsa-2048-key.pem")
 
 	awsRequest := request.Request{HTTPRequest: testRequest}
-	signer, signingAlgorithm, err := GetFileSystemSigner(privateKey, certificateId, "")
+	signer, signingAlgorithm, err := GetFileSystemSigner(privateKey, certificate, nil)
 	if err != nil {
 		t.Log(err)
 		t.Fail()
 	}
-	certificate, err := signer.Certificate()
+	certificate, err = signer.Certificate()
 	if err != nil {
 		t.Log(err)
 		t.Fail()
@@ -190,7 +191,8 @@ func Verify(payload []byte, privateKey crypto.PrivateKey, digest crypto.Hash, si
 func TestSign(t *testing.T) {
 	msg := "test message"
 
-	certificateId := "../tst/certs/rsa-2048-sha256-cert.pem"
+	certificateList, _ := ReadCertificateBundleData("../tst/certs/rsa-2048-sha256-cert.pem")
+	certificate := certificateList[0]
 	var privateKeyList [2]crypto.PrivateKey
 	{
 		privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
@@ -203,7 +205,7 @@ func TestSign(t *testing.T) {
 	digestList := []crypto.Hash{crypto.SHA256, crypto.SHA384, crypto.SHA512}
 
 	for _, privateKey := range privateKeyList {
-		signer, _, err := GetFileSystemSigner(privateKey, certificateId, "")
+		signer, _, err := GetFileSystemSigner(privateKey, certificate, nil)
 		if err != nil {
 			t.Log("unable to get file system signer")
 			t.Fail()
@@ -246,7 +248,8 @@ func TestCredentialProcess(t *testing.T) {
 		}
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.server.Close()
-			resp, err := GenerateCredentials(&credentialsOpts)
+			signer, signatureAlgorithm, err := GetSigner(&credentialsOpts)
+			resp, err := GenerateCredentials(&credentialsOpts, signer, signatureAlgorithm)
 
 			if err != nil {
 				t.Log(err)
