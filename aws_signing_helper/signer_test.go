@@ -210,6 +210,12 @@ func TestSign(t *testing.T) {
 				CertificateId: cert,
 				PrivateKeyId:  key,
 			})
+
+			cert = fmt.Sprintf("../tst/certs/ec-%s-%s.p12",
+				curve, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
 		}
 	}
 
@@ -231,6 +237,13 @@ func TestSign(t *testing.T) {
 				CertificateId: cert,
 				PrivateKeyId:  key,
 			})
+
+			cert = fmt.Sprintf("../tst/certs/rsa-%s-%s.p12",
+				keylen, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
+
 		}
 	}
 

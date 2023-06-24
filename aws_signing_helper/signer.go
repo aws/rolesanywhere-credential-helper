@@ -136,18 +136,21 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 
 	if opts.CertificateId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
 		certificateData, err := ReadCertificateData(opts.CertificateId)
-		if err != nil {
+		if err == nil {
+			certificateDerData, err := base64.StdEncoding.DecodeString(certificateData.CertificateData)
+			if err != nil {
+				return nil, "", err
+			}
+			certificate, err = x509.ParseCertificate([]byte(certificateDerData))
+			if err != nil {
+				return nil, "", err
+			}
+		} else if opts.PrivateKeyId == "" {
+			// Not a PEM certificate? Try PKCS#12
+			return GetPKCS12Signer(opts.CertificateId)
+		} else {
 			return nil, "", err
 		}
-		certificateDerData, err := base64.StdEncoding.DecodeString(certificateData.CertificateData)
-		if err != nil {
-			return nil, "", err
-		}
-		certificate, err = x509.ParseCertificate([]byte(certificateDerData))
-		if err != nil {
-			return nil, "", err
-		}
-
 	}
 
 	if opts.CertificateBundleId != "" {

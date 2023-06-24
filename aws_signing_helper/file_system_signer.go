@@ -3,6 +3,7 @@ package aws_signing_helper
 import (
 	"crypto"
 	"crypto/ecdsa"
+	"golang.org/x/crypto/pkcs12"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
@@ -10,6 +11,7 @@ import (
 	"errors"
 	"io"
 	"log"
+	"os"
 )
 
 type FileSystemSigner struct {
@@ -100,4 +102,33 @@ func GetFileSystemSigner(privateKey crypto.PrivateKey, certificate *x509.Certifi
 	}
 
 	return FileSystemSigner{privateKey, certificate, certificateChain}, signingAlgorithm, nil
+}
+
+
+func GetPKCS12Signer(certificateId string) (signer Signer, signingAlgorithm string, err error) {
+	bytes, err := os.ReadFile(certificateId)
+	if err != nil {
+		return nil, "", err
+	}
+	privateKey, certificate, err := pkcs12.Decode(bytes, "")
+	if err != nil {
+		return nil, "", err
+	}
+	if privateKey == nil {
+		return nil, "", errors.New("PKCS#12 has no private key")
+	}
+
+	rsaPrivateKey, ok := privateKey.(*rsa.PrivateKey)
+	if ok {
+		signingAlgorithm = aws4_x509_rsa_sha256
+		return FileSystemSigner{*rsaPrivateKey, certificate, nil}, signingAlgorithm, nil
+	}
+
+	ecPrivateKey, ok := privateKey.(*ecdsa.PrivateKey)
+	if ok {
+		signingAlgorithm = aws4_x509_ecdsa_sha256
+		return FileSystemSigner{*ecPrivateKey, certificate, nil}, signingAlgorithm, nil
+	}
+
+	return nil, "", errors.New("unsupported algorithm on PKCS#12 key")
 }

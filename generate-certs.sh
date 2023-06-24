@@ -24,11 +24,17 @@ for c in $ec_curves; do
 			-days 365 \
 			-subj "/CN=roles-anywhere-${c}-${d}" \
 			-${d}
+		openssl pkcs12 -export -passout pass: -macalg SHA1 \
+			-certpbe pbeWithSHA1And3-KeyTripleDES-CBC \
+			-keypbe pbeWithSHA1And3-KeyTripleDES-CBC \
+			-out "${basedir}/tst/certs/ec-${c}-${d}.p12" \
+			-inkey "${basedir}/tst/certs/ec-${c}-key.pem" \
+			-in "${basedir}/tst/certs/ec-${c}-${d}-cert.pem"
+	done;
         openssl pkcs8 -topk8 -inform PEM -outform PEM \
             -in ${basedir}/tst/certs/ec-${c}-key.pem \
             -out ${basedir}/tst/certs/ec-${c}-key-pkcs8.pem \
             -nocrypt
-	done;
 done;
 
 for l in $rsa_key_lengths; do
@@ -41,11 +47,17 @@ for l in $rsa_key_lengths; do
 			-out $cert_file \
 			-days 365 \
 			-subj "/CN=roles-anywhere-rsa-${l}"
+		openssl pkcs12 -export -passout pass: -macalg SHA1 \
+			-certpbe pbeWithSHA1And3-KeyTripleDES-CBC \
+			-keypbe pbeWithSHA1And3-KeyTripleDES-CBC \
+			-out "${basedir}/tst/certs/rsa-${l}-${d}.p12" \
+			-inkey "${basedir}/tst/certs/rsa-${l}-key.pem" \
+			-in "${basedir}/tst/certs/rsa-${l}-${d}-cert.pem"
+	done;
         openssl pkcs8 -topk8 -inform PEM -outform PEM \
             -in ${basedir}/tst/certs/rsa-${l}-key.pem \
             -out ${basedir}/tst/certs/rsa-${l}-key-pkcs8.pem \
             -nocrypt
-	done;
 done;
 
 # Create certificate bundle
