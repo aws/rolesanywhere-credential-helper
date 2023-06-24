@@ -3,12 +3,12 @@ package aws_signing_helper
 import (
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
 	"net/http"
@@ -152,7 +152,7 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 
 // Verify that the provided payload was signed correctly with the provided options.
 // This function is specifically used for unit testing.
-func Verify(payload []byte, privateKey crypto.PrivateKey, digest crypto.Hash, sig []byte) (bool, error) {
+func Verify(payload []byte, publicKey crypto.PublicKey, digest crypto.Hash, sig []byte) (bool, error) {
 	var hash []byte
 	switch digest {
 	case crypto.SHA256:
@@ -170,17 +170,17 @@ func Verify(payload []byte, privateKey crypto.PrivateKey, digest crypto.Hash, si
 	}
 
 	{
-		privateKey, ok := privateKey.(ecdsa.PrivateKey)
+		publicKey, ok := publicKey.(ecdsa.PublicKey)
 		if ok {
-			valid := ecdsa.VerifyASN1(&privateKey.PublicKey, hash, sig)
+			valid := ecdsa.VerifyASN1(&publicKey, hash, sig)
 			return valid, nil
 		}
 	}
 
 	{
-		privateKey, ok := privateKey.(rsa.PrivateKey)
+		publicKey, ok := publicKey.(rsa.PublicKey)
 		if ok {
-			err := rsa.VerifyPKCS1v15(&privateKey.PublicKey, digest, hash, sig)
+			err := rsa.VerifyPKCS1v15(&publicKey, digest, hash, sig)
 			return err == nil, nil
 		}
 	}
@@ -190,37 +190,85 @@ func Verify(payload []byte, privateKey crypto.PrivateKey, digest crypto.Hash, si
 
 func TestSign(t *testing.T) {
 	msg := "test message"
+	testTable := []CredentialsOpts{}
 
-	certificateList, _ := ReadCertificateBundleData("../tst/certs/rsa-2048-sha256-cert.pem")
-	certificate := certificateList[0]
-	var privateKeyList [2]crypto.PrivateKey
-	{
-		privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		privateKeyList[0] = *privateKey
+	ec_digests := []string{"sha1", "sha256", "sha384", "sha512"}
+	ec_curves := []string{"prime256v1", "secp384r1"}
+
+	for _, digest := range ec_digests {
+		for _, curve := range ec_curves {
+			cert := fmt.Sprintf("../tst/certs/ec-%s-%s-cert.pem",
+				curve, digest)
+			key := fmt.Sprintf("../tst/certs/ec-%s-key.pem", curve)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+			})
+
+			key = fmt.Sprintf("../tst/certs/ec-%s-key-pkcs8.pem", curve)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+			})
+		}
 	}
-	{
-		privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
-		privateKeyList[1] = *privateKey
+
+	rsa_digests := []string{"md5", "sha1", "sha256", "sha384", "sha512"}
+	rsa_key_lengths := []string{"1024", "2048", "4096"}
+
+	for _, digest := range rsa_digests {
+		for _, keylen := range rsa_key_lengths {
+			cert := fmt.Sprintf("../tst/certs/rsa-%s-%s-cert.pem",
+				keylen, digest)
+			key := fmt.Sprintf("../tst/certs/rsa-%s-key.pem", keylen)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+			})
+
+			key = fmt.Sprintf("../tst/certs/rsa-%s-key-pkcs8.pem", keylen)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+			})
+		}
 	}
+
 	digestList := []crypto.Hash{crypto.SHA256, crypto.SHA384, crypto.SHA512}
 
-	for _, privateKey := range privateKeyList {
-		signer, _, err := GetFileSystemSigner(privateKey, certificate, nil)
+	for _, credOpts := range testTable {
+		signer, _, err := GetSigner(&credOpts)
 		if err != nil {
-			t.Log("unable to get file system signer")
+			t.Log(fmt.Sprintf("Failed to get signer for '%s'/'%s'",
+				credOpts.CertificateId, credOpts.PrivateKeyId))
 			t.Fail()
+			return
 		}
+
+		pubKey := signer.Public()
+		if credOpts.CertificateId != "" && pubKey == nil {
+			t.Log(fmt.Sprintf("Signer didn't provide public key for '%s'/'%s'",
+				credOpts.CertificateId, credOpts.PrivateKeyId))
+			t.Fail()
+			return
+		}
+
 		for _, digest := range digestList {
 			signatureBytes, err := signer.Sign(rand.Reader, []byte(msg), digest)
 			if err != nil {
 				t.Log("Failed to sign the input message")
 				t.Fail()
+				return
 			}
 
-			valid, _ := Verify([]byte(msg), privateKey, digest, signatureBytes)
-			if !valid {
-				t.Log("Failed to verify the signature")
-				t.Fail()
+			if pubKey != nil {
+				valid, _ := Verify([]byte(msg), pubKey, digest, signatureBytes)
+				if !valid {
+					t.Log(fmt.Sprintf("Failed to verify the signature for '%s'/'%s'",
+						credOpts.CertificateId, credOpts.PrivateKeyId))
+					t.Fail()
+					return
+				}
 			}
 		}
 	}

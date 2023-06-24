@@ -19,6 +19,18 @@ type FileSystemSigner struct {
 }
 
 func (fileSystemSigner FileSystemSigner) Public() crypto.PublicKey {
+	{
+		privateKey, ok := fileSystemSigner.PrivateKey.(ecdsa.PrivateKey)
+		if ok {
+			return privateKey.PublicKey
+		}
+	}
+	{
+		privateKey, ok := fileSystemSigner.PrivateKey.(rsa.PrivateKey)
+		if ok {
+			return privateKey.PublicKey
+		}
+	}
 	return nil
 }
 
