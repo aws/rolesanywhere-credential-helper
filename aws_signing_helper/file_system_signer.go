@@ -3,12 +3,12 @@ package aws_signing_helper
 import (
 	"crypto"
 	"crypto/ecdsa"
-	"golang.org/x/crypto/pkcs12"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/x509"
 	"errors"
+	"golang.org/x/crypto/pkcs12"
 	"io"
 	"log"
 	"os"
@@ -103,7 +103,6 @@ func GetFileSystemSigner(privateKey crypto.PrivateKey, certificate *x509.Certifi
 
 	return FileSystemSigner{privateKey, certificate, certificateChain}, signingAlgorithm, nil
 }
-
 
 func GetPKCS12Signer(certificateId string) (signer Signer, signingAlgorithm string, err error) {
 	bytes, err := os.ReadFile(certificateId)

@@ -81,20 +81,13 @@ func contains(slice []uint, find uint) bool {
 type SlotIdInfo struct {
 	id      uint
 	info    pkcs11.SlotInfo
-	tokinfo pkcs11.TokenInfo
+	tokInfo pkcs11.TokenInfo
 }
 
 // Return true if the URI specifies the attribute and it *doesn't* match
-func mismatchAttr(uri *pkcs11uri.Pkcs11URI, attr string, val string) (res bool) {
-	var urival string
-	var ok bool
-
-	urival, ok = uri.GetPathAttribute(attr, false)
-	if ok && urival != val {
-		return true
-	}
-
-	return false
+func mismatchAttr(uri *pkcs11uri.Pkcs11URI, attr string, val string) bool {
+	uriVal, ok := uri.GetPathAttribute(attr, false)
+	return ok && uriVal != val
 }
 
 // Return the set of slots which match the given uri
@@ -117,10 +110,10 @@ func matchSlots(slots []SlotIdInfo, uri *pkcs11uri.Pkcs11URI) (matches []SlotIdI
 		if urislotnr != 0 && urislotnr != uint64(slot.id) {
 			continue
 		}
-		if mismatchAttr(uri, "token", slot.tokinfo.Label) ||
-			mismatchAttr(uri, "model", slot.tokinfo.Model) ||
-			mismatchAttr(uri, "manufacturer", slot.tokinfo.ManufacturerID) ||
-			mismatchAttr(uri, "serial", slot.tokinfo.SerialNumber) ||
+		if mismatchAttr(uri, "token", slot.tokInfo.Label) ||
+			mismatchAttr(uri, "model", slot.tokInfo.Model) ||
+			mismatchAttr(uri, "manufacturer", slot.tokInfo.ManufacturerID) ||
+			mismatchAttr(uri, "serial", slot.tokInfo.SerialNumber) ||
 			mismatchAttr(uri, "slot-description", slot.info.SlotDescription) ||
 			mismatchAttr(uri, "slot-manufacturer", slot.info.ManufacturerID) {
 			continue
@@ -133,7 +126,7 @@ func matchSlots(slots []SlotIdInfo, uri *pkcs11uri.Pkcs11URI) (matches []SlotIdI
 
 // Initialize and enumerate slots in the PKCS#11 module
 func openPKCS11Module(lib string) (module *pkcs11.Ctx, slots []SlotIdInfo, err error) {
-	var slot_ids []uint
+	var slotIds []uint
 
 	// In a properly configured system, nobody should need to override this.
 	if lib == "" {
@@ -156,27 +149,26 @@ func openPKCS11Module(lib string) (module *pkcs11.Ctx, slots []SlotIdInfo, err e
 		goto fail
 	}
 
-	slot_ids, err = module.GetSlotList(true)
+	slotIds, err = module.GetSlotList(true)
 	if err != nil {
 		goto fail
 	}
 
-	for _, slotid := range slot_ids {
-		var slotidinfo SlotIdInfo
-		var slot_err error
+	for _, slotId := range slotIds {
+		var slotIdInfo SlotIdInfo
+		var slotErr error
 
-		slotidinfo.id = slotid
-		slotidinfo.info, slot_err = module.GetSlotInfo(slotid)
-		if slot_err != nil {
+		slotIdInfo.id = slotId
+		slotIdInfo.info, slotErr = module.GetSlotInfo(slotId)
+		if slotErr != nil {
 			continue
 		}
-		slotidinfo.tokinfo, slot_err = module.GetTokenInfo(slotid)
-		if slot_err != nil {
+		slotIdInfo.tokInfo, slotErr = module.GetTokenInfo(slotId)
+		if slotErr != nil {
 			continue
 		}
 
-		slots = append(slots, slotidinfo)
-
+		slots = append(slots, slotIdInfo)
 	}
 
 	return module, slots, nil
@@ -244,14 +236,14 @@ type CertObjInfo struct {
 	x509  *x509.Certificate
 }
 
-// Gets certificate(s) within the PKCS #11 session (i.e. a given token) that
-// match the given uri (and additional criteria in certIdentifier)
+// Gets certificate(s) within the PKCS#11 session (i.e. a given token) that
+// match the given URI
 func getCertsInSession(module *pkcs11.Ctx, session pkcs11.SessionHandle, uri *pkcs11uri.Pkcs11URI, certIdentifier CertIdentifier) (certs []CertObjInfo, err error) {
 	var sessionCertObjects []pkcs11.ObjectHandle
 	var certObjects []pkcs11.ObjectHandle
 	var templateCrt []*pkcs11.Attribute
 
-	// Convert the uri into a template for FindObjectsInit()
+	// Convert the URI into a template for FindObjectsInit()
 	templateCrt = getFindTemplate(uri, pkcs11.CKO_CERTIFICATE)
 
 	if err = module.FindObjectsInit(session, templateCrt); err != nil {
@@ -267,6 +259,9 @@ func getCertsInSession(module *pkcs11.Ctx, session pkcs11.SessionHandle, uri *pk
 			break
 		}
 		certObjects = append(certObjects, sessionCertObjects...)
+		if len(sessionCertObjects) < MAX_OBJECT_LIMIT {
+			break
+		}
 	}
 
 	err = module.FindObjectsFinal(session)
@@ -284,48 +279,41 @@ func getCertsInSession(module *pkcs11.Ctx, session pkcs11.SessionHandle, uri *pk
 
 		rawCert := crtAttributes[0].Value
 
-		var cert_obj CertObjInfo
+		var certObj CertObjInfo
 
-		cert_obj.x509, err = x509.ParseCertificate(rawCert)
+		certObj.x509, err = x509.ParseCertificate(rawCert) // nosemgrep
 		if err != nil {
 			return nil, errors.New("error parsing certificate")
 		}
 
-		// If we have any *additional* criteria in 'certIdentifier', drop
-		// any certificates which don't match. In the common case there
-		// not additional criteria and certMatches() matches everything.
-		// (Most implementations won't want that additional filter; in
-		// this code base it got grandfathered in).
-		//
 		// Fetch the CKA_ID and CKA_LABEL of the matching cert(s), so
 		// that they can be used later when hunting for the matching
 		// key.
-		if certMatches(certIdentifier, *cert_obj.x509) {
-			crtAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_ID, 0)
-			crtAttributes, err = module.GetAttributeValue(session, certObject, crtAttributes)
-			if err == nil {
-				cert_obj.id = crtAttributes[0].Value
-			}
-
-			crtAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0)
-			crtAttributes, err = module.GetAttributeValue(session, certObject, crtAttributes)
-			if err == nil {
-				cert_obj.label = crtAttributes[0].Value
-			}
-
-			certs = append(certs, cert_obj)
+		crtAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_ID, 0)
+		crtAttributes, err = module.GetAttributeValue(session, certObject, crtAttributes)
+		if err == nil {
+			certObj.id = crtAttributes[0].Value
 		}
+
+		crtAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0)
+		crtAttributes, err = module.GetAttributeValue(session, certObject, crtAttributes)
+		if err == nil {
+			certObj.label = crtAttributes[0].Value
+		}
+
+		certs = append(certs, certObj)
 	}
 
 	return certs, nil
 }
 
-// Scan all matching slots to until we find certificates that match the uri
-// and additional criteria in certIdentifier.
+// Scan all matching slots to until we find certificates that match the URI.
 //
-// NB: This stops after it finds some. It's generally only looking for *one*
-// cert to use. If you want `p11tool --list-certificates`, use that instead.
-func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, certIdentifier CertIdentifier, uri *pkcs11uri.Pkcs11URI, pinPkcs11 *string) (session pkcs11.SessionHandle, slot_nr uint, logged_in bool, matchingCerts []CertObjInfo, err error) {
+// NB: It's generally only looking for *one* cert to use. If you want
+// `p11tool --list-certificates`, use that instead.
+func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, certIdentifier CertIdentifier, uri *pkcs11uri.Pkcs11URI, pinPkcs11 *string, single bool) (slotNr uint, matchingCerts []CertObjInfo, err error) {
+	var session pkcs11.SessionHandle
+
 	if uri != nil {
 		slots = matchSlots(slots, uri)
 	}
@@ -335,19 +323,36 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, certIdentifier Cer
 	// "For locating certificates, applications first iterate over the
 	// available tokens without logging in to them. In each token which
 	// matches the provided PKCS#11 URI, a search is performed for
-	// matching certificate objects. The first matching object is used
-	// as the certificate."
+	// matching certificate objects."
 	for _, slot := range slots {
 		session, err = module.OpenSession(slot.id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 		if err != nil {
 			continue
 		}
 
-		matchingCerts, err = getCertsInSession(module, session, uri, certIdentifier)
-		if err == nil && len(matchingCerts) > 0 {
-			return session, slot.id, false, matchingCerts, nil
+		curMatchingCerts, err := getCertsInSession(module, session, uri, certIdentifier)
+		if err == nil && len(curMatchingCerts) > 0 {
+			matchingCerts = append(matchingCerts, curMatchingCerts...)
+			// We only care about this value when there is a single matching
+			// certificate found.
+			slotNr = slot.id
 		}
 		module.CloseSession(session)
+	}
+
+	if single && len(matchingCerts) > 1 {
+		err = errors.New("multiple matching certificates")
+		goto fail
+	}
+
+	if len(matchingCerts) > 1 {
+		return slotNr, matchingCerts, nil
+	}
+
+	// If there is exactly one matching certificate found without logging in
+	// to any of the tokens, then return that one.
+	if single && len(matchingCerts) == 1 {
+		return slotNr, matchingCerts, nil
 	}
 
 	// http://david.woodhou.se/draft-woodhouse-cert-best-practice.html#rfc.section.8.1
@@ -361,39 +366,57 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, certIdentifier Cer
 	// which matches the URI, and not if there are multiple possible
 	// tokens in which the object could reside."
 	if len(slots) == 1 && *pinPkcs11 != "" {
+		errNoMatchingCerts := errors.New("no matching certificates")
+
 		session, err = module.OpenSession(slots[0].id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 		if err != nil {
-			goto no_certs
+			err = errNoMatchingCerts
+			goto fail
 		}
 
 		err = module.Login(session, pkcs11.CKU_USER, *pinPkcs11)
 		if err != nil {
-			goto no_certs
+			err = errNoMatchingCerts
+			goto fail
 		}
-		matchingCerts, err = getCertsInSession(module, session, uri, certIdentifier)
+
+		curMatchingCerts, err := getCertsInSession(module, session, uri, certIdentifier)
 		if err == nil && len(matchingCerts) > 0 {
-			return session, slots[0].id, true, matchingCerts, nil
+			matchingCerts = append(matchingCerts, curMatchingCerts...)
+			// We only care about this value when there is a single matching
+			// certificate found.
+			slotNr = slots[0].id
 		}
 		module.CloseSession(session)
 	}
 
-no_certs:
-	err = errors.New("no matching certificates")
+	if single && len(matchingCerts) > 0 {
+		err = errors.New("multiple matching certificates")
+		goto fail
+	}
+	if len(matchingCerts) == 0 {
+		err = errors.New("no matching certificates")
+		goto fail
+	}
 
-	return 0, 0, false, nil, err
+	// Exactly one matching certificate after logging into the appropriate token
+	// iff single is true (otherwise there can be multiple matching certificates)
+	return slotNr, matchingCerts, nil
+
+fail:
+	return 0, nil, err
 }
 
 // Used to implement a cut-down version of `p11tool --list-certificates`.
-func GetMatchingPKCSCerts(certIdentifier CertIdentifier, uristr string, lib string) (matchingCerts []*x509.Certificate, err error) {
+func GetMatchingPKCSCerts(certIdentifier CertIdentifier, uriStr string, lib string) (matchingCerts []*x509.Certificate, err error) {
 	var slots []SlotIdInfo
 	var module *pkcs11.Ctx
-	var session pkcs11.SessionHandle
 	var uri *pkcs11uri.Pkcs11URI
 	var pin string
-	var cert_objs []CertObjInfo
+	var certObjs []CertObjInfo
 
 	uri = pkcs11uri.New()
-	err = uri.Parse(uristr)
+	err = uri.Parse(uriStr)
 	if err != nil {
 		return nil, err
 	}
@@ -405,18 +428,14 @@ func GetMatchingPKCSCerts(certIdentifier CertIdentifier, uristr string, lib stri
 		return nil, err
 	}
 
-	session, _, _, cert_objs, err = getMatchingCerts(module, slots, certIdentifier, uri, &pin)
-
-	if session != 0 {
-		module.CloseSession(session)
-	}
+	_, certObjs, err = getMatchingCerts(module, slots, certIdentifier, uri, &pin, false)
 
 	if module != nil {
 		module.Finalize()
 		module.Destroy()
 	}
 
-	for _, obj := range cert_objs {
+	for _, obj := range certObjs {
 		matchingCerts = append(matchingCerts, obj.x509)
 	}
 	return matchingCerts, err
@@ -721,20 +740,19 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificat
 	var templatePrivateKey []*pkcs11.Attribute
 	var sessionPrivateKeyObjects []pkcs11.ObjectHandle
 	var privateKeyHandle pkcs11.ObjectHandle
-	var pinPkcs11Bytes []byte
 	var module *pkcs11.Ctx
 	var session pkcs11.SessionHandle
 	var manufacturerId string
-	var cert_uri *pkcs11uri.Pkcs11URI
-	var key_uri *pkcs11uri.Pkcs11URI
-	var logged_in bool
-	var slot_nr uint
+	var certUri *pkcs11uri.Pkcs11URI
+	var keyUri *pkcs11uri.Pkcs11URI
+	var slotNr uint
 	var slots []SlotIdInfo
 	var pinPkcs11 string
-	var cert_obj []CertObjInfo
+	var certObj []CertObjInfo
 	var keyAttributes []*pkcs11.Attribute
 	var keyType uint
 	var alwaysAuth uint
+	var privateKeyObjects []pkcs11.ObjectHandle
 
 	module, slots, err = openPKCS11Module(libPkcs11)
 	if err != nil {
@@ -743,51 +761,46 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificat
 
 	// If a PKCS#11 URI was provided for the certificate, find it.
 	if certificate == nil && certificateId != "" {
-		cert_uri = pkcs11uri.New()
-		err = cert_uri.Parse(certificateId)
+		certUri = pkcs11uri.New()
+		err = certUri.Parse(certificateId)
 		if err != nil {
 			goto fail
 		}
-		pinPkcs11, _ := cert_uri.GetQueryAttribute("pin-value", false)
-		session, slot_nr, logged_in, cert_obj, err = getMatchingCerts(module, slots, certIdentifier, cert_uri, &pinPkcs11)
+		pinPkcs11, _ := certUri.GetQueryAttribute("pin-value", false)
+		slotNr, certObj, err = getMatchingCerts(module, slots, certIdentifier, certUri, &pinPkcs11, true)
 		if err != nil {
 			goto fail
 		}
-		certificate = cert_obj[0].x509
+		certificate = certObj[0].x509
 	}
 
 	// If no explicit private-key option was given, use it. Otherwise
 	// we look in the same place as the certificate URI as directed by
 	// http://david.woodhou.se/draft-woodhouse-cert-best-practice.html#rfc.section.8.2
 	if privateKeyId != "" {
-		key_uri = pkcs11uri.New()
-		err = key_uri.Parse(privateKeyId)
+		keyUri = pkcs11uri.New()
+		err = keyUri.Parse(privateKeyId)
 		if err != nil {
 			goto fail
 		}
 	} else {
-		key_uri = cert_uri
+		keyUri = certUri
 	}
-	pinPkcs11, _ = key_uri.GetQueryAttribute("pin-value", false)
+	pinPkcs11, _ = keyUri.GetQueryAttribute("pin-value", false)
 
 	// This time we're looking for a *single* slot, as we (presumably)
 	// will have to log in to access the key.
-	slots = matchSlots(slots, key_uri)
+	slots = matchSlots(slots, keyUri)
 	if len(slots) == 1 {
-		if slot_nr != slots[0].id {
-			if session != 0 {
-				module.CloseSession(session)
-			}
-			session = 0
-			logged_in = false
-			slot_nr = slots[0].id
+		if slotNr != slots[0].id {
+			slotNr = slots[0].id
 		}
 	} else {
 		// If the URI matched multiple slots *but* one of them is the
-		// one (slot_nr) that the certificate was found in, then use
+		// one (slotNr) that the certificate was found in, then use
 		// that.
 		for _, slot := range slots {
-			if slot.id == slot_nr {
+			if slot.id == slotNr {
 				goto got_slot
 			}
 		}
@@ -796,44 +809,52 @@ func GetPKCS11Signer(certIdentifier CertIdentifier, libPkcs11 string, certificat
 	}
 
 got_slot:
-	if session == 0 {
-		session, err = module.OpenSession(slot_nr, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
-		if err != nil {
-			goto fail
-		}
+	session, err = module.OpenSession(slotNr, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
+	if err != nil {
+		goto fail
 	}
 
-	if !logged_in {
-		// And *now* we fall back to prompting the user for a PIN.
-		// Perhaps we should do this via a callback function, and
-		// do it whenever we attempt logins? And loop on failure
-		// in case the user mistyped it?
-		if pinPkcs11 == "" {
-			fmt.Fprintln(os.Stderr, "Please enter your user pin:")
-			pinPkcs11Bytes, err = term.ReadPassword(int(syscall.Stdin))
-			if err != nil {
-				err = errors.New("unable to read PKCS#11 user pin")
-				goto fail
+	// And *now* we fall back to prompting the user for a PIN if necessary.
+	if pinPkcs11 == "" {
+		parseErrMsg := "unable to read PKCS#11 user pin"
+		prompt := "Please enter your user pin:"
+		for true {
+			pinPkcs11, err = GetPassword(prompt, parseErrMsg)
+			if err != nil && err.Error() == parseErrMsg {
+				continue
 			}
 
-			pinPkcs11 = string(pinPkcs11Bytes[:])
-			strings.Replace(pinPkcs11, "\r", "", -1) // Remove CR
-		}
-
-		err = module.Login(session, pkcs11.CKU_USER, pinPkcs11)
-		if err != nil {
-			goto fail
+			err = module.Login(session, pkcs11.CKU_USER, pinPkcs11)
+			if err != nil {
+				// Loop on failure in case the user mistyped.
+				if strings.Contains(err.Error(), "CKR_PIN_INCORRECT") {
+					prompt = "Incorrect user pin. Please re-enter your user pin:"
+					continue
+				}
+				goto fail
+			}
+			break
 		}
 	}
+
 retry_search:
-	templatePrivateKey = getFindTemplate(key_uri, pkcs11.CKO_PRIVATE_KEY)
+	templatePrivateKey = getFindTemplate(keyUri, pkcs11.CKO_PRIVATE_KEY)
 
 	if err = module.FindObjectsInit(session, templatePrivateKey); err != nil {
 		goto fail
 	}
-	sessionPrivateKeyObjects, _, err = module.FindObjects(session, MAX_OBJECT_LIMIT)
-	if err != nil {
-		goto fail
+	for true {
+		sessionPrivateKeyObjects, _, err = module.FindObjects(session, MAX_OBJECT_LIMIT)
+		if err != nil {
+			goto fail
+		}
+		if len(sessionPrivateKeyObjects) == 0 {
+			break
+		}
+		privateKeyObjects = append(privateKeyObjects, sessionPrivateKeyObjects...)
+		if len(sessionPrivateKeyObjects) < MAX_OBJECT_LIMIT {
+			break
+		}
 	}
 	if err = module.FindObjectsFinal(session); err != nil {
 		goto fail
@@ -848,7 +869,7 @@ retry_search:
 	// If we found multiple keys, try them until we find the one
 	// that actually matches the cert. More realistically, there
 	// will be only one. Sanity check that it matches the cert.
-	for _, curPrivateKeyHandle := range sessionPrivateKeyObjects {
+	for _, curPrivateKeyHandle := range privateKeyObjects {
 		// Find the signing algorithm
 		keyAttributes = []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, 0),
@@ -880,8 +901,7 @@ retry_search:
 	}
 
 	if privateKeyHandle == 0 {
-		/*
-		 * "If the key is not found and the original search was by
+		/* "If the key is not found and the original search was by
 		 * CKA_LABEL of the certificate, then repeat the search using
 		 * the CKA_ID of the certificate that was actually found, but
 		 * not requiring a CKA_LABEL match."
@@ -889,11 +909,11 @@ retry_search:
 		 * http://david.woodhou.se/draft-woodhouse-cert-best-practice.html#rfc.section.8.2
 		 */
 		if (privateKeyId == "" || privateKeyId == certificateId) &&
-			certificate != nil && cert_obj[0].id != nil {
-			_, key_had_label := key_uri.GetPathAttribute("object", false)
+			certificate != nil && certObj[0].id != nil {
+			_, key_had_label := keyUri.GetPathAttribute("object", false)
 			if key_had_label {
-				key_uri.RemovePathAttribute("object")
-				key_uri.SetPathAttribute("id", escapeAll(cert_obj[0].id))
+				keyUri.RemovePathAttribute("object")
+				keyUri.SetPathAttribute("id", escapeAll(certObj[0].id))
 				goto retry_search
 			}
 		}
@@ -928,4 +948,17 @@ fail:
 	}
 
 	return nil, "", err
+}
+
+// Prompts the user for their password
+func GetPassword(prompt string, parseErrMsg string) (string, error) {
+	fmt.Fprintln(os.Stderr, prompt)
+	passwordBytes, err := term.ReadPassword(int(syscall.Stdin))
+	if err != nil {
+		return "", errors.New(parseErrMsg)
+	}
+
+	password := string(passwordBytes[:])
+	strings.Replace(password, "\r", "", -1) // Remove CR
+	return password, nil
 }

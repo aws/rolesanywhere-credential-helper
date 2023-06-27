@@ -62,11 +62,9 @@ func init() {
 	rootCmd.AddCommand(signStringCmd)
 	format = newEnum([]string{"json", "text", "bin"}, "json")
 	digestArg = newEnum([]string{"SHA256", "SHA384", "SHA512"}, "SHA256")
-	signStringCmd.PersistentFlags().StringVar(&certificateId, "certificate", "", "Path to certificate file")
-	signStringCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify
-a certificate from a certificate store. Can be passed in either as string or a file name (prefixed by \"file://\")`)
-	signStringCmd.PersistentFlags().StringVar(&privateKeyId, "private-key", "", "Path to private key file")
-	signStringCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (default: p11-kit-proxy.so)")
+	signStringCmd.PersistentFlags().StringVar(&certificateId, "certificate", "", "Path to certificate file or PKCS#11 URI to identify the certificate")
+	signStringCmd.PersistentFlags().StringVar(&privateKeyId, "private-key", "", "Path to private key file or PKCS#11 URI to identify the private key")
+	signStringCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (default: p11-kit-proxy.{so, dll, dylib})")
 	signStringCmd.PersistentFlags().Var(format, "format", "Output format. One of json, text, and bin")
 	signStringCmd.PersistentFlags().Var(digestArg, "digest", "One of SHA256, SHA384, and SHA512")
 }
@@ -75,7 +73,6 @@ var signStringCmd = &cobra.Command{
 	Use:   "sign-string [flags]",
 	Short: "Signs a string using the passed-in private key",
 	Run: func(cmd *cobra.Command, args []string) {
-		certIdentifier, err := PopulateCertIdentifier(certSelector)
 		stringToSign, _ := ioutil.ReadAll(bufio.NewReader(os.Stdin))
 		var digest crypto.Hash
 		switch strings.ToUpper(digestArg.String()) {
@@ -90,16 +87,15 @@ var signStringCmd = &cobra.Command{
 		}
 		var signer crypto.Signer
 		credOpts := helper.CredentialsOpts{
-			PrivateKeyId: privateKeyId,
+			PrivateKeyId:  privateKeyId,
 			CertificateId: certificateId,
-			LibPkcs11: libPkcs11,
-			CertIdentifier: certIdentifier,
+			LibPkcs11:     libPkcs11,
 		}
 
-		signer, _, err = helper.GetSigner(&credOpts)
+		signer, _, err := helper.GetSigner(&credOpts)
 		if err != nil {
-		   log.Println(err)
-		   os.Exit(1)
+			log.Println(err)
+			os.Exit(1)
 		}
 		sigBytes, err := signer.Sign(rand.Reader, stringToSign, digest)
 		if err != nil {
