@@ -11,8 +11,11 @@ P11TOOL=SOFTHSM2_CONF=tst/softhsm2.conf p11tool
 certsdir=tst/certs
 curdir=$(shell pwd)
 
+tst/softhsm2.conf: tst/softhsm2.conf.template
+	sed 's|@top_srcdir@|${curdir}|g' $< > $@
+
 # Nice and simple: Certs visible without login, public keys present in token. 
-softhsm-setup0:
+softhsm-setup0: tst/softhsm2.conf
 	$(SHM2_UTIL) --show-slots
 	$(SHM2_UTIL) --init-token --free --label credential-helper-test \
 		--so-pin 12345678 --pin 1234
