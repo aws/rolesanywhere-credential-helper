@@ -92,22 +92,21 @@ func mismatchAttr(uri *pkcs11uri.Pkcs11URI, attr string, val string) bool {
 
 // Return the set of slots which match the given uri
 func matchSlots(slots []SlotIdInfo, uri *pkcs11uri.Pkcs11URI) (matches []SlotIdInfo) {
-
 	if uri == nil {
 		return slots
 	}
 
-	var urislotnr uint64
-	var urislot string
+	var uriSlotNr uint64
+	var uriSlot string
 	var ok bool
 
-	urislot, ok = uri.GetPathAttribute("slot-id", false)
+	uriSlot, ok = uri.GetPathAttribute("slot-id", false)
 	if ok {
-		urislotnr, _ = strconv.ParseUint(urislot, 0, 32)
+		uriSlotNr, _ = strconv.ParseUint(uriSlot, 0, 32)
 	}
 
 	for _, slot := range slots {
-		if urislotnr != 0 && urislotnr != uint64(slot.id) {
+		if uriSlotNr != 0 && uriSlotNr != uint64(slot.id) {
 			continue
 		}
 		if mismatchAttr(uri, "token", slot.tokInfo.Label) ||
