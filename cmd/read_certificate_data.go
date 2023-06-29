@@ -37,7 +37,7 @@ var readCertificateDataCmd = &cobra.Command{
 		var certs []*x509.Certificate
 
 		if strings.HasPrefix(certificateId, "pkcs11:") {
-			certs, err = helper.GetMatchingPKCSCerts(certIdentifier, certificateId, libPkcs11)
+			certs, err = helper.GetMatchingPKCSCerts(certificateId, libPkcs11)
 			if err != nil {
 				log.Println(err)
 				os.Exit(1)

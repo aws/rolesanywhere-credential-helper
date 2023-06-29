@@ -164,7 +164,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 	}
 
 	if strings.HasPrefix(privateKeyId, "pkcs11:") {
-		return GetPKCS11Signer(opts.CertIdentifier, opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId)
+		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId)
 	} else {
 		privateKey, err := ReadPrivateKeyData(privateKeyId)
 		if err != nil {
