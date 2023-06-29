@@ -176,11 +176,32 @@ func Verify(payload []byte, publicKey crypto.PublicKey, digest crypto.Hash, sig 
 			return valid, nil
 		}
 	}
+	{
+		// For some reason, signer.Public() can return either a
+		// ecdsa.PublicKey or *ecdsa.PublicKey, assuming the signer is indeed
+		// a ECDSA signer
+		publicKey, ok := publicKey.(*ecdsa.PublicKey)
+		if ok {
+			valid := ecdsa.VerifyASN1(publicKey, hash, sig)
+			return valid, nil
+		}
+	}
 
 	{
 		publicKey, ok := publicKey.(rsa.PublicKey)
 		if ok {
 			err := rsa.VerifyPKCS1v15(&publicKey, digest, hash, sig)
+			return err == nil, nil
+		}
+	}
+
+	{
+		// For some reason, signer.Public() can return either a
+		// rsa.PublicKey or *rsa.PublicKey, assuming the signer is indeed
+		// a RSA signer
+		publicKey, ok := publicKey.(*rsa.PublicKey)
+		if ok {
+			err := rsa.VerifyPKCS1v15(publicKey, digest, hash, sig)
 			return err == nil, nil
 		}
 	}
@@ -243,8 +264,15 @@ func TestSign(t *testing.T) {
 			testTable = append(testTable, CredentialsOpts{
 				CertificateId: cert,
 			})
-
 		}
+	}
+
+	pkcs11_objects := []string{"RSA", "EC"}
+
+	for _, object := range pkcs11_objects {
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s?pin-value=1234", object),
+		})
 	}
 
 	digestList := []crypto.Hash{crypto.SHA256, crypto.SHA384, crypto.SHA512}
@@ -252,6 +280,7 @@ func TestSign(t *testing.T) {
 	for _, credOpts := range testTable {
 		signer, _, err := GetSigner(&credOpts)
 		if err != nil {
+			t.Log(err)
 			t.Log(fmt.Sprintf("Failed to get signer for '%s'/'%s'",
 				credOpts.CertificateId, credOpts.PrivateKeyId))
 			t.Fail()
@@ -284,6 +313,8 @@ func TestSign(t *testing.T) {
 				}
 			}
 		}
+
+		signer.Close()
 	}
 }
 
