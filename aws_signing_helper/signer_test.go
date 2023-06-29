@@ -270,8 +270,17 @@ func TestSign(t *testing.T) {
 	pkcs11_objects := []string{"RSA", "EC"}
 
 	for _, object := range pkcs11_objects {
+		pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s?pin-value=1234", object)
+
 		testTable = append(testTable, CredentialsOpts{
-			CertificateId: fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s?pin-value=1234", object),
+			CertificateId: pkcs11_uri,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			PrivateKeyId: pkcs11_uri,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: pkcs11_uri,
+			PrivateKeyId:  pkcs11_uri,
 		})
 	}
 
