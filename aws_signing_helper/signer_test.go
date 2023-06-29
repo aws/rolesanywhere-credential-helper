@@ -289,7 +289,6 @@ func TestSign(t *testing.T) {
 	for _, credOpts := range testTable {
 		signer, _, err := GetSigner(&credOpts)
 		if err != nil {
-			t.Log(err)
 			t.Log(fmt.Sprintf("Failed to get signer for '%s'/'%s'",
 				credOpts.CertificateId, credOpts.PrivateKeyId))
 			t.Fail()

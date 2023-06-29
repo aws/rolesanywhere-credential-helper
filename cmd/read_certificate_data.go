@@ -54,10 +54,10 @@ var readCertificateDataCmd = &cobra.Command{
 				os.Exit(1)
 			}
 		}
+		fmt.Printf("Matching identities\n")
 		for index, cert := range certs {
 			fingerprint := sha1.Sum(cert.Raw) // nosemgrep
 			fingerprintHex := hex.EncodeToString(fingerprint[:])
-			fmt.Printf("Matching identities\n")
 			fmt.Printf("%d) %s \"%s\"\n", index+1, fingerprintHex, cert.Subject.String())
 		}
 	},
