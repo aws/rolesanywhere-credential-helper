@@ -26,14 +26,8 @@ import (
 const TestCredentialsFilePath = "/tmp/credentials"
 
 func setup() error {
-	generateCertsScript := exec.Command("/bin/bash", "../generate-certs.sh")
-	_, err := generateCertsScript.Output()
-	if err != nil {
-		return err
-	}
-
 	generateCredentialProcessDataScript := exec.Command("/bin/bash", "../generate-credential-process-data.sh")
-	_, err = generateCredentialProcessDataScript.Output()
+	_, err := generateCredentialProcessDataScript.Output()
 	return err
 }
 
