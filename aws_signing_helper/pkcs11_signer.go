@@ -309,9 +309,7 @@ func getCertsInSession(module *pkcs11.Ctx, session pkcs11.SessionHandle, uri *pk
 //
 // NB: It's generally only looking for *one* cert to use. If you want
 // `p11tool --list-certificates`, use that instead.
-func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkcs11URI, pinPkcs11 *string, single bool) (slotNr uint, matchingCerts []CertObjInfo, err error) {
-	var session pkcs11.SessionHandle
-
+func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkcs11URI, pinPkcs11 *string, single bool) (slotNr uint, session pkcs11.SessionHandle, loggedIn bool, matchingCerts []CertObjInfo, err error) {
 	if uri != nil {
 		slots = matchSlots(slots, uri)
 	}
@@ -323,20 +321,25 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 	// matches the provided PKCS#11 URI, a search is performed for
 	// matching certificate objects."
 	for _, slot := range slots {
-		session, err = module.OpenSession(slot.id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
+		curSession, err := module.OpenSession(slot.id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 		if err != nil {
-			module.CloseSession(session)
+			module.CloseSession(curSession)
 			continue
 		}
 
-		curMatchingCerts, err := getCertsInSession(module, session, uri)
+		curMatchingCerts, err := getCertsInSession(module, curSession, uri)
 		if err == nil && len(curMatchingCerts) > 0 {
 			matchingCerts = append(matchingCerts, curMatchingCerts...)
 			// We only care about this value when there is a single matching
 			// certificate found.
-			slotNr = slot.id
+			if slotNr == 0 {
+				slotNr = slot.id
+				session = curSession
+				goto skip
+			}
 		}
-		module.CloseSession(session)
+		module.CloseSession(curSession)
+	skip:
 	}
 
 	if single && len(matchingCerts) > 1 {
@@ -345,13 +348,13 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 	}
 
 	if len(matchingCerts) > 1 {
-		return slotNr, matchingCerts, nil
+		return slotNr, session, false, matchingCerts, nil
 	}
 
 	// If there is exactly one matching certificate found without logging in
 	// to any of the tokens, then return that one.
 	if single && len(matchingCerts) == 1 {
-		return slotNr, matchingCerts, nil
+		return slotNr, session, false, matchingCerts, nil
 	}
 
 	// http://david.woodhou.se/draft-woodhouse-cert-best-practice.html#rfc.section.8.1
@@ -367,48 +370,53 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 	if len(slots) == 1 && *pinPkcs11 != "" {
 		errNoMatchingCerts := errors.New("no matching certificates")
 
-		session, err = module.OpenSession(slots[0].id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
+		curSession, err := module.OpenSession(slots[0].id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 		if err != nil {
 			err = errNoMatchingCerts
 			goto fail
 		}
 
-		err = module.Login(session, pkcs11.CKU_USER, *pinPkcs11)
+		err = module.Login(curSession, pkcs11.CKU_USER, *pinPkcs11)
 		if err != nil {
 			err = errNoMatchingCerts
 			goto fail
 		}
 
-		curMatchingCerts, err := getCertsInSession(module, session, uri)
+		curMatchingCerts, err := getCertsInSession(module, curSession, uri)
 		if err == nil && len(curMatchingCerts) > 0 {
 			matchingCerts = append(matchingCerts, curMatchingCerts...)
 			// We only care about this value when there is a single matching
 			// certificate found.
-			slotNr = slots[0].id
+			if session == 0 {
+				slotNr = slots[0].id
+				session = curSession
+				goto foundCert
+			}
 		}
-		module.Logout(session)
-		module.CloseSession(session)
+		module.Logout(curSession)
+		module.CloseSession(curSession)
 	}
 
+	// No matching certificates
+	err = errors.New("no matching certificates")
+	goto fail
+
+foundCert:
 	if single && len(matchingCerts) > 0 {
 		err = errors.New("multiple matching certificates")
-		goto fail
-	}
-	if len(matchingCerts) == 0 {
-		err = errors.New("no matching certificates")
 		goto fail
 	}
 
 	// Exactly one matching certificate after logging into the appropriate token
 	// iff single is true (otherwise there can be multiple matching certificates)
-	return slotNr, matchingCerts, nil
+	return slotNr, session, true, matchingCerts, nil
 
 fail:
 	if session != 0 {
 		module.Logout(session)
 		module.CloseSession(session)
 	}
-	return 0, nil, err
+	return 0, session, false, nil, err
 }
 
 // Used to implement a cut-down version of `p11tool --list-certificates`.
@@ -432,9 +440,19 @@ func GetMatchingPKCSCerts(uriStr string, lib string) (matchingCerts []*x509.Cert
 		return nil, err
 	}
 
-	_, certObjs, err = getMatchingCerts(module, slots, uri, &pin, false)
+	_, session, loggedIn, certObjs, err := getMatchingCerts(module, slots, uri, &pin, false)
+	if err != nil {
+		// Session has been closed and module has been destroyed already in this case
+		return nil, err
+	}
 
 	if module != nil {
+		if session != 0 {
+			if loggedIn {
+				module.Logout(session)
+			}
+			module.CloseSession(session)
+		}
 		module.Finalize()
 		module.Destroy()
 	}
@@ -465,6 +483,7 @@ func (pkcs11Signer *PKCS11Signer) Close() {
 	}
 }
 
+// Helper function to sign a digest using a PKCS#11 private key handle
 func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHandle pkcs11.ObjectHandle, alwaysAuth uint, pkcs11Pin string, keyType uint, digest []byte, hashFunc crypto.Hash) (signature []byte, err error) {
 	// XXX: If you use this outside the context of IAM RA, be aware that
 	// you'll want to use something other than SHA256 in many cases.
@@ -740,6 +759,7 @@ func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, certificat
 	var keyType uint
 	var alwaysAuth uint
 	var privateKeyObjects []pkcs11.ObjectHandle
+	var loggedIn bool
 
 	module, slots, err = openPKCS11Module(libPkcs11)
 	if err != nil {
@@ -754,7 +774,7 @@ func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, certificat
 			goto fail
 		}
 		pinPkcs11, _ := certUri.GetQueryAttribute("pin-value", false)
-		slotNr, certObj, err = getMatchingCerts(module, slots, certUri, &pinPkcs11, true)
+		slotNr, session, loggedIn, certObj, err = getMatchingCerts(module, slots, certUri, &pinPkcs11, true)
 		if err != nil {
 			goto fail
 		}
@@ -781,6 +801,14 @@ func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, certificat
 	if len(slots) == 1 {
 		if slotNr != slots[0].id {
 			slotNr = slots[0].id
+			if session != 0 {
+				if loggedIn {
+					module.Logout(session)
+					module.CloseSession(session)
+				}
+			}
+			loggedIn = false
+			session = 0
 		}
 	} else {
 		// If the URI matched multiple slots *but* one of them is the
@@ -796,48 +824,52 @@ func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, certificat
 	}
 
 got_slot:
-	session, err = module.OpenSession(slotNr, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
+	if session == 0 {
+		session, err = module.OpenSession(slotNr, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
+	}
 	if err != nil {
 		goto fail
 	}
 
 	// And *now* we fall back to prompting the user for a PIN if necessary.
-	if pinPkcs11 == "" {
-		parseErrMsg := "unable to read PKCS#11 user pin"
-		prompt := "Please enter your user pin:"
+	if !loggedIn {
+		if pinPkcs11 == "" {
+			parseErrMsg := "unable to read PKCS#11 user pin"
+			prompt := "Please enter your user pin:"
 
-		ttyPath := "/dev/tty"
-		if runtime.GOOS == "windows" {
-			ttyPath = "CON"
-		}
-
-		ttyFile, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
-		if err != nil {
-			goto fail
-		}
-		defer ttyFile.Close()
-
-		for true {
-			pinPkcs11, err = GetPassword(ttyFile, prompt, parseErrMsg)
-			if err != nil && err.Error() == parseErrMsg {
-				continue
+			ttyPath := "/dev/tty"
+			if runtime.GOOS == "windows" {
+				ttyPath = "CON"
 			}
 
-			err = module.Login(session, pkcs11.CKU_USER, pinPkcs11)
+			ttyFile, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
 			if err != nil {
-				// Loop on failure in case the user mistyped their PIN.
-				if strings.Contains(err.Error(), "CKR_PIN_INCORRECT") {
-					prompt = "Incorrect user pin. Please re-enter your user pin:"
-					continue
-				}
 				goto fail
 			}
-			break
-		}
-	} else {
-		err = module.Login(session, pkcs11.CKU_USER, pinPkcs11)
-		if err != nil {
-			goto fail
+			defer ttyFile.Close()
+
+			for true {
+				pinPkcs11, err = GetPassword(ttyFile, prompt, parseErrMsg)
+				if err != nil && err.Error() == parseErrMsg {
+					continue
+				}
+
+				err = module.Login(session, pkcs11.CKU_USER, pinPkcs11)
+				if err != nil {
+					// Loop on failure in case the user mistyped their PIN.
+					if strings.Contains(err.Error(), "CKR_PIN_INCORRECT") {
+						prompt = "Incorrect user pin. Please re-enter your user pin:"
+						continue
+					}
+					goto fail
+				}
+				break
+			}
+		} else {
+			err = module.Login(session, pkcs11.CKU_USER, pinPkcs11)
+			if err != nil {
+				goto fail
+			}
 		}
 	}
 
