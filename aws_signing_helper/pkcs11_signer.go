@@ -465,13 +465,7 @@ func (pkcs11Signer *PKCS11Signer) Close() {
 	}
 }
 
-// Implements the crypto.Signer interface and signs the passed in digest
-func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-	module := pkcs11Signer.module
-	session := pkcs11Signer.session
-	privateKeyHandle := pkcs11Signer.privateKeyHandle
-	keyType := pkcs11Signer.keyType
-
+func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHandle pkcs11.ObjectHandle, alwaysAuth uint, pkcs11Pin string, keyType uint, digest []byte, hashFunc crypto.Hash) (signature []byte, err error) {
 	// XXX: If you use this outside the context of IAM RA, be aware that
 	// you'll want to use something other than SHA256 in many cases.
 	// For TLSv1.3 the hash needs to precisely match the bit size of the
@@ -480,7 +474,7 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 	// e.g. https://github.com/ThalesIgnite/crypto11/blob/master/rsa.go#L230
 	var mechanism uint
 	if keyType == pkcs11.CKK_EC {
-		switch opts.HashFunc() {
+		switch hashFunc {
 		case crypto.SHA256:
 			hash := sha256.Sum256(digest)
 			digest = hash[:]
@@ -493,7 +487,7 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 		}
 		mechanism = pkcs11.CKM_ECDSA
 	} else {
-		switch opts.HashFunc() {
+		switch hashFunc {
 		case crypto.SHA256:
 			mechanism = pkcs11.CKM_SHA256_RSA_PKCS
 		case crypto.SHA384:
@@ -509,10 +503,11 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 	}
 
 	// We assume it's the same PIN as the token itself? Which was only
-	// "saved" for us in pkcs11Signer if the CKA_ALWAYS_AUTHENTICATE
-	// attribute was set.
-	if pkcs11Signer.pin != "" {
-		err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pkcs11Signer.pin)
+	// "saved" for us in PKCS11Signer if the CKA_ALWAYS_AUTHENTICATE
+	// attribute was set (assuming this method is called with the attributes
+	// of an existing PKCS11Signer object).
+	if alwaysAuth != 0 && pkcs11Pin != "" {
+		err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pkcs11Pin)
 		if err != nil {
 			return nil, fmt.Errorf("user re-authentication failed (%s)", err.Error())
 		}
@@ -525,13 +520,25 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 
 	// Yay, we have to do the ASN.1 encoding of the R, S values ourselves.
 	if mechanism == pkcs11.CKM_ECDSA {
-		sig, err = encode_ecdsa_sig_value(sig)
+		sig, err = encodeEcdsaSigValue(sig)
 		if err != nil {
 			return nil, err
 		}
-
 	}
+
 	return sig, nil
+}
+
+// Implements the crypto.Signer interface and signs the passed in digest
+func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+	module := pkcs11Signer.module
+	session := pkcs11Signer.session
+	privateKeyHandle := pkcs11Signer.privateKeyHandle
+	keyType := pkcs11Signer.keyType
+	pin := pkcs11Signer.pin
+	hashFunc := opts.HashFunc()
+
+	return signHelper(module, session, privateKeyHandle, 0, pin, keyType, digest, hashFunc)
 }
 
 // Gets the x509.Certificate associated with this PKCS11Signer
@@ -609,27 +616,25 @@ func getManufacturerId(module *pkcs11.Ctx) (string, error) {
 // This is defined in RFC3279 §2.2.3 as well as SEC.1.
 // I can't find anything which mandates DER but I've seen
 // OpenSSL refusing to verify it with indeterminate length.
-func encode_ecdsa_sig_value(signature []byte) (out []byte, err error) {
-	siglen := len(signature) / 2
+func encodeEcdsaSigValue(signature []byte) (out []byte, err error) {
+	sigLen := len(signature) / 2
 
 	return asn1.Marshal(struct {
 		R *big.Int
 		S *big.Int
 	}{
-		big.NewInt(0).SetBytes(signature[:siglen]),
-		big.NewInt(0).SetBytes(signature[siglen:])})
+		big.NewInt(0).SetBytes(signature[:sigLen]),
+		big.NewInt(0).SetBytes(signature[sigLen:])})
 }
 
 // Checks whether the private key and certificate are associated with each other
 func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, keyType uint, alwaysAuth uint, pinPkcs11 string, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate, manufacturerId string) bool {
 	var digestSuffix []byte
-	var mechanism uint
 	publicKey := certificate.PublicKey
 	ecdsaPublicKey, isEcKey := publicKey.(*ecdsa.PublicKey)
 	if isEcKey {
 		digestSuffixArr := sha256.Sum256(append([]byte("IAM RA"), elliptic.Marshal(ecdsaPublicKey, ecdsaPublicKey.X, ecdsaPublicKey.Y)...))
 		digestSuffix = digestSuffixArr[:]
-		mechanism = pkcs11.CKM_ECDSA
 		if keyType != pkcs11.CKK_EC {
 			return false
 		}
@@ -639,7 +644,6 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 	if isRsaKey {
 		digestSuffixArr := sha256.Sum256(append([]byte("IAM RA"), x509.MarshalPKCS1PublicKey(rsaPublicKey)...))
 		digestSuffix = digestSuffixArr[:]
-		mechanism = pkcs11.CKM_SHA256_RSA_PKCS
 		if keyType != pkcs11.CKK_RSA {
 			return false
 		}
@@ -650,33 +654,13 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 		strconv.Itoa(int(PKCS11_TEST_VERSION)) + manufacturerId + string(digestSuffix)
 	digestBytes := []byte(digest)
 	hash := sha256.Sum256(digestBytes)
-	if isEcKey {
-		// For CKM_ECDSA we pass in a hash, not the plain message
-		digestBytes = hash[:]
-	}
 
-	// XX: Why are we duplicating this code from our actual Sign() function?
-	err := module.SignInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, nil)}, privateKeyHandle)
-	if err != nil {
-		return false
-	}
-
-	if alwaysAuth != 0 && pinPkcs11 != "" {
-		err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pinPkcs11)
-		if err != nil {
-			return false
-		}
-	}
-	signature, err := module.Sign(session, digestBytes)
+	signature, err := signHelper(module, session, privateKeyHandle, alwaysAuth, pinPkcs11, keyType, digestBytes, crypto.SHA256)
 	if err != nil {
 		return false
 	}
 
 	if isEcKey {
-		signature, err = encode_ecdsa_sig_value(signature)
-		if err != nil {
-			return false
-		}
 		valid := ecdsa.VerifyASN1(ecdsaPublicKey, hash[:], signature)
 		return valid
 	}
