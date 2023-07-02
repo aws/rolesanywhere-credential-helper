@@ -45,7 +45,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"syscall"
 	"unsafe"
 
 	"github.com/miekg/pkcs11"
@@ -822,15 +821,27 @@ got_slot:
 	if pinPkcs11 == "" {
 		parseErrMsg := "unable to read PKCS#11 user pin"
 		prompt := "Please enter your user pin:"
+
+		ttyPath := "/dev/tty"
+		if runtime.GOOS == "windows" {
+			ttyPath = "CON"
+		}
+
+		ttyFile, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
+		if err != nil {
+			goto fail
+		}
+		defer ttyFile.Close()
+
 		for true {
-			pinPkcs11, err = GetPassword(prompt, parseErrMsg)
+			pinPkcs11, err = GetPassword(ttyFile, prompt, parseErrMsg)
 			if err != nil && err.Error() == parseErrMsg {
 				continue
 			}
 
 			err = module.Login(session, pkcs11.CKU_USER, pinPkcs11)
 			if err != nil {
-				// Loop on failure in case the user mistyped.
+				// Loop on failure in case the user mistyped their PIN.
 				if strings.Contains(err.Error(), "CKR_PIN_INCORRECT") {
 					prompt = "Incorrect user pin. Please re-enter your user pin:"
 					continue
@@ -960,9 +971,9 @@ fail:
 }
 
 // Prompts the user for their password
-func GetPassword(prompt string, parseErrMsg string) (string, error) {
-	fmt.Fprintln(os.Stderr, prompt)
-	passwordBytes, err := term.ReadPassword(int(syscall.Stdin))
+func GetPassword(ttyFile *os.File, prompt string, parseErrMsg string) (string, error) {
+	fmt.Fprintln(ttyFile, prompt)
+	passwordBytes, err := term.ReadPassword(int(ttyFile.Fd()))
 	if err != nil {
 		return "", errors.New(parseErrMsg)
 	}
