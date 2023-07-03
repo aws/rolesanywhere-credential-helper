@@ -246,6 +246,21 @@ func TestSign(t *testing.T) {
 		}
 	}
 
+	tpm_digests := []string{"sha1", "sha256", "sha384", "sha512"}
+	tpm_keys := []string{"rsa", "ec", "ec-81000001"}
+
+	for _, digest := range tpm_digests {
+		for _, keyname := range tpm_keys {
+			cert := fmt.Sprintf("../tst/certs/hwtpm-%s-%s-cert.pem",
+				keyname, digest)
+			key := fmt.Sprintf("../tst/certs/hwtpm-%s-key.pem", keyname)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+			})
+		}
+	}
+
 	pkcs11_objects := []string{"RSA", "EC"}
 
 	for _, object := range pkcs11_objects {
@@ -285,7 +300,8 @@ func TestSign(t *testing.T) {
 		for _, digest := range digestList {
 			signatureBytes, err := signer.Sign(rand.Reader, []byte(msg), digest)
 			if err != nil {
-				t.Log("Failed to sign the input message")
+				t.Log(fmt.Sprintf("Failed to %s sign the input message for '%s'/'%s': %s",
+					digest, credOpts.CertificateId, credOpts.PrivateKeyId, err))
 				t.Fail()
 				return
 			}
@@ -293,8 +309,8 @@ func TestSign(t *testing.T) {
 			if pubKey != nil {
 				valid, _ := Verify([]byte(msg), pubKey, digest, signatureBytes)
 				if !valid {
-					t.Log(fmt.Sprintf("Failed to verify the signature for '%s'/'%s'",
-						credOpts.CertificateId, credOpts.PrivateKeyId))
+					t.Log(fmt.Sprintf("Failed to verify %s signature for '%s'/'%s'",
+						digest, credOpts.CertificateId, credOpts.PrivateKeyId))
 					t.Fail()
 					return
 				}

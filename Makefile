@@ -11,12 +11,17 @@ P11TOOL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp p11tool
 certsdir=tst/certs
 curdir=$(shell pwd)
 
+TPMKEYS := $(certsdir)/hwtpm-rsa-key.pem $(certsdir)/hwtpm-ec-key.pem  $(certsdir)/hwtpm-ec-81000001-key.pem
 RSAKEYS := $(foreach keylen, 1024 2048 4096, $(certsdir)/rsa-$(keylen)-key.pem)
 ECKEYS := $(foreach curve, prime256v1 secp384r1, $(certsdir)/ec-$(curve)-key.pem)
 PKCS8KEYS := $(patsubst %-key.pem,%-key-pkcs8.pem,$(RSAKEYS) $(ECKEYS))
 ECCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(ECKEYS)))
 RSACERTS := $(foreach digest, md5 sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(RSAKEYS)))
+TPMCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(TPMKEYS)))
 PKCS12CERTS := $(patsubst %-cert.pem, %.p12, $(RSACERTS) $(ECCERTS))
+
+TPM_DEVICE := /dev/tpmrm0
+export TPM_DEVICE
 
 # It's hard to ao a file-based rule for the contents of the SoftHSM token.
 # So just populate it as a side-effect of creating the softhsm2.conf file.
@@ -45,19 +50,24 @@ test: test-certs tst/softhsm2.conf
 
 %-md5-cert.pem: %-key.pem
 	SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
-	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -md5
+	[ "$${SUBJ%hwtpm-#}" != "${SUBJ}" ] && ENG="--engine tpm2 --keyform engine";  \
+	openssl req -x509 -new $${ENG} -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-}
 %-sha1-cert.pem: %-key.pem
 	SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
-	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha1
+	[ "$${SUBJ%hwtpm-#}" != "${SUBJ}" ] && ENG="--engine tpm2 --keyform engine";  \
+	openssl req -x509 -new $${ENG} -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-}
 %-sha256-cert.pem: %-key.pem
 	SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
-	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha256
+	[ "$${SUBJ%hwtpm-#}" != "${SUBJ}" ] && ENG="--engine tpm2 --keyform engine";  \
+	openssl req -x509 -new $${ENG} -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-}
 %-sha384-cert.pem: %-key.pem
 	SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
-	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha384
+	[ "$${SUBJ%hwtpm-#}" != "${SUBJ}" ] && ENG="--engine tpm2 --keyform engine";  \
+	openssl req -x509 -new $${ENG} -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-}
 %-sha512-cert.pem: %-key.pem
 	SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
-	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha512
+	[ "$${SUBJ%hwtpm-#}" != "${SUBJ}" ] && ENG="--engine tpm2 --keyform engine";  \
+	openssl req -x509 -new $${ENG} -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-}
 
 # Go PKCS#12 only supports SHA1 and 3DES!!
 %.p12: %-cert.pem
@@ -72,6 +82,14 @@ test: test-certs tst/softhsm2.conf
 %-pkcs8.pem: %.pem
 	openssl pkcs8 -topk8 -inform PEM -outform PEM -in $< -out $@ -nocrypt
 
+$(certsdir)/hwtpm-rsa-key.pem:
+	create_tpm2_key -r $@
+
+$(certsdir)/hwtpm-ec-key.pem:
+	create_tpm2_key -e prime256v1 $@
+
+$(certsdir)/hwtpm-ec-81000001-key.pem:
+	create_tpm2_key -e prime256v1 -p 81000001 $@
 
 $(RSAKEYS):
 	KEYLEN=$$(echo "$@" | sed 's/.*rsa-\([0-9]*\)-key.pem/\1/'); \
@@ -84,13 +102,14 @@ $(ECKEYS):
 $(certsdir)/cert-bundle.pem: $(RSACERTS) $(ECCERTS)
 	cat $^ > $@
 
-test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(RSACERTS) $(ECCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem tst/softhsm2.conf
+test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(TPMKEYS) $(RSACERTS) $(ECCERTS) $(TPMCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem tst/softhsm2.conf
 
 test-clean:
-	rm -f $(RSAKEYS) $(ECKEYS)
+	rm -f $(RSAKEYS) $(ECKEYS) $(TPMKEYS)
 	rm -f $(PKCS8KEYS)
-	rm -f $(RSACERTS) $(ECCERTS)
+	rm -f $(RSACERTS) $(ECCERTS) $(TPMCERTS)
 	rm -f $(PKCS12CERTS)
 	rm -f $(certsdir)/cert-bundle.pem
 	rm -f tst/softhsm2.conf
 	rm -rf tst/softhsm/*
+
