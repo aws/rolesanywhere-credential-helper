@@ -247,13 +247,20 @@ func TestSign(t *testing.T) {
 	}
 
 	tpm_digests := []string{"sha1", "sha256", "sha384", "sha512"}
-	tpm_keys := []string{"rsa", "ec", "ec-81000001"}
+	var tpm_keys []string
+
+	tpmdev := os.Getenv("TPM_DEVICE")
+	if strings.HasPrefix(tpmdev, "/dev/") {
+		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
+	} else {
+		tpm_keys = []string{"sw-rsa", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
+	}
 
 	for _, digest := range tpm_digests {
 		for _, keyname := range tpm_keys {
-			cert := fmt.Sprintf("../tst/certs/hwtpm-%s-%s-cert.pem",
+			cert := fmt.Sprintf("../tst/certs/tpm-%s-%s-cert.pem",
 				keyname, digest)
-			key := fmt.Sprintf("../tst/certs/hwtpm-%s-key.pem", keyname)
+			key := fmt.Sprintf("../tst/certs/tpm-%s-key.pem", keyname)
 			testTable = append(testTable, CredentialsOpts{
 				CertificateId: cert,
 				PrivateKeyId:  key,
