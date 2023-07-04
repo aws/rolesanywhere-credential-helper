@@ -143,6 +143,10 @@ endef
 %-sha384-cert.pem: %-key.pem; $(CERT_RECIPE)
 %-sha512-cert.pem: %-key.pem; $(CERT_RECIPE)
 
+%-combo.pem: %-cert.pem
+	KEY=$$(echo "$@" | sed 's/-[^-]*-combo.pem/-key.pem/'); \
+	cat $${KEY} $< > $@.tmp && mv $@.tmp $@
+
 # Go PKCS#12 only supports SHA1 and 3DES!!
 %.p12: %-cert.pem
 	KEY=$$(echo "$@" | sed 's/-[^-]*\.p12/-key.pem/'); \
@@ -176,15 +180,16 @@ $(certsdir)/cert-bundle.pem: $(RSACERTS) $(ECCERTS)
 
 KEYS := $(RSAKEYS) $(ECKEYS) $(TPMKEYS) $(PKCS8KEYS)
 CERTS := $(RSACERTS) $(ECCERTS) $(TPMCERTS)
+COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(CERTS))
 
-test-certs: $(KEYS) $(CERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem tst/softhsm2.conf
+test-certs: $(KEYS) $(CERTS) $(COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem tst/softhsm2.conf
 	$(STOP_SWTPM_TCP) 2>/dev/null || :
 
 test-clean:
 	rm -f $(RSAKEYS) $(ECKEYS) $(HWTPMKEYS)
 	rm -f $(PKCS8KEYS)
 	rm -f $(RSACERTS) $(ECCERTS) $(HWTPMCERTS)
-	rm -f $(PKCS12CERTS)
+	rm -f $(PKCS12CERTS) $(COMBOS)
 	rm -f $(certsdir)/cert-bundle.pem
 	rm -f tst/softhsm2.conf
 	rm -rf tst/softhsm/*

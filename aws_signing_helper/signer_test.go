@@ -216,6 +216,12 @@ func TestSign(t *testing.T) {
 			testTable = append(testTable, CredentialsOpts{
 				CertificateId: cert,
 			})
+
+			cert = fmt.Sprintf("../tst/certs/ec-%s-%s-combo.pem",
+				curve, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
 		}
 	}
 
@@ -243,6 +249,12 @@ func TestSign(t *testing.T) {
 			testTable = append(testTable, CredentialsOpts{
 				CertificateId: cert,
 			})
+
+			cert = fmt.Sprintf("../tst/certs/rsa-%s-%s-combo.pem",
+				keylen, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
 		}
 	}
 
@@ -265,6 +277,13 @@ func TestSign(t *testing.T) {
 				CertificateId: cert,
 				PrivateKeyId:  key,
 			})
+
+			cert = fmt.Sprintf("../tst/certs/tpm-%s-%s-combo.pem",
+				keyname, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
+
 		}
 	}
 
