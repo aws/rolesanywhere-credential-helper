@@ -12,6 +12,7 @@ import (
 	"errors"
 	"io"
 	"math/big"
+	"os"
 
 	tpm2 "github.com/google/go-tpm/tpm2"
 	tpmutil "github.com/google/go-tpm/tpmutil"
@@ -104,7 +105,12 @@ func padPKCS1_15(input []byte, size uint) (output []byte, err error) {
 
 // Implements the crypto.Signer interface and signs the passed in digest
 func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-	rw, err := tpm2.OpenTPM("/dev/tpmrm0")
+	var paths []string
+	tpmdev := os.Getenv("TPM_DEVICE")
+	if tpmdev != "" {
+		paths = append(paths, tpmdev)
+	}
+	rw, err := tpm2.OpenTPM(paths...)
 	if err != nil {
 		return nil, err
 	}
