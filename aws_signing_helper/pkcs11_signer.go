@@ -36,11 +36,9 @@ import (
 	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/x509"
-	"encoding/asn1"
 	"errors"
 	"fmt"
 	"io"
-	"math/big"
 	"os"
 	"runtime"
 	"strconv"
@@ -621,29 +619,6 @@ func getManufacturerId(module *pkcs11.Ctx) (string, error) {
 	}
 
 	return info.ManufacturerID, nil
-}
-
-// Because of *course* we have to do this for ourselves.
-//
-// Create the DER-encoded SEQUENCE containing R and S:
-//
-//	Ecdsa-Sig-Value ::= SEQUENCE {
-//	  r                   INTEGER,
-//	  s                   INTEGER
-//	}
-//
-// This is defined in RFC3279 §2.2.3 as well as SEC.1.
-// I can't find anything which mandates DER but I've seen
-// OpenSSL refusing to verify it with indeterminate length.
-func encodeEcdsaSigValue(signature []byte) (out []byte, err error) {
-	sigLen := len(signature) / 2
-
-	return asn1.Marshal(struct {
-		R *big.Int
-		S *big.Int
-	}{
-		big.NewInt(0).SetBytes(signature[:sigLen]),
-		big.NewInt(0).SetBytes(signature[sigLen:])})
 }
 
 // Checks whether the private key and certificate are associated with each other

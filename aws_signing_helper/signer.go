@@ -8,6 +8,7 @@ import (
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
@@ -119,6 +120,29 @@ func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
 	}
 
 	return true
+}
+
+// Because of *course* we have to do this for ourselves.
+//
+// Create the DER-encoded SEQUENCE containing R and S:
+//
+//	Ecdsa-Sig-Value ::= SEQUENCE {
+//	  r                   INTEGER,
+//	  s                   INTEGER
+//	}
+//
+// This is defined in RFC3279 §2.2.3 as well as SEC.1.
+// I can't find anything which mandates DER but I've seen
+// OpenSSL refusing to verify it with indeterminate length.
+func encodeEcdsaSigValue(signature []byte) (out []byte, err error) {
+	sigLen := len(signature) / 2
+
+	return asn1.Marshal(struct {
+		R *big.Int
+		S *big.Int
+	}{
+		big.NewInt(0).SetBytes(signature[:sigLen]),
+		big.NewInt(0).SetBytes(signature[sigLen:])})
 }
 
 // Gets the Signer based on the flags passed in by the user (from which the CredentialsOpts structure is derived)
