@@ -2,6 +2,9 @@
 
 package aws_signing_helper
 
+// This code is based on the smimesign repository at
+// https://github.com/github/smimesign
+
 /*
 #cgo CFLAGS: -x objective-c
 #cgo LDFLAGS: -framework CoreFoundation -framework Security
