@@ -43,7 +43,7 @@ const (
 
 // Gets the matching identity and certificate for this CertIdentifier
 // If there is more than one, only a list of the matching certificates is returned
-func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCertificateRef, []*x509.Certificate, error) {
+func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCertificateRef, []CertificateContainer, error) {
 	queryMap := map[C.CFTypeRef]C.CFTypeRef{
 		C.CFTypeRef(C.kSecClass):      C.CFTypeRef(C.kSecClassIdentity),
 		C.CFTypeRef(C.kSecReturnRef):  C.CFTypeRef(C.kCFBooleanTrue),
@@ -70,7 +70,7 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 	numIdentRefs := C.CFArrayGetCount(aryResult)
 	identRefs := make([]C.CFTypeRef, numIdentRefs)
 	C.CFArrayGetValues(aryResult, C.CFRange{0, numIdentRefs}, (*unsafe.Pointer)(unsafe.Pointer(&identRefs[0])))
-	var certs []*x509.Certificate
+	var certContainers []CertificateContainer
 	var certRef C.SecCertificateRef
 	var identRef C.SecIdentityRef
 	for _, curIdentRef := range identRefs {
@@ -86,7 +86,7 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 		// Find whether there is a matching certificate
 		certMatches := certMatches(certIdentifier, *curCert)
 		if certMatches {
-			certs = append(certs, curCert)
+			certContainers = append(certContainers, CertificateContainer{curCert, ""})
 			// Assign to certRef and identRef at most once in the loop
 			// Both values are only useful if there is exactly one match in the certificate store
 			// When creating a signer, there has to be exactly one matching certificate
@@ -99,37 +99,37 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 
 	// Only retain the SecIdentityRef if it should be used later on
 	// Note that only the SecIdentityRef needs to be retained since it was neither created nor copied
-	if len(certs) == 1 {
+	if len(certContainers) == 1 {
 		C.CFRetain(C.CFTypeRef(identRef))
-		return identRef, certRef, certs, nil
+		return identRef, certRef, certContainers, nil
 	} else {
-		return 0, 0, certs, nil
+		return 0, 0, certContainers, nil
 	}
 }
 
 // Gets the certificates that match the CertIdentifier
-func GetMatchingCerts(certIdentifier CertIdentifier) ([]*x509.Certificate, error) {
-	identRef, certRef, certs, err := GetMatchingCertsAndIdentity(certIdentifier)
-	if len(certs) == 1 {
+func GetMatchingCerts(certIdentifier CertIdentifier) ([]CertificateContainer, error) {
+	identRef, certRef, certContainers, err := GetMatchingCertsAndIdentity(certIdentifier)
+	if len(certContainers) == 1 {
 		C.CFRelease(C.CFTypeRef(identRef))
 		C.CFRelease(C.CFTypeRef(certRef))
 	}
-	return certs, err
+	return certContainers, err
 }
 
 // Creates a DarwinCertStoreSigner based on the identifying certificate
 func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAlgorithm string, err error) {
-	identRef, certRef, certs, err := GetMatchingCertsAndIdentity(certIdentifier)
+	identRef, certRef, certContainers, err := GetMatchingCertsAndIdentity(certIdentifier)
 	if err != nil {
 		return nil, "", err
 	}
-	if len(certs) == 0 {
+	if len(certContainers) == 0 {
 		return nil, "", errors.New("no matching identities")
 	}
-	if len(certs) > 1 {
+	if len(certContainers) > 1 {
 		return nil, "", errors.New("multiple matching identities")
 	}
-	cert := certs[0]
+	cert := certContainers[0].Cert
 
 	// Find the signing algorithm
 	switch cert.PublicKey.(type) {

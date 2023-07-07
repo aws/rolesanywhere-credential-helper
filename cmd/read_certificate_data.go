@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"crypto/sha1"
-	"crypto/x509"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -22,6 +21,21 @@ func init() {
 	readCertificateDataCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
 }
 
+type PrintCertificate func(int, helper.CertificateContainer)
+
+func DefaultPrintCertificate(index int, certContainer helper.CertificateContainer) {
+	cert := certContainer.Cert
+
+	fingerprint := sha1.Sum(cert.Raw) // nosemgrep
+	fingerprintHex := hex.EncodeToString(fingerprint[:])
+	fmt.Printf("%d) %s \"%s\"\n", index+1, fingerprintHex, cert.Subject.String())
+
+	// Only for PKCS#11
+	if certContainer.Uri != "" {
+		fmt.Printf("\tURI: %s\n", certContainer.Uri)
+	}
+}
+
 var readCertificateDataCmd = &cobra.Command{
 	Use:   "read-certificate-data [flags]",
 	Short: "Diagnostic command to read certificate data",
@@ -34,31 +48,42 @@ var readCertificateDataCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		var certs []*x509.Certificate
+		var certContainers []helper.CertificateContainer
+		// In case there is information that needs to be conditionally printed
+		// based on the type of integration being used (which can't be taken
+		// from the CertificateContainer), a function that implements the
+		// PrintCertificate interface can be assigned to this variable.
+		var printFunction PrintCertificate = DefaultPrintCertificate
 
 		if strings.HasPrefix(certificateId, "pkcs11:") {
-			certs, err = helper.GetMatchingPKCSCerts(certificateId, libPkcs11)
+			certContainers, err = helper.GetMatchingPKCSCerts(certificateId, libPkcs11)
 			if err != nil {
 				log.Println(err)
 				os.Exit(1)
 			}
 		} else if certificateId != "" && certIdentifier == (helper.CertIdentifier{}) {
-			data, _ := helper.ReadCertificateData(certificateId)
-			buf, _ := json.Marshal(data)
+			data, err := helper.ReadCertificateData(certificateId)
+			if err != nil {
+				os.Exit(1)
+			}
+			buf, err := json.Marshal(data)
+			if err != nil {
+				os.Exit(1)
+			}
+
 			fmt.Print(string(buf[:]))
-			// Leaves 'certs' empty
+			// Exit after printing out the certificate data
+			os.Exit(0)
 		} else {
-			certs, err = helper.GetMatchingCerts(certIdentifier)
+			certContainers, err = helper.GetMatchingCerts(certIdentifier)
 			if err != nil {
 				log.Println(err)
 				os.Exit(1)
 			}
 		}
 		fmt.Printf("Matching identities\n")
-		for index, cert := range certs {
-			fingerprint := sha1.Sum(cert.Raw) // nosemgrep
-			fingerprintHex := hex.EncodeToString(fingerprint[:])
-			fmt.Printf("%d) %s \"%s\"\n", index+1, fingerprintHex, cert.Subject.String())
+		for index, certContainer := range certContainers {
+			printFunction(index, certContainer)
 		}
 	},
 }

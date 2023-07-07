@@ -85,6 +85,13 @@ type CredentialProcessOutput struct {
 	Expiration string `json:"Expiration"`
 }
 
+type CertificateContainer struct {
+	// Certificate data
+	Cert *x509.Certificate
+	// Certificate URI (only populated in the case that the certificate is a PKCS#11 object)
+	Uri string
+}
+
 // Define constants used in signing
 const (
 	aws4_x509_rsa_sha256   = "AWS4-X509-RSA-SHA256"

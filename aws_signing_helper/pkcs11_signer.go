@@ -227,17 +227,21 @@ func getFindTemplate(uri *pkcs11uri.Pkcs11URI, class uint) (template []*pkcs11.A
 
 // In our list of certs we want to remember the CKA_ID/CKA_LABEL too
 type CertObjInfo struct {
-	id    []byte
-	label []byte
-	x509  *x509.Certificate
+	id             []byte
+	label          []byte
+	x509           *x509.Certificate
+	model          string
+	manufacturerId string
+	serial         string
 }
 
 // Gets certificate(s) within the PKCS#11 session (i.e. a given token) that
 // match the given URI
-func getCertsInSession(module *pkcs11.Ctx, session pkcs11.SessionHandle, uri *pkcs11uri.Pkcs11URI) (certs []CertObjInfo, err error) {
+func getCertsInSession(module *pkcs11.Ctx, slotId uint, session pkcs11.SessionHandle, uri *pkcs11uri.Pkcs11URI) (certs []CertObjInfo, err error) {
 	var sessionCertObjects []pkcs11.ObjectHandle
 	var certObjects []pkcs11.ObjectHandle
 	var templateCrt []*pkcs11.Attribute
+	var tokenInfo *pkcs11.TokenInfo
 
 	// Convert the URI into a template for FindObjectsInit()
 	templateCrt = getFindTemplate(uri, pkcs11.CKO_CERTIFICATE)
@@ -263,6 +267,11 @@ func getCertsInSession(module *pkcs11.Ctx, session pkcs11.SessionHandle, uri *pk
 	err = module.FindObjectsFinal(session)
 	if err != nil {
 		return nil, err
+	}
+
+	if slotId != 0 {
+		tokenInfoTmp, _ := module.GetTokenInfo(slotId)
+		tokenInfo = &tokenInfoTmp
 	}
 
 	for _, certObject := range certObjects {
@@ -297,6 +306,12 @@ func getCertsInSession(module *pkcs11.Ctx, session pkcs11.SessionHandle, uri *pk
 			certObj.label = crtAttributes[0].Value
 		}
 
+		if tokenInfo != nil {
+			certObj.serial = tokenInfo.SerialNumber
+			certObj.manufacturerId = tokenInfo.ManufacturerID
+			certObj.model = tokenInfo.Model
+		}
+
 		certs = append(certs, certObj)
 	}
 
@@ -325,7 +340,7 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 			continue
 		}
 
-		curMatchingCerts, err := getCertsInSession(module, curSession, uri)
+		curMatchingCerts, err := getCertsInSession(module, slot.id, curSession, uri)
 		if err == nil && len(curMatchingCerts) > 0 {
 			matchingCerts = append(matchingCerts, curMatchingCerts...)
 			// We only care about this value when there is a single matching
@@ -380,7 +395,7 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 			goto fail
 		}
 
-		curMatchingCerts, err := getCertsInSession(module, curSession, uri)
+		curMatchingCerts, err := getCertsInSession(module, slots[0].id, curSession, uri)
 		if err == nil && len(curMatchingCerts) > 0 {
 			matchingCerts = append(matchingCerts, curMatchingCerts...)
 			// We only care about this value when there is a single matching
@@ -418,7 +433,7 @@ fail:
 }
 
 // Used to implement a cut-down version of `p11tool --list-certificates`.
-func GetMatchingPKCSCerts(uriStr string, lib string) (matchingCerts []*x509.Certificate, err error) {
+func GetMatchingPKCSCerts(uriStr string, lib string) (matchingCerts []CertificateContainer, err error) {
 	var slots []SlotIdInfo
 	var module *pkcs11.Ctx
 	var uri *pkcs11uri.Pkcs11URI
@@ -456,7 +471,22 @@ func GetMatchingPKCSCerts(uriStr string, lib string) (matchingCerts []*x509.Cert
 	}
 
 	for _, obj := range certObjs {
-		matchingCerts = append(matchingCerts, obj.x509)
+		curUri := pkcs11uri.New()
+		curUri.AddPathAttribute("model", obj.model)
+		curUri.AddPathAttribute("manufacturer", obj.manufacturerId)
+		curUri.AddPathAttribute("serial", obj.serial)
+		if obj.id != nil {
+			curUri.AddPathAttribute("id", string(obj.id[:]))
+		}
+		if obj.label != nil {
+			curUri.AddPathAttribute("object", string(obj.label[:]))
+		}
+		curUri.AddPathAttribute("type", "cert")
+		curUriStr, err := curUri.Format()
+		if err != nil {
+			curUriStr = ""
+		}
+		matchingCerts = append(matchingCerts, CertificateContainer{obj.x509, curUriStr})
 	}
 	return matchingCerts, err
 }
@@ -582,7 +612,7 @@ func (pkcs11Signer *PKCS11Signer) CertificateChain() (chain []*x509.Certificate,
 	session := pkcs11Signer.session
 	chain = append(chain, pkcs11Signer.cert)
 
-	certsFound, err := getCertsInSession(module, session, nil)
+	certsFound, err := getCertsInSession(module, 0, session, nil)
 	if err != nil {
 		return nil, err
 	}
