@@ -93,12 +93,14 @@ var signStringCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
-		var signer crypto.Signer
+		var signer helper.Signer
 		signer, _, err = helper.GetSigner(&credentialsOptions)
 		if err != nil {
 			log.Println(err)
 			os.Exit(1)
 		}
+		defer signer.Close()
+
 		sigBytes, err := signer.Sign(rand.Reader, stringToSign, digest)
 		if err != nil {
 			log.Println("unable to sign the digest")

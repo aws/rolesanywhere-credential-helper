@@ -273,6 +273,7 @@ func TestSign(t *testing.T) {
 			t.Fail()
 			return
 		}
+		defer signer.Close()
 
 		pubKey := signer.Public()
 		if credOpts.CertificateId != "" && pubKey == nil {
@@ -328,6 +329,12 @@ func TestCredentialProcess(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.server.Close()
 			signer, signatureAlgorithm, err := GetSigner(&credentialsOpts)
+			if err != nil {
+				t.Log("Failed to get signer")
+				t.Fail()
+				return
+			}
+			defer signer.Close()
 			resp, err := GenerateCredentials(&credentialsOpts, signer, signatureAlgorithm)
 
 			if err != nil {
