@@ -39,6 +39,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"runtime"
 	"strconv"
@@ -531,6 +532,8 @@ func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHand
 		case crypto.SHA512:
 			hash := sha512.Sum512(digest)
 			digest = hash[:]
+		default:
+			return nil, ErrUnsupportedHash
 		}
 		mechanism = pkcs11.CKM_ECDSA
 	} else {
@@ -541,6 +544,8 @@ func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHand
 			mechanism = pkcs11.CKM_SHA384_RSA_PKCS
 		case crypto.SHA512:
 			mechanism = pkcs11.CKM_SHA512_RSA_PKCS
+		default:
+			return nil, ErrUnsupportedHash
 		}
 	}
 

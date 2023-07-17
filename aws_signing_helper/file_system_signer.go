@@ -52,8 +52,7 @@ func (fileSystemSigner FileSystemSigner) Sign(rand io.Reader, digest []byte, opt
 		sum := sha512.Sum512(digest)
 		hash = sum[:]
 	default:
-		log.Println("unsupported digest")
-		return nil, errors.New("unsupported digest")
+		return nil, ErrUnsupportedHash
 	}
 
 	ecdsaPrivateKey, ok := fileSystemSigner.PrivateKey.(ecdsa.PrivateKey)
