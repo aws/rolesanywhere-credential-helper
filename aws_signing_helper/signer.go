@@ -276,7 +276,11 @@ func CreateRequestSignFunction(signer crypto.Signer, signingAlgorithm string, ce
 		canonicalRequest, signedHeadersString := createCanonicalRequest(req.HTTPRequest, req.Body, contentSha256)
 
 		stringToSign := CreateStringToSign(canonicalRequest, signerParams)
-		signatureBytes, _ := signer.Sign(rand.Reader, []byte(stringToSign), crypto.SHA256)
+		signatureBytes, err := signer.Sign(rand.Reader, []byte(stringToSign), crypto.SHA256)
+		if err != nil {
+			log.Println(err.Error())
+			os.Exit(1)
+		}
 		signature := hex.EncodeToString(signatureBytes)
 
 		req.HTTPRequest.Header.Set(authorization, BuildAuthorizationHeader(req.HTTPRequest, req.Body, signedHeadersString, signature, certificate, signerParams))
