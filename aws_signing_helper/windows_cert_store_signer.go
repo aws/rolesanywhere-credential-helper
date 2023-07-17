@@ -40,7 +40,6 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows"
 	"io"
-	"log"
 	"reflect"
 	"strconv"
 	"strings"
@@ -124,6 +123,7 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 
 	var curCertCtx *windows.CertContext
 	for {
+		// Previous chainCtx should be freed here if it isn't nil
 		chainCtx, err = windows.CertFindChainInStore(store, encoding, flags, findType, paramsPtr, chainCtx)
 		if err != nil {
 			if strings.Contains(err.Error(), "Cannot find object or property.") {
@@ -133,6 +133,13 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 			goto fail
 		}
 
+		if chainCtx.ChainCount < 1 {
+			err = errors.New("bad chain")
+			goto fail
+		}
+
+		// When multiple valid certification paths that are found for a given
+		// certificate, only the first one is considered
 		simpleChain := *chainCtx.Chains
 		if simpleChain.NumElements < 1 {
 			err = errors.New("bad chain")
@@ -155,32 +162,26 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 			}
 
 			if certCtx == nil {
+				// This is required later on when creating the WindowsCertStoreSigner
+				// If this method isn't being called in order to create a WindowsCertStoreSigner,
+				// this return value will have to be freed explicitly.
+				windows.CertDuplicateCertificateContext(curCertCtx)
 				certCtx = curCertCtx
-				goto skipFree
 			}
-
-			windows.CertFreeCertificateContext(curCertCtx)
-		skipFree:
 		}
 
 		curCert := x509CertChain[0]
 		if certMatches(certIdentifier, *curCert) {
 			certContainers = append(certContainers, CertificateContainer{curCert, ""})
 
-			// Assign to certChain and certCtx at most once in the loop
-			// The value is only useful if there is exactly one match in the certificate store
-			// When creating a signer, there has to be exactly one matching certificate
+			// Assign to certChain and certCtx at most once in the loop.
+			// The value is only useful if there is exactly one match in the certificate store.
+			// When creating a signer, there has to be exactly one matching certificate.
 			if certChain == nil {
 				certChain = x509CertChain[:]
 				certCtx = curCertCtx
 			}
 		}
-
-		windows.CertFreeCertificateChain(chainCtx)
-	}
-
-	if chainCtx != nil {
-		windows.CertFreeCertificateChain(chainCtx)
 	}
 
 	return store, certCtx, certChain, certContainers, nil
@@ -245,8 +246,14 @@ func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAl
 	return signer, signingAlgorithm, err
 
 fail:
+	if certCtx != nil {
+		windows.CertFreeCertificateContext(certCtx)
+	}
 	if signer != nil {
 		signer.Close()
+	}
+	if store != 0 {
+		windows.CertCloseStore(store, 0)
 	}
 
 	return nil, "", err
@@ -266,19 +273,20 @@ func (signer *WindowsCertStoreSigner) CertificateChain() ([]*x509.Certificate, e
 
 // Close implements the aws_signing_helper.Signer interface and closes the signer
 func (signer *WindowsCertStoreSigner) Close() {
-	// TODO: Have to consider the case when signer.PrivateKey has mustFree set
-	if signer.privateKey != nil {
+	if signer.privateKey != nil && signer.privateKey.mustFree {
 		if signer.privateKey.cngKeyHandle != 0 {
-			// TODO: Unclear whether this works for CNG
-			windows.CryptReleaseContext(signer.privateKey.cngKeyHandle, 0)
+			cngHandle := (*C.NCRYPT_KEY_HANDLE)(unsafe.Pointer(&signer.privateKey.cngKeyHandle))
+			C.NCryptFreeObject(*cngHandle)
 		}
 		if signer.privateKey.cspHandle != 0 {
 			windows.CryptReleaseContext(signer.privateKey.cspHandle, 0)
 		}
-
-		signer.privateKey = nil
 	}
+	signer.privateKey = nil
 
+	// If signer.privateKey.mustFree is false, key handles will be released on the
+	// last free action of the certificate context.
+	// See https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-cryptacquirecertificateprivatekey
 	if signer.certCtx != nil {
 		windows.CertFreeCertificateContext(signer.certCtx)
 		signer.certCtx = nil
@@ -299,12 +307,10 @@ func (signer *WindowsCertStoreSigner) getPrivateKey() (*winPrivateKey, error) {
 		return nil, fmt.Errorf("failed to get identity certificate: %w", err)
 	}
 
-	privateKey, err := newWinPrivateKey(signer.certCtx, cert.PublicKey)
+	signer.privateKey, err = newWinPrivateKey(signer.certCtx, cert.PublicKey)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load identity private key: %w", err)
 	}
-
-	signer.privateKey = privateKey
 
 	return signer.privateKey, nil
 }
@@ -366,8 +372,7 @@ func (signer *WindowsCertStoreSigner) Sign(rand io.Reader, digest []byte, opts c
 		sum := sha512.Sum512(digest)
 		hash = sum[:]
 	default:
-		log.Println("unsupported digest")
-		return nil, errors.New("unsupported digest")
+		return nil, ErrUnsupportedHash
 	}
 
 	privateKey, err := signer.getPrivateKey()
@@ -534,7 +539,9 @@ func (signer *WindowsCertStoreSigner) cryptoSignHash(digest []byte, hash crypto.
 
 // Exports a windows.CertContext as an *x509.Certificate.
 func exportCertContext(certCtx *windows.CertContext) (*x509.Certificate, error) {
-	if certCtx.EncodingType != 1 {
+	// Technically, we should never throw here, since the exportCertContext function
+	// is only called when searching for certificates
+	if certCtx.EncodingType != windows.X509_ASN_ENCODING {
 		return nil, errors.New("unknown certificate encoding type")
 	}
 
