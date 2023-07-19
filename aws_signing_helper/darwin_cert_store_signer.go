@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"unsafe"
 )
 
