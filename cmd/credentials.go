@@ -38,10 +38,10 @@ var (
 	X509_ISSUER_KEY  = "x509Issuer"
 	X509_SERIAL_KEY  = "x509Serial"
 
-	validCertSelectorKeys = map[string]struct{}{
-		"x509Subject": {},
-		"x509Issuer":  {},
-		"x509Serial":  {},
+	validCertSelectorKeys = []string{
+		X509_SUBJECT_KEY,
+		X509_ISSUER_KEY,
+		X509_SERIAL_KEY,
 	}
 )
 
@@ -87,17 +87,23 @@ func getStringMap(s string) (map[string]string, error) {
 		}
 		key := strings.TrimSpace(strings.Join(keyTokens[1:], "="))
 
+		isValidKey := false
+		for _, validKey := range validCertSelectorKeys {
+			if validKey == key {
+				isValidKey = true
+				break
+			}
+		}
+		if !isValidKey {
+			return nil, errors.New("cert selector contained invalid key")
+		}
+
 		valueTokens := strings.Split(tokens[1], "=")
 		if valueTokens[0] != "Value" {
 			return nil, errors.New("invalid cert selector map value")
 		}
 		value := strings.TrimSpace(strings.Join(valueTokens[1:], "="))
 		m[key] = value
-	}
-	for key := range m {
-		if _, ok := m[key]; !ok {
-			return nil, errors.New("invalid cert selector map key")
-		}
 	}
 
 	return m, nil
@@ -112,6 +118,16 @@ func getMapFromJsonEntries(jsonStr string) (map[string]string, error) {
 		return nil, errors.New("unable to parse JSON map entries")
 	}
 	for _, mapEntry := range mapEntries {
+		isValidKey := false
+		for _, validKey := range validCertSelectorKeys {
+			if validKey == mapEntry.Key {
+				isValidKey = true
+				break
+			}
+		}
+		if !isValidKey {
+			return nil, errors.New("cert selector contained invalid key")
+		}
 		m[mapEntry.Key] = mapEntry.Value
 	}
 	return m, nil
@@ -146,16 +162,9 @@ func PopulateCertIdentifierFromJsonStr(jsonStr string) (helper.CertIdentifier, e
 
 // Populates a CertIdentifier object using a cert selector string
 func PopulateCertIdentifierFromCertSelectorStr(certSelectorStr string) (helper.CertIdentifier, error) {
-	var certIdentifier helper.CertIdentifier
-
-	err := json.Unmarshal([]byte(certSelector), &certIdentifier)
-	certSelectorMap, err := getStringMap(certSelector)
+	certSelectorMap, err := getStringMap(certSelectorStr)
 	if err != nil {
-		certSelectorMap, err = getMapFromJsonEntries(certSelector)
-		if err != nil {
-			msg := "unable to parse cert selector"
-			return helper.CertIdentifier{}, errors.New(msg)
-		}
+		return helper.CertIdentifier{}, err
 	}
 
 	return createCertSelectorFromMap(certSelectorMap), nil
@@ -173,11 +182,14 @@ func PopulateCertIdentifier(certSelector string) (helper.CertIdentifier, error) 
 				return helper.CertIdentifier{}, errors.New("unable to read cert selector file")
 			}
 			certIdentifier, err = PopulateCertIdentifierFromJsonStr(string(certSelectorFile[:]))
+			if err != nil {
+				return helper.CertIdentifier{}, errors.New("unable to parse JSON cert selector")
+			}
 		} else {
 			certIdentifier, err = PopulateCertIdentifierFromCertSelectorStr(certSelector)
-		}
-		if err != nil {
-			return helper.CertIdentifier{}, errors.New("unable to read cert selector")
+			if err != nil {
+				return helper.CertIdentifier{}, errors.New("unable to parse cert selector string")
+			}
 		}
 	}
 
