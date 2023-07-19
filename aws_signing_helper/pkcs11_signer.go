@@ -39,7 +39,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"runtime"
 	"strconv"
