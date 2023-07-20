@@ -114,6 +114,8 @@ var ignoredHeaderKeys = map[string]bool{
 	"X-Amzn-Trace-Id": true,
 }
 
+var Debug bool = false
+
 // Find whether the current certificate matches the CertIdentifier
 func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
 	if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
@@ -160,6 +162,9 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 	privateKeyId := opts.PrivateKeyId
 	if privateKeyId == "" {
 		if opts.CertificateId == "" {
+			if Debug {
+				fmt.Fprintln(os.Stderr, "attempting to use CertStoreSigner")
+			}
 			return GetCertStoreSigner(opts.CertIdentifier)
 		}
 		privateKeyId = opts.CertificateId
@@ -177,6 +182,9 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 				return nil, "", err
 			}
 		} else if opts.PrivateKeyId == "" {
+			if Debug {
+				fmt.Fprintln(os.Stderr, "not a PEM certificate, so trying PKCS#12")
+			}
 			// Not a PEM certificate? Try PKCS#12
 			return GetPKCS12Signer(opts.CertificateId)
 		} else {
@@ -195,6 +203,9 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 	}
 
 	if strings.HasPrefix(privateKeyId, "pkcs11:") {
+		if Debug {
+			fmt.Fprintln(os.Stderr, "attempting to use PKCS#11")
+		}
 		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId)
 	} else {
 		privateKey, err := ReadPrivateKeyData(privateKeyId)
@@ -202,6 +213,9 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			return nil, "", err
 		}
 
+		if Debug {
+			fmt.Fprintln(os.Stderr, "attempting to use FileSystemSigner")
+		}
 		return GetFileSystemSigner(privateKey, certificate, certificateChain)
 	}
 }

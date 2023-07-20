@@ -40,6 +40,7 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows"
 	"io"
+	"os"
 	"reflect"
 	"strconv"
 	"strings"
@@ -182,6 +183,10 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 				certCtx = curCertCtx
 			}
 		}
+	}
+
+	if Debug {
+		fmt.Fprintf(os.Stderr, "found %d matching identities\n", len(certContainers))
 	}
 
 	return store, certCtx, certChain, certContainers, nil

@@ -55,7 +55,7 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 	mySession := session.Must(session.NewSession())
 
 	var logLevel aws.LogLevelType
-	if opts.Debug {
+	if Debug {
 		logLevel = aws.LogDebug
 	} else {
 		logLevel = aws.LogOff

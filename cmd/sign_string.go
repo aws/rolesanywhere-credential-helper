@@ -3,7 +3,12 @@ package cmd
 import (
 	"bufio"
 	"crypto"
+	"crypto/ecdsa"
+	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -11,6 +16,7 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 
 	helper "github.com/aws/rolesanywhere-credential-helper/aws_signing_helper"
@@ -20,6 +26,11 @@ import (
 var (
 	format    *enum
 	digestArg *enum
+)
+
+var (
+	SIGN_STRING_TEST_VERSION uint16 = 1
+	signFixedString          bool   = true
 )
 
 type enum struct {
@@ -64,18 +75,40 @@ func init() {
 	digestArg = newEnum([]string{"SHA256", "SHA384", "SHA512"}, "SHA256")
 	signStringCmd.PersistentFlags().StringVar(&certificateId, "certificate", "", "Path to certificate file or PKCS#11 URI to identify the certificate")
 	signStringCmd.PersistentFlags().StringVar(&privateKeyId, "private-key", "", "Path to private key file or PKCS#11 URI to identify the private key")
-	signStringCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", `JSON structure to identify \ 
-    a certificate from a certificate store. Can be passed in either as string or a file name (prefixed by "file://")`)
+	signStringCmd.PersistentFlags().BoolVar(&debug, "debug", false, "To print debug output")
+	signStringCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store. "+
+		"Can be passed in either as string or a file name (prefixed by \"file://\")")
 	signStringCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (default: p11-kit-proxy.{so, dll, dylib})")
 	signStringCmd.PersistentFlags().Var(format, "format", "Output format. One of json, text, and bin")
 	signStringCmd.PersistentFlags().Var(digestArg, "digest", "One of SHA256, SHA384, and SHA512")
 }
 
+func getFixedStringToSign(publicKey crypto.PublicKey) string {
+	var digestSuffix []byte
+	ecdsaPublicKey, isEcKey := publicKey.(*ecdsa.PublicKey)
+	if isEcKey {
+		digestSuffixArr := sha256.Sum256(append([]byte("IAM RA"), elliptic.Marshal(ecdsaPublicKey, ecdsaPublicKey.X, ecdsaPublicKey.Y)...))
+		digestSuffix = digestSuffixArr[:]
+	}
+
+	rsaPublicKey, isRsaKey := publicKey.(*rsa.PublicKey)
+	if isRsaKey {
+		digestSuffixArr := sha256.Sum256(append([]byte("IAM RA"), x509.MarshalPKCS1PublicKey(rsaPublicKey)...))
+		digestSuffix = digestSuffixArr[:]
+	}
+
+	// "AWS Roles Anywhere Credential Helper Signing Test" || PKCS11_TEST_VERSION ||
+	// SHA256("IAM RA" || PUBLIC_KEY_BYTE_ARRAY)
+	fixedStringToSign := "AWS Roles Anywhere Credential Helper Signing Test" +
+		strconv.Itoa(int(SIGN_STRING_TEST_VERSION)) + string(digestSuffix)
+
+	return fixedStringToSign
+}
+
 var signStringCmd = &cobra.Command{
 	Use:   "sign-string [flags]",
-	Short: "Signs a string using the passed-in private key",
+	Short: "Signs a fixed string using the passed-in private key (or reference to private key)",
 	Run: func(cmd *cobra.Command, args []string) {
-		stringToSign, _ := ioutil.ReadAll(bufio.NewReader(os.Stdin))
 		var digest crypto.Hash
 		switch strings.ToUpper(digestArg.String()) {
 		case "SHA256":
@@ -93,6 +126,8 @@ var signStringCmd = &cobra.Command{
 			os.Exit(1)
 		}
 
+		helper.Debug = credentialsOptions.Debug
+
 		var signer helper.Signer
 		signer, _, err = helper.GetSigner(&credentialsOptions)
 		if err != nil {
@@ -101,7 +136,15 @@ var signStringCmd = &cobra.Command{
 		}
 		defer signer.Close()
 
-		sigBytes, err := signer.Sign(rand.Reader, stringToSign, digest)
+		var stringToSignBytes []byte
+		if signFixedString {
+			stringToSign := getFixedStringToSign(signer.Public())
+			stringToSignBytes = []byte(stringToSign)
+		} else {
+			stringToSignBytes, _ = ioutil.ReadAll(bufio.NewReader(os.Stdin))
+		}
+
+		sigBytes, err := signer.Sign(rand.Reader, stringToSignBytes, digest)
 		if err != nil {
 			log.Println("unable to sign the digest")
 			os.Exit(1)

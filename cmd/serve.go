@@ -27,6 +27,9 @@ var serveCmd = &cobra.Command{
 			log.Println(err)
 			os.Exit(1)
 		}
+
+		helper.Debug = credentialsOptions.Debug
+
 		helper.Serve(port, credentialsOptions)
 	},
 }

@@ -26,6 +26,9 @@ found at: https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-sourcin
 			log.Println(err)
 			os.Exit(1)
 		}
+
+		helper.Debug = credentialsOptions.Debug
+
 		signer, signingAlgorithm, err := helper.GetSigner(&credentialsOptions)
 		if err != nil {
 			log.Println(err)

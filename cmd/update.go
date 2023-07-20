@@ -29,6 +29,9 @@ var updateCmd = &cobra.Command{
 			log.Println(err)
 			os.Exit(1)
 		}
+
+		helper.Debug = credentialsOptions.Debug
+
 		helper.Update(credentialsOptions, profile, once)
 	},
 }
