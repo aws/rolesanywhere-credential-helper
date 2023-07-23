@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	helper "github.com/aws/rolesanywhere-credential-helper/aws_signing_helper"
 	"github.com/spf13/cobra"
@@ -19,7 +18,6 @@ func init() {
 	readCertificateDataCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store."+
 		" Can be passed in either as string or a file name (prefixed by \"file://\")")
 	readCertificateDataCmd.PersistentFlags().BoolVar(&debug, "debug", false, "To print debug output")
-	readCertificateDataCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
 }
 
 type PrintCertificate func(int, helper.CertificateContainer)
@@ -56,13 +54,7 @@ var readCertificateDataCmd = &cobra.Command{
 		// PrintCertificate interface can be assigned to this variable.
 		var printFunction PrintCertificate = DefaultPrintCertificate
 
-		if strings.HasPrefix(certificateId, "pkcs11:") {
-			certContainers, err = helper.GetMatchingPKCSCerts(certificateId, libPkcs11)
-			if err != nil {
-				log.Println(err)
-				os.Exit(1)
-			}
-		} else if certificateId != "" && certIdentifier == (helper.CertIdentifier{}) {
+		if certificateId != "" && certIdentifier == (helper.CertIdentifier{}) {
 			data, err := helper.ReadCertificateData(certificateId)
 			if err != nil {
 				os.Exit(1)

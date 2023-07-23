@@ -36,11 +36,11 @@ The project also comes with two bash scripts at its root, called `generate-certs
 
 ### read-certificate-data
 
-Reads a certificate that is on disk. Either the path to the certificate on disk is provided with the `--certificate` parameter, or the `--cert-selector` flag is provided to select a certificate within an OS certificate store or PKCS#11 module. Further details about the flag are provided below.
+Reads a certificate that is on disk. Either the path to the certificate on disk is provided with the `--certificate` parameter, or the `--cert-selector` flag is provided to select a certificate within an OS certificate store. Further details about the flag are provided below.
 
 #### cert-selector flag
 
-If you use Windows or MacOS, the credential helper also supports leveraging private keys and certificates that are in their OS-specific secure stores. In Windows, both CNG and Cryptography are supported, while on MacOS, Keychain Access is supported. Through the `--cert-selector` flag, it is possible to specify which certificate (and associated private key) to use in calling `CreateSession`. The credential helper will then delegate signing operations to the keys within those secure stores, without those keys ever having to leave those stores. It is important to note that on Windows, only the user's "MY" certificate store will be searched by the credential helper, while for MacOS, those Keychains on the search list will be searched.
+If you use Windows or MacOS, the credential helper also supports leveraging private keys and certificates that are in their OS-specific secure stores. In Windows, both CNG and Cryptography are supported, while on MacOS, Keychain Access is supported. Through the `--cert-selector` flag, it is possible to specify which certificate (and associated private key) to use in calling `CreateSession`. The credential helper will then delegate signing operations to the keys within those secure stores, without those keys ever having to leave those stores. It is important to note that on Windows, only the user's "MY" certificate store will be searched by the credential helper, while for MacOS, Keychains on the search list will be searched.
 
 The `--cert-selector` flag allows one to search for a specific certificate (and associated private key) through the certificate Subject, Issuer, and Serial Number. The corresponding keys are `x509Subject`, `x509Issuer`, and `x509Serial`, respectively. These keys can be specified either through a JSON file format or through the command line. An example of both approaches can be found below.
 
@@ -70,8 +70,6 @@ If the above is placed in a file called `selector.json`, it can be specified wit
 ```
 
 The example given here is quite simple (they each only contain a single RDN), so it may not be obvious, but the Subject and Issuer values roughly follow the [RFC 2253](https://www.rfc-editor.org/rfc/rfc2253.html) Distinguished Names syntax.
-
-Note that the `--cert-selector` flag can also be used to match certificates in PKCS#11 modules.
 
 ### sign-string
 
@@ -129,41 +127,6 @@ The above command will import the PFX file into the user's "MY" certificate stor
 
 Also note that the above step can be done through a [Powershell cmdlet](https://learn.microsoft.com/en-us/powershell/module/pki/import-pfxcertificate?view=windowsserver2022-ps) or through [Windows CNG/Cryptography APIs](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-pfximportcertstore).
 
-#### PKCS#11 Integration
-
-As you should expect from all applications which use keys and certificates, you can simply give a
-[PKCS#11 URI](https://datatracker.ietf.org/doc/html/rfc7512) in place of a filename in order to
-use certificates and/or keys from hardware or software PKCS#11 tokens / HSMs. A hybrid mode
-using a certificate from a file but only the key in PKCS#11 is also supported. Some examples:
-
-  * `--certificate 'pkcs11:manufacturer=piv_II;id=%01'`
-  * `--certificate 'pkcs11:object=My%20RA%20key'`
-  * `--certificate client-cert.pem --private-key 'pkcs11:model=SoftHSM%20v2;object=My%20RA%20key'`
-
-Some documentation which may assist with finding the correct URI for
-your key can be found [here](https://www.infradead.org/openconnect/pkcs11.html).
-
-Most Linux and similar *nix systems use
-[p11-kit](https://p11-glue.github.io/p11-glue/p11-kit/manual/config.html)
-to provide consistent system-wide and per-user configuration of
-available PKCS#11 providers. Any properly packaged provider module
-will register itself with p11-kit and will be automatically visible
-through the `p11-kit-proxy.so` provider which is used by default.
-
-If you have a poorly packaged provider module from a vendor, then
-after you have filed a bug you can manually create a p11-kit [module
-file](https://p11-glue.github.io/p11-glue/p11-kit/manual/pkcs11-conf.html)
-for it.
-
-For systems or containers which lack p11-kit, a specific PKCS#11
-provider library can be specified using the `--pkcs11-lib` command
-line option.
-
-The PKCS#11 URI is itself a set of search terms to find a matching object
-in the PKCS#11 token, but if that is not sufficient to uniquely identify
-the certificate, further refinement of matching certificates can be
-achieved through the `--cert-selector` flag.
-
 ### update
 
 Updates temporary credentials in the [credential file](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html). Parameters for this command include those for the `credential-process` command, as well as `--profile`, which specifies the named profile for which credentials should be updated (if the profile doesn't already exist, it will be created), and `--once`, which specifies that credentials should be updated only once. Both arguments are optional. If `--profile` isn't specified, the default profile will have its credentials updated, and if `--once` isn't specified, credentials will be continuously updated. In this case, credentials will be updated through a call to `CreateSession` five minutes before the previous set of credentials are set to expire. Please note that running the `update` command multiple times, creating multiple processes, may not work as intended. There may be issues with concurrent writes to the credentials file.
@@ -186,7 +149,7 @@ Used by unit tests and for manual testing of the credential-process command. Cre
 
 ### Example Usage
 ```
-/bin/bash generate-credential-process-data.sh
+/bin/sh generate-credential-process-data.sh
 
 TA_ARN=$(aws rolesanywhere create-trust-anchor \
     --name "Test TA" \

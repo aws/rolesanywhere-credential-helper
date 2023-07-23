@@ -3,11 +3,6 @@ VERSION=1.0.6
 release:
 	go build -buildmode=pie -ldflags "-X 'github.com/aws/rolesanywhere-credential-helper/cmd.Version=${VERSION}' -linkmode=external -w -s" -trimpath -o build/bin/aws_signing_helper main.go
 
-# Setting up SoftHSM for PKCS#11 tests. 
-# This portion is largely copied from https://gitlab.com/openconnect/openconnect/-/blob/v9.12/tests/Makefile.am#L363. 
-SHM2_UTIL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp softhsm2-util
-P11TOOL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp p11tool
-
 certsdir=tst/certs
 curdir=$(shell pwd)
 
@@ -18,30 +13,8 @@ ECCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-
 RSACERTS := $(foreach digest, md5 sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(RSAKEYS)))
 PKCS12CERTS := $(patsubst %-cert.pem, %.p12, $(RSACERTS) $(ECCERTS))
 
-# It's hard to do a file-based rule for the contents of the SoftHSM token.
-# So just populate it as a side-effect of creating the softhsm2.conf file.
-tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS)
-	rm -rf tst/softhsm/*
-	sed 's|@top_srcdir@|${curdir}|g' $< > $@.tmp
-	$(SHM2_UTIL) --show-slots
-	$(SHM2_UTIL) --init-token --free --label credential-helper-test \
-		--so-pin 12345678 --pin 1234
-
-	$(SHM2_UTIL) --token credential-helper-test --pin 1234 \
-		--import $(certsdir)/rsa-2048-key-pkcs8.pem --label RSA --id 01
-	$(P11TOOL) --load-certificate $(certsdir)/rsa-2048-sha256-cert.pem \
-		--no-mark-private --label RSA --id 01 --set-pin 1234 --login \
-		--write "pkcs11:token=credential-helper-test;pin-value=1234"
-
-	$(SHM2_UTIL) --token credential-helper-test --pin 1234 \
-		--import $(certsdir)/ec-prime256v1-key-pkcs8.pem --label EC --id 02
-	$(P11TOOL) --load-certificate $(certsdir)/ec-prime256v1-sha256-cert.pem \
-		--no-mark-private --label EC --id 02 --set-pin 1234 --login \
-		--write "pkcs11:token=credential-helper-test;pin-value=1234"
-	mv $@.tmp $@
-
-test: test-certs tst/softhsm2.conf
-	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf go test -v ./...
+test: test-certs
+	go test -v ./...
 
 %-md5-cert.pem: %-key.pem
 	SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
@@ -99,7 +72,7 @@ $(ECKEYS):
 $(certsdir)/cert-bundle.pem: $(RSACERTS) $(ECCERTS)
 	cat $^ > $@
 
-test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(RSACERTS) $(ECCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem tst/softhsm2.conf
+test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(RSACERTS) $(ECCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem 
 
 # TODO: Need to clean certificates and keys added to certificate store as well
 test-clean:
@@ -108,5 +81,3 @@ test-clean:
 	rm -f $(RSACERTS) $(ECCERTS)
 	rm -f $(PKCS12CERTS)
 	rm -f $(certsdir)/cert-bundle.pem
-	rm -f tst/softhsm2.conf
-	rm -rf tst/softhsm/*

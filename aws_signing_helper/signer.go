@@ -170,7 +170,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		privateKeyId = opts.CertificateId
 	}
 
-	if opts.CertificateId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
+	if opts.CertificateId != "" {
 		certificateData, err := ReadCertificateData(opts.CertificateId)
 		if err == nil {
 			certificateDerData, err := base64.StdEncoding.DecodeString(certificateData.CertificateData)
@@ -202,22 +202,15 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		}
 	}
 
-	if strings.HasPrefix(privateKeyId, "pkcs11:") {
-		if Debug {
-			fmt.Fprintln(os.Stderr, "attempting to use PKCS#11")
-		}
-		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId)
-	} else {
-		privateKey, err := ReadPrivateKeyData(privateKeyId)
-		if err != nil {
-			return nil, "", err
-		}
-
-		if Debug {
-			fmt.Fprintln(os.Stderr, "attempting to use FileSystemSigner")
-		}
-		return GetFileSystemSigner(privateKey, certificate, certificateChain)
+	privateKey, err := ReadPrivateKeyData(privateKeyId)
+	if err != nil {
+		return nil, "", err
 	}
+
+	if Debug {
+		fmt.Fprintln(os.Stderr, "attempting to use FileSystemSigner")
+	}
+	return GetFileSystemSigner(privateKey, certificate, certificateChain)
 }
 
 // Obtain the date-time, formatted as specified by SigV4
