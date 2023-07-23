@@ -28,7 +28,12 @@ import (
 const TestCredentialsFilePath = "/tmp/credentials"
 
 func setup() error {
-	generateCredentialProcessDataScript := exec.Command("/bin/sh", "../generate-credential-process-data.sh")
+	var generateCredentialProcessDataScript *exec.Cmd
+	if runtime.GOOS == "windows" {
+		generateCredentialProcessDataScript = exec.Command("C:\\Windows\\System32\\cmd.exe", "../generate-credential-process-data.sh")
+	} else {
+		generateCredentialProcessDataScript = exec.Command("/bin/sh", "../generate-credential-process-data.sh")
+	}
 	_, err := generateCredentialProcessDataScript.Output()
 	return err
 }
