@@ -45,6 +45,9 @@ test: test-certs
 
 # And once again, it's hard to do a file-based rule for the contents of the certificate store. 
 # So just populate it as a side-effect of creating the p12 file.
+# Note that you may receive a pop-up for each certificate that's added to your certificate store 
+# on Windows, saying that Windows is unable to verify the authenticity of the root you are trying 
+# to install. Since they are only being used for testing, you can delete them afterwards. 
 %-pass.p12: %-cert.pem
 	echo Creating $@...
 	ls -l $<
