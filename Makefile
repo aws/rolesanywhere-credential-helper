@@ -18,7 +18,7 @@ ECCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-
 RSACERTS := $(foreach digest, md5 sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(RSAKEYS)))
 PKCS12CERTS := $(patsubst %-cert.pem, %.p12, $(RSACERTS) $(ECCERTS))
 
-# It's hard to ao a file-based rule for the contents of the SoftHSM token.
+# It's hard to do a file-based rule for the contents of the SoftHSM token.
 # So just populate it as a side-effect of creating the softhsm2.conf file.
 tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS)
 	rm -rf tst/softhsm/*
@@ -60,18 +60,33 @@ test: test-certs tst/softhsm2.conf
 	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha512
 
 # Go PKCS#12 only supports SHA1 and 3DES!!
-%.p12: %-cert.pem
+%.p12: %-pass.p12
 	echo Creating $@...
 	ls -l $<
 	KEY=$$(echo "$@" | sed 's/-[^-]*\.p12/-key.pem/'); \
+	CERT=$$(echo "$@" | sed 's/.p12/-cert.pem/'); \
 	openssl pkcs12 -export -passout pass: -macalg SHA1 \
+		-certpbe pbeWithSHA1And3-KeyTripleDES-CBC \
+		-keypbe pbeWithSHA1And3-KeyTripleDES-CBC \
+		-inkey $${KEY} -out "$@" -in $${CERT}
+
+# And once again, it's hard to do a file-based rule for the contents of the certificate store. 
+# So just populate it as a side-effect of creating the p12 file.
+%-pass.p12: %-cert.pem
+	echo Creating $@...
+	ls -l $<
+	KEY=$$(echo "$@" | sed 's/-[^-]*\-pass.p12/-key.pem/'); \
+	openssl pkcs12 -export -passout pass:test -macalg SHA1 \
 		-certpbe pbeWithSHA1And3-KeyTripleDES-CBC \
 		-keypbe pbeWithSHA1And3-KeyTripleDES-CBC \
 		-inkey $${KEY} -out "$@" -in "$<"
 
+	if [ "$(OS)" = "Windows_NT" ]; then \
+		certutil -user -p "test" -importPFX "MY" $@; \
+	fi
+
 %-pkcs8.pem: %.pem
 	openssl pkcs8 -topk8 -inform PEM -outform PEM -in $< -out $@ -nocrypt
-
 
 $(RSAKEYS):
 	KEYLEN=$$(echo "$@" | sed 's/.*rsa-\([0-9]*\)-key.pem/\1/'); \
@@ -86,6 +101,7 @@ $(certsdir)/cert-bundle.pem: $(RSACERTS) $(ECCERTS)
 
 test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(RSACERTS) $(ECCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem tst/softhsm2.conf
 
+# TODO: Need to clean certificates and keys added to certificate store as well
 test-clean:
 	rm -f $(RSAKEYS) $(ECKEYS)
 	rm -f $(PKCS8KEYS)

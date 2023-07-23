@@ -97,7 +97,7 @@ func getFixedStringToSign(publicKey crypto.PublicKey) string {
 		digestSuffix = digestSuffixArr[:]
 	}
 
-	// "AWS Roles Anywhere Credential Helper Signing Test" || PKCS11_TEST_VERSION ||
+	// "AWS Roles Anywhere Credential Helper Signing Test" || SIGN_STRING_TEST_VERSION ||
 	// SHA256("IAM RA" || PUBLIC_KEY_BYTE_ARRAY)
 	fixedStringToSign := "AWS Roles Anywhere Credential Helper Signing Test" +
 		strconv.Itoa(int(SIGN_STRING_TEST_VERSION)) + string(digestSuffix)
@@ -140,6 +140,11 @@ var signStringCmd = &cobra.Command{
 		if signFixedString {
 			stringToSign := getFixedStringToSign(signer.Public())
 			stringToSignBytes = []byte(stringToSign)
+
+			if credentialsOptions.Debug {
+				fmt.Fprintln(os.Stderr, "Signing fixed string of the form: \"AWS Roles Anywhere "+
+					"Credential Helper Signing Test\" || SIGN_STRING_TEST_VERSION || SHA256(\"IAM RA\" || PUBLIC_KEY_BYTE_ARRAY)\"")
+			}
 		} else {
 			stringToSignBytes, _ = ioutil.ReadAll(bufio.NewReader(os.Stdin))
 		}

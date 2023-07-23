@@ -41,7 +41,6 @@ import (
 	"golang.org/x/sys/windows"
 	"io"
 	"os"
-	"reflect"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -147,11 +146,8 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 			goto fail
 		}
 
-		var chainElts []*windows.CertChainElement
-		slice := (*reflect.SliceHeader)(unsafe.Pointer(&chainElts))
-		slice.Data = uintptr(unsafe.Pointer(simpleChain.Elements))
-		slice.Len = int(simpleChain.NumElements)
-		slice.Cap = int(simpleChain.NumElements)
+		// Convert the array into a pointer
+		chainElts := unsafe.Slice(simpleChain.Elements, simpleChain.NumElements)
 
 		// Build chain of certificates from each element's certificate context.
 		x509CertChain := make([]*x509.Certificate, len(chainElts))
@@ -160,14 +156,6 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 			x509CertChain[j], err = exportCertContext(curCertCtx)
 			if err != nil {
 				goto fail
-			}
-
-			if certCtx == nil {
-				// This is required later on when creating the WindowsCertStoreSigner
-				// If this method isn't being called in order to create a WindowsCertStoreSigner,
-				// this return value will have to be freed explicitly.
-				windows.CertDuplicateCertificateContext(curCertCtx)
-				certCtx = curCertCtx
 			}
 		}
 
@@ -180,7 +168,11 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 			// When creating a signer, there has to be exactly one matching certificate.
 			if certChain == nil {
 				certChain = x509CertChain[:]
-				certCtx = curCertCtx
+				certCtx = chainElts[0].CertContext
+				// This is required later on when creating the WindowsCertStoreSigner
+				// If this method isn't being called in order to create a WindowsCertStoreSigner,
+				// this return value will have to be freed explicitly.
+				windows.CertDuplicateCertificateContext(certCtx)
 			}
 		}
 	}
@@ -550,11 +542,7 @@ func exportCertContext(certCtx *windows.CertContext) (*x509.Certificate, error) 
 		return nil, errors.New("unknown certificate encoding type")
 	}
 
-	var der []byte
-	slice := (*reflect.SliceHeader)(unsafe.Pointer(&der))
-	slice.Data = uintptr(unsafe.Pointer(certCtx.EncodedCert))
-	slice.Len = int(certCtx.Length)
-	slice.Cap = int(certCtx.Length)
+	der := unsafe.Slice(certCtx.EncodedCert, certCtx.Length)
 	return x509.ParseCertificate(der)
 }
 

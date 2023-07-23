@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -26,7 +28,7 @@ import (
 const TestCredentialsFilePath = "/tmp/credentials"
 
 func setup() error {
-	generateCredentialProcessDataScript := exec.Command("/bin/bash", "../generate-credential-process-data.sh")
+	generateCredentialProcessDataScript := exec.Command("/bin/sh", "../generate-credential-process-data.sh")
 	_, err := generateCredentialProcessDataScript.Output()
 	return err
 }
@@ -164,9 +166,6 @@ func Verify(payload []byte, publicKey crypto.PublicKey, digest crypto.Hash, sig 
 	}
 
 	{
-		// For some reason, signer.Public() can return either a
-		// ecdsa.PublicKey or *ecdsa.PublicKey, assuming the signer is indeed
-		// a ECDSA signer
 		publicKey, ok := publicKey.(*ecdsa.PublicKey)
 		if ok {
 			valid := ecdsa.VerifyASN1(publicKey, hash, sig)
@@ -175,9 +174,6 @@ func Verify(payload []byte, publicKey crypto.PublicKey, digest crypto.Hash, sig 
 	}
 
 	{
-		// For some reason, signer.Public() can return either a
-		// rsa.PublicKey or *rsa.PublicKey, assuming the signer is indeed
-		// a RSA signer
 		publicKey, ok := publicKey.(*rsa.PublicKey)
 		if ok {
 			err := rsa.VerifyPKCS1v15(publicKey, digest, hash, sig)
@@ -216,6 +212,14 @@ func TestSign(t *testing.T) {
 			testTable = append(testTable, CredentialsOpts{
 				CertificateId: cert,
 			})
+
+			if runtime.GOOS == "windows" {
+				testTable = append(testTable, CredentialsOpts{
+					CertIdentifier: CertIdentifier{
+						Subject: fmt.Sprintf("CN=roles-anywhere-ec-%s-%s", curve, digest),
+					},
+				})
+			}
 		}
 	}
 
@@ -243,6 +247,14 @@ func TestSign(t *testing.T) {
 			testTable = append(testTable, CredentialsOpts{
 				CertificateId: cert,
 			})
+
+			if runtime.GOOS == "windows" {
+				testTable = append(testTable, CredentialsOpts{
+					CertIdentifier: CertIdentifier{
+						Subject: fmt.Sprintf("CN=roles-anywhere-rsa-%s-%s", keylen, digest),
+					},
+				})
+			}
 		}
 	}
 
@@ -268,8 +280,15 @@ func TestSign(t *testing.T) {
 	for _, credOpts := range testTable {
 		signer, _, err := GetSigner(&credOpts)
 		if err != nil {
-			t.Log(fmt.Sprintf("Failed to get signer for '%s'/'%s'",
-				credOpts.CertificateId, credOpts.PrivateKeyId))
+			var logMsg string
+			if credOpts.CertificateId != "" || credOpts.PrivateKeyId != "" {
+				logMsg = fmt.Sprintf("Failed to get signer for '%s'/'%s'",
+					credOpts.CertificateId, credOpts.PrivateKeyId)
+			} else {
+				logMsg = fmt.Sprintf("Failed to get signer for '%s'",
+					credOpts.CertIdentifier.Subject)
+			}
+			t.Log(logMsg)
 			t.Fail()
 			return
 		}
@@ -334,7 +353,6 @@ func TestCredentialProcess(t *testing.T) {
 				t.Fail()
 				return
 			}
-			defer signer.Close()
 			resp, err := GenerateCredentials(&credentialsOpts, signer, signatureAlgorithm)
 
 			if err != nil {
@@ -356,6 +374,43 @@ func TestCredentialProcess(t *testing.T) {
 				t.Fail()
 			}
 		})
+	}
+}
+
+func TestCertStoreSignerCreationFails(t *testing.T) {
+	testTable := []CredentialsOpts{}
+
+	randomLargeSerial := new(big.Int)
+	randomLargeSerial.SetString("123456719012345678901234567890", 10)
+
+	testTable = append(testTable, CredentialsOpts{
+		CertIdentifier: CertIdentifier{
+			Subject: "invalid-subject",
+		},
+	})
+	testTable = append(testTable, CredentialsOpts{
+		CertIdentifier: CertIdentifier{
+			Issuer: "invalid-issuer",
+		},
+	})
+	testTable = append(testTable, CredentialsOpts{
+		CertIdentifier: CertIdentifier{
+			SerialNumber: randomLargeSerial,
+		},
+	})
+	testTable = append(testTable, CredentialsOpts{
+		CertIdentifier: CertIdentifier{
+			Subject:      "CN=roles-anywhere-rsa-2048-sha25",
+			SerialNumber: randomLargeSerial,
+		},
+	})
+
+	for _, credOpts := range testTable {
+		_, _, err := GetSigner(&credOpts)
+		if err == nil {
+			t.Log("Expected failure when creating certificate store signer, but received none")
+			t.Fail()
+		}
 	}
 }
 
