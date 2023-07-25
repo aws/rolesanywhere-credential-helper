@@ -3,7 +3,6 @@
 package aws_signing_helper
 
 import (
-	"crypto/x509"
 	"errors"
 )
 
