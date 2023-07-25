@@ -7,7 +7,7 @@ import (
 	"errors"
 )
 
-func GetMatchingCerts(certIdentifier CertIdentifier) ([]*x509.Certificate, error) {
+func GetMatchingCerts(certIdentifier CertIdentifier) ([]CertificateContainer, error) {
 	return nil, errors.New("unable to use cert store signer on linux")
 }
 
