@@ -3,17 +3,15 @@ package aws_signing_helper
 import (
 	"crypto"
 	"crypto/ecdsa"
-	"crypto/elliptic"
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/sha512"
-	"crypto/x509"
-	"encoding/base64"
-	"encoding/hex"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"log"
+	"math/big"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -29,14 +27,8 @@ import (
 const TestCredentialsFilePath = "/tmp/credentials"
 
 func setup() error {
-	generateCertsScript := exec.Command("/bin/bash", "../generate-certs.sh")
-	_, err := generateCertsScript.Output()
-	if err != nil {
-		return err
-	}
-
-	generateCredentialProcessDataScript := exec.Command("/bin/bash", "../generate-credential-process-data.sh")
-	_, err = generateCredentialProcessDataScript.Output()
+	generateCredentialProcessDataScript := exec.Command("/bin/sh", "../generate-credential-process-data.sh")
+	_, err := generateCredentialProcessDataScript.Output()
 	return err
 }
 
@@ -129,28 +121,35 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 		t.Fail()
 	}
 
+	certificateList, _ := ReadCertificateBundleData("../tst/certs/rsa-2048-sha256-cert.pem")
+	certificate := certificateList[0]
 	privateKey, _ := ReadPrivateKeyData("../tst/certs/rsa-2048-key.pem")
-	certificateData, _ := ReadCertificateData("../tst/certs/rsa-2048-sha256-cert.pem")
-	certificateDerData, _ := base64.StdEncoding.DecodeString(certificateData.CertificateData)
-	certificate, _ := x509.ParseCertificate([]byte(certificateDerData))
 
 	awsRequest := request.Request{HTTPRequest: testRequest}
-	v4x509 := RolesAnywhereSigner{
-		PrivateKey:  privateKey,
-		Certificate: *certificate,
-	}
-	err = v4x509.SignWithCurrTime(&awsRequest)
+	signer, signingAlgorithm, err := GetFileSystemSigner(privateKey, certificate, nil)
 	if err != nil {
 		t.Log(err)
 		t.Fail()
 	}
+	certificate, err = signer.Certificate()
+	if err != nil {
+		t.Log(err)
+		t.Fail()
+	}
+	certificateChain, err := signer.CertificateChain()
+	if err != nil {
+		t.Log(err)
+		t.Fail()
+	}
+	requestSignFunction := CreateRequestSignFunction(signer, signingAlgorithm, certificate, certificateChain)
+	requestSignFunction(&awsRequest)
 }
 
 // Verify that the provided payload was signed correctly with the provided options.
 // This function is specifically used for unit testing.
-func Verify(payload []byte, opts SigningOpts, sig []byte) (bool, error) {
+func Verify(payload []byte, publicKey crypto.PublicKey, digest crypto.Hash, sig []byte) (bool, error) {
 	var hash []byte
-	switch opts.Digest {
+	switch digest {
 	case crypto.SHA256:
 		sum := sha256.Sum256(payload)
 		hash = sum[:]
@@ -161,27 +160,23 @@ func Verify(payload []byte, opts SigningOpts, sig []byte) (bool, error) {
 		sum := sha512.Sum512(payload)
 		hash = sum[:]
 	default:
-		log.Fatal("Unsupported digest")
-		return false, errors.New("Unsupported digest")
+		log.Fatal("unsupported digest")
+		return false, errors.New("unsupported digest")
 	}
 
 	{
-		privateKey, ok := opts.PrivateKey.(ecdsa.PrivateKey)
+		publicKey, ok := publicKey.(*ecdsa.PublicKey)
 		if ok {
-			valid := ecdsa.VerifyASN1(&privateKey.PublicKey, hash, sig)
-			if valid {
-				return valid, nil
-			}
+			valid := ecdsa.VerifyASN1(publicKey, hash, sig)
+			return valid, nil
 		}
 	}
 
 	{
-		privateKey, ok := opts.PrivateKey.(rsa.PrivateKey)
+		publicKey, ok := publicKey.(*rsa.PublicKey)
 		if ok {
-			err := rsa.VerifyPKCS1v15(&privateKey.PublicKey, opts.Digest, hash, sig)
-			if err == nil {
-				return true, nil
-			}
+			err := rsa.VerifyPKCS1v15(publicKey, digest, hash, sig)
+			return err == nil, nil
 		}
 	}
 
@@ -190,37 +185,110 @@ func Verify(payload []byte, opts SigningOpts, sig []byte) (bool, error) {
 
 func TestSign(t *testing.T) {
 	msg := "test message"
+	testTable := []CredentialsOpts{}
 
-	var privateKeyList [2]crypto.PrivateKey
-	{
-		privateKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
-		privateKeyList[0] = *privateKey
+	ec_digests := []string{"sha1", "sha256", "sha384", "sha512"}
+	ec_curves := []string{"prime256v1", "secp384r1"}
+
+	for _, digest := range ec_digests {
+		for _, curve := range ec_curves {
+			cert := fmt.Sprintf("../tst/certs/ec-%s-%s-cert.pem",
+				curve, digest)
+			key := fmt.Sprintf("../tst/certs/ec-%s-key.pem", curve)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+			})
+
+			key = fmt.Sprintf("../tst/certs/ec-%s-key-pkcs8.pem", curve)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+			})
+
+			cert = fmt.Sprintf("../tst/certs/ec-%s-%s.p12",
+				curve, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
+		}
 	}
-	{
-		privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
-		privateKeyList[1] = *privateKey
+
+	rsa_digests := []string{"md5", "sha1", "sha256", "sha384", "sha512"}
+	rsa_key_lengths := []string{"1024", "2048", "4096"}
+
+	for _, digest := range rsa_digests {
+		for _, keylen := range rsa_key_lengths {
+			cert := fmt.Sprintf("../tst/certs/rsa-%s-%s-cert.pem",
+				keylen, digest)
+			key := fmt.Sprintf("../tst/certs/rsa-%s-key.pem", keylen)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+			})
+
+			key = fmt.Sprintf("../tst/certs/rsa-%s-key-pkcs8.pem", keylen)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+			})
+
+			cert = fmt.Sprintf("../tst/certs/rsa-%s-%s.p12",
+				keylen, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
+
+		}
 	}
+
 	digestList := []crypto.Hash{crypto.SHA256, crypto.SHA384, crypto.SHA512}
 
-	for _, privateKey := range privateKeyList {
+	for _, credOpts := range testTable {
+		signer, _, err := GetSigner(&credOpts)
+		if err != nil {
+			var logMsg string
+			if credOpts.CertificateId != "" || credOpts.PrivateKeyId != "" {
+				logMsg = fmt.Sprintf("Failed to get signer for '%s'/'%s'",
+					credOpts.CertificateId, credOpts.PrivateKeyId)
+			} else {
+				logMsg = fmt.Sprintf("Failed to get signer for '%s'",
+					credOpts.CertIdentifier.Subject)
+			}
+			t.Log(logMsg)
+			t.Fail()
+			return
+		}
+		defer signer.Close()
+
+		pubKey := signer.Public()
+		if credOpts.CertificateId != "" && pubKey == nil {
+			t.Log(fmt.Sprintf("Signer didn't provide public key for '%s'/'%s'",
+				credOpts.CertificateId, credOpts.PrivateKeyId))
+			t.Fail()
+			return
+		}
+
 		for _, digest := range digestList {
-			signingResult, err := Sign([]byte(msg), SigningOpts{privateKey, digest})
+			signatureBytes, err := signer.Sign(rand.Reader, []byte(msg), digest)
 			if err != nil {
 				t.Log("Failed to sign the input message")
 				t.Fail()
+				return
 			}
 
-			sig, err := hex.DecodeString(signingResult.Signature)
-			if err != nil {
-				t.Log("Failed to decode the hex-encoded signature")
-				t.Fail()
-			}
-			valid, _ := Verify([]byte(msg), SigningOpts{privateKey, digest}, sig)
-			if !valid {
-				t.Log("Failed to verify the signature")
-				t.Fail()
+			if pubKey != nil {
+				valid, _ := Verify([]byte(msg), pubKey, digest, signatureBytes)
+				if !valid {
+					t.Log(fmt.Sprintf("Failed to verify the signature for '%s'/'%s'",
+						credOpts.CertificateId, credOpts.PrivateKeyId))
+					t.Fail()
+					return
+				}
 			}
 		}
+
+		signer.Close()
 	}
 }
 
@@ -246,7 +314,13 @@ func TestCredentialProcess(t *testing.T) {
 		}
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.server.Close()
-			resp, err := GenerateCredentials(&credentialsOpts)
+			signer, signatureAlgorithm, err := GetSigner(&credentialsOpts)
+			if err != nil {
+				t.Log("Failed to get signer")
+				t.Fail()
+				return
+			}
+			resp, err := GenerateCredentials(&credentialsOpts, signer, signatureAlgorithm)
 
 			if err != nil {
 				t.Log(err)
@@ -267,6 +341,43 @@ func TestCredentialProcess(t *testing.T) {
 				t.Fail()
 			}
 		})
+	}
+}
+
+func TestCertStoreSignerCreationFails(t *testing.T) {
+	testTable := []CredentialsOpts{}
+
+	randomLargeSerial := new(big.Int)
+	randomLargeSerial.SetString("123456719012345678901234567890", 10)
+
+	testTable = append(testTable, CredentialsOpts{
+		CertIdentifier: CertIdentifier{
+			Subject: "invalid-subject",
+		},
+	})
+	testTable = append(testTable, CredentialsOpts{
+		CertIdentifier: CertIdentifier{
+			Issuer: "invalid-issuer",
+		},
+	})
+	testTable = append(testTable, CredentialsOpts{
+		CertIdentifier: CertIdentifier{
+			SerialNumber: randomLargeSerial,
+		},
+	})
+	testTable = append(testTable, CredentialsOpts{
+		CertIdentifier: CertIdentifier{
+			Subject:      "CN=roles-anywhere-rsa-2048-sha25",
+			SerialNumber: randomLargeSerial,
+		},
+	})
+
+	for _, credOpts := range testTable {
+		_, _, err := GetSigner(&credOpts)
+		if err == nil {
+			t.Log("Expected failure when creating certificate store signer, but received none")
+			t.Fail()
+		}
 	}
 }
 

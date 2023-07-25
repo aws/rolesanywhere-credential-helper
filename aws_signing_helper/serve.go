@@ -147,7 +147,7 @@ func FindTokenTTLSeconds(r *http.Request) (string, error) {
 	}
 }
 
-func AllIssuesHandlers(cred *RefreshableCred, roleName string, opts *CredentialsOpts) (http.HandlerFunc, http.HandlerFunc, http.HandlerFunc) {
+func AllIssuesHandlers(cred *RefreshableCred, roleName string, opts *CredentialsOpts, signer Signer, signatureAlgorithm string) (http.HandlerFunc, http.HandlerFunc, http.HandlerFunc) {
 	// Handles PUT requests to /latest/api/token/
 	putTokenHandler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "PUT" {
@@ -224,7 +224,7 @@ func AllIssuesHandlers(cred *RefreshableCred, roleName string, opts *Credentials
 
 		var nextRefreshTime = cred.Expiration.Add(-RefreshTime)
 		if time.Until(nextRefreshTime) < RefreshTime {
-			credentialProcessOutput, _ := GenerateCredentials(opts)
+			credentialProcessOutput, _ := GenerateCredentials(opts, signer, signatureAlgorithm)
 			cred.AccessKeyId = credentialProcessOutput.AccessKeyId
 			cred.SecretAccessKey = credentialProcessOutput.SecretAccessKey
 			cred.Token = credentialProcessOutput.SessionToken
@@ -268,7 +268,14 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 		os.Exit(1)
 	}
 
-	credentialProcessOutput, _ := GenerateCredentials(&credentialsOptions)
+	signer, signatureAlgorithm, err := GetSigner(&credentialsOptions)
+	if err != nil {
+		log.Println(err)
+		os.Exit(1)
+	}
+	defer signer.Close()
+
+	credentialProcessOutput, _ := GenerateCredentials(&credentialsOptions, signer, signatureAlgorithm)
 	refreshableCred.AccessKeyId = credentialProcessOutput.AccessKeyId
 	refreshableCred.SecretAccessKey = credentialProcessOutput.SecretAccessKey
 	refreshableCred.Token = credentialProcessOutput.SessionToken
@@ -280,7 +287,7 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	endpoint.Server = &http.Server{}
 	roleResourceParts := strings.Split(roleArn.Resource, "/")
 	roleName := roleResourceParts[len(roleResourceParts)-1] // Find role name without path
-	putTokenHandler, getRoleNameHandler, getCredentialsHandler := AllIssuesHandlers(&endpoint.TmpCred, roleName, &credentialsOptions)
+	putTokenHandler, getRoleNameHandler, getCredentialsHandler := AllIssuesHandlers(&endpoint.TmpCred, roleName, &credentialsOptions, signer, signatureAlgorithm)
 
 	http.HandleFunc(TOKEN_RESOURCE_PATH, putTokenHandler)
 	http.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH, getRoleNameHandler)

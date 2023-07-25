@@ -1,3 +1,6 @@
 build/
 tst/certs/
 credential-process-data/
+tst/softhsm/
+tst/softhsm2.conf
+
