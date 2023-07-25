@@ -16,7 +16,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
-	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -28,12 +27,7 @@ import (
 const TestCredentialsFilePath = "/tmp/credentials"
 
 func setup() error {
-	var generateCredentialProcessDataScript *exec.Cmd
-	if runtime.GOOS == "windows" {
-		generateCredentialProcessDataScript = exec.Command("C:\\Windows\\System32\\cmd.exe", "../generate-credential-process-data.sh")
-	} else {
-		generateCredentialProcessDataScript = exec.Command("/bin/sh", "../generate-credential-process-data.sh")
-	}
+	generateCredentialProcessDataScript := exec.Command("/bin/sh", "../generate-credential-process-data.sh")
 	_, err := generateCredentialProcessDataScript.Output()
 	return err
 }
@@ -217,14 +211,6 @@ func TestSign(t *testing.T) {
 			testTable = append(testTable, CredentialsOpts{
 				CertificateId: cert,
 			})
-
-			if runtime.GOOS == "windows" {
-				testTable = append(testTable, CredentialsOpts{
-					CertIdentifier: CertIdentifier{
-						Subject: fmt.Sprintf("CN=roles-anywhere-ec-%s-%s", curve, digest),
-					},
-				})
-			}
 		}
 	}
 
@@ -253,13 +239,6 @@ func TestSign(t *testing.T) {
 				CertificateId: cert,
 			})
 
-			if runtime.GOOS == "windows" {
-				testTable = append(testTable, CredentialsOpts{
-					CertIdentifier: CertIdentifier{
-						Subject: fmt.Sprintf("CN=roles-anywhere-rsa-%s-%s", keylen, digest),
-					},
-				})
-			}
 		}
 	}
 

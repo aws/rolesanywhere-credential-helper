@@ -17,19 +17,19 @@ test: test-certs
 	go test -v ./...
 
 %-md5-cert.pem: %-key.pem
-	SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
+	SUBJ=$$(echo "$@" | sed -r 's|.*/([^/]+)-cert.pem|\1|'); \
 	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -md5
 %-sha1-cert.pem: %-key.pem
-	SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
+	SUBJ=$$(echo "$@" | sed -r 's|.*/([^/]+)-cert.pem|\1|'); \
 	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha1
 %-sha256-cert.pem: %-key.pem
-	SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
+	SUBJ=$$(echo "$@" | sed -r 's|.*/([^/]+)-cert.pem|\1|'); \
 	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha256
 %-sha384-cert.pem: %-key.pem
-	SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
+	SUBJ=$$(echo "$@" | sed -r 's|.*/([^/]+)-cert.pem|\1|'); \
 	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha384
 %-sha512-cert.pem: %-key.pem
-	SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
+	SUBJ=$$(echo "$@" | sed -r 's|.*/([^/]+)-cert.pem|\1|'); \
 	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha512
 
 # Go PKCS#12 only supports SHA1 and 3DES!!
@@ -43,11 +43,6 @@ test: test-certs
 		-keypbe pbeWithSHA1And3-KeyTripleDES-CBC \
 		-inkey $${KEY} -out "$@" -in $${CERT}
 
-# And once again, it's hard to do a file-based rule for the contents of the certificate store. 
-# So just populate it as a side-effect of creating the p12 file.
-# Note that you may receive a pop-up for each certificate that's added to your certificate store 
-# on Windows, saying that Windows is unable to verify the authenticity of the root you are trying 
-# to install. Since they are only being used for testing, you can delete them afterwards. 
 %-pass.p12: %-cert.pem
 	echo Creating $@...
 	ls -l $<
@@ -56,10 +51,6 @@ test: test-certs
 		-certpbe pbeWithSHA1And3-KeyTripleDES-CBC \
 		-keypbe pbeWithSHA1And3-KeyTripleDES-CBC \
 		-inkey $${KEY} -out "$@" -in "$<"
-
-	if [ "$(OS)" = "Windows_NT" ]; then \
-		certutil -user -p "test" -importPFX "MY" $@; \
-	fi
 
 %-pkcs8.pem: %.pem
 	openssl pkcs8 -topk8 -inform PEM -outform PEM -in $< -out $@ -nocrypt
@@ -77,7 +68,6 @@ $(certsdir)/cert-bundle.pem: $(RSACERTS) $(ECCERTS)
 
 test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(RSACERTS) $(ECCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem 
 
-# TODO: Need to clean certificates and keys added to certificate store as well
 test-clean:
 	rm -f $(RSAKEYS) $(ECKEYS)
 	rm -f $(PKCS8KEYS)
