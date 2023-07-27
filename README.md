@@ -4,7 +4,7 @@ rolesanywhere-credential-helper implements the [signing process](https://docs.aw
 ## Building
 
 ### Dependencies
-In order to build the source code, you will need to install git, gcc, make, and golang.
+In order to build the source code, you will need to install git, gcc, GNU make, and golang.
 
 #### Linux
 
@@ -37,6 +37,8 @@ The project also comes with two bash scripts at its root, called `generate-certs
 ### read-certificate-data
 
 Reads a certificate that is on disk. Either the path to the certificate on disk is provided with the `--certificate` parameter, or the `--cert-selector` flag is provided to select a certificate within an OS certificate store. Further details about the flag are provided below.
+
+If there are multiple certificates that match a given `--cert-selector`, information about each of them is printed. 
 
 #### cert-selector flag
 
@@ -73,7 +75,7 @@ The example given here is quite simple (they each only contain a single RDN), so
 
 ### sign-string
 
-Signs a string from standard input. Useful for validating your on-disk private key and digest. The path to the private key must be provided with the `--private-key` parameter. Other parameters that can be used are `--digest`, which must be one of `SHA256 (*default*) | SHA384 | SHA512`, and `--format`, which must be one of `text (*default*) | json | bin`.
+Signs a fixed strings: `"AWS Roles Anywhere Credential Helper Signing Test" || SIGN_STRING_TEST_VERSION || SHA256("IAM RA" || PUBLIC_KEY_BYTE_ARRAY)`. Useful for validating your private key and digest. Either the path to the private key must be provided with the `--private-key` parameter, or a certificate selector must be provided through the `--cert-selector` parameter (if you want to use the OS certificate store integration). Other parameters that can be used are `--digest`, which must be one of `SHA256 (*default*) | SHA384 | SHA512`, and `--format`, which must be one of `text (*default*) | json | bin`.
 
 ### credential-process
 
