@@ -40,6 +40,7 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows"
 	"io"
+	"log"
 	"os"
 	"strconv"
 	"strings"
