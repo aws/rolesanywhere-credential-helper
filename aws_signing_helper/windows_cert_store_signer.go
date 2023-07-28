@@ -122,6 +122,7 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 	paramsPtr = unsafe.Pointer(&params)
 
 	var curCertCtx *windows.CertContext
+	var curCert *x509.Certificate
 	for {
 		// Previous chainCtx should be freed here if it isn't nil
 		chainCtx, err = windows.CertFindChainInStore(store, encoding, flags, findType, paramsPtr, chainCtx)
@@ -155,11 +156,12 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 			curCertCtx = chainElts[j].CertContext
 			x509CertChain[j], err = exportCertContext(curCertCtx)
 			if err != nil {
-				goto fail
+				log.Println("unable to parse certificate - skipping")
+				goto nextIteration
 			}
 		}
 
-		curCert := x509CertChain[0]
+		curCert = x509CertChain[0]
 		if certMatches(certIdentifier, *curCert) {
 			certContainers = append(certContainers, CertificateContainer{curCert, ""})
 
@@ -175,6 +177,8 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 				windows.CertDuplicateCertificateContext(certCtx)
 			}
 		}
+
+	nextIteration:
 	}
 
 	if Debug {

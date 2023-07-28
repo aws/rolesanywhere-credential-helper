@@ -22,6 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"unsafe"
 )
@@ -73,6 +74,7 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 	var certContainers []CertificateContainer
 	var certRef C.SecCertificateRef
 	var identRef C.SecIdentityRef
+	var isMatch bool
 	for _, curIdentRef := range identRefs {
 		curCertRef, err := getCertRef(C.SecIdentityRef(curIdentRef))
 		if err != nil {
@@ -80,12 +82,13 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 		}
 		curCert, err := getCert(curCertRef)
 		if err != nil {
-			return 0, 0, nil, errors.New("unable to get cert")
+			log.Println("unable to parse certificate - skipping")
+			goto nextIteration
 		}
 
 		// Find whether there is a matching certificate
-		certMatches := certMatches(certIdentifier, *curCert)
-		if certMatches {
+		isMatch = certMatches(certIdentifier, *curCert)
+		if isMatch {
 			certContainers = append(certContainers, CertificateContainer{curCert, ""})
 			// Assign to certRef and identRef at most once in the loop
 			// Both values are only useful if there is exactly one match in the certificate store
@@ -95,6 +98,8 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 				identRef = C.SecIdentityRef(curIdentRef)
 			}
 		}
+
+	nextIteration:
 	}
 
 	if Debug {
