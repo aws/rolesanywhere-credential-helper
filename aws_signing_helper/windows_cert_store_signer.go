@@ -40,7 +40,6 @@ import (
 	"fmt"
 	"golang.org/x/sys/windows"
 	"io"
-	"log"
 	"os"
 	"strconv"
 	"strings"
@@ -157,7 +156,9 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 			curCertCtx = chainElts[j].CertContext
 			x509CertChain[j], err = exportCertContext(curCertCtx)
 			if err != nil {
-				log.Println("unable to parse certificate - skipping")
+				if Debug {
+					fmt.Fprintf(os.Stderr, "unable to parse certificate - skipping")
+				}
 				goto nextIteration
 			}
 		}

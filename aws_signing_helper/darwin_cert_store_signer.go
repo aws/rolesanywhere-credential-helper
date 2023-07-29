@@ -22,7 +22,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log"
 	"os"
 	"unsafe"
 )
@@ -82,7 +81,9 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 		}
 		curCert, err := getCert(curCertRef)
 		if err != nil {
-			log.Println("unable to parse certificate - skipping")
+			if Debug {
+				fmt.Fprintf(os.Stderr, "unable to parse certificate - skipping")
+			}
 			goto nextIteration
 		}
 
