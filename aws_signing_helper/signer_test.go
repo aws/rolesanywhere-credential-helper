@@ -241,12 +241,30 @@ func TestSign(t *testing.T) {
 
 		}
 	}
+    
+	pkcs11_objects := []string{"RSA", "EC"}
+
+	for _, object := range pkcs11_objects {
+		pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s?pin-value=1234", object)
+
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: pkcs11_uri,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			PrivateKeyId: pkcs11_uri,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: pkcs11_uri,
+			PrivateKeyId:  pkcs11_uri,
+		})
+	}
 
 	digestList := []crypto.Hash{crypto.SHA256, crypto.SHA384, crypto.SHA512}
 
 	for _, credOpts := range testTable {
 		signer, _, err := GetSigner(&credOpts)
 		if err != nil {
+            t.Log(err)
 			var logMsg string
 			if credOpts.CertificateId != "" || credOpts.PrivateKeyId != "" {
 				logMsg = fmt.Sprintf("Failed to get signer for '%s'/'%s'",

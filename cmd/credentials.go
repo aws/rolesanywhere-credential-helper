@@ -67,6 +67,9 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&certificateBundleId, "intermediates", "", "Path to intermediate certificate bundle file")
 	subCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store. "+
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
+    subCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
+	subCmd.PersistentFlags().StringVar(&pinPkcs11, "pkcs11-pin", "-", "Pin of the PKCS #11 user for private key access")
+	subCmd.PersistentFlags().UintVar(&slotPkcs11, "pkcs11-slot", 0, "PKCS #11 slot in which to search for the private key (and potentially certificate as well)")
 
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 }
