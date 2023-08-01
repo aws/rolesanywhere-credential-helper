@@ -78,7 +78,7 @@ func init() {
 	signStringCmd.PersistentFlags().BoolVar(&debug, "debug", false, "To print debug output")
 	signStringCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store. "+
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
-    signStringCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (default: p11-kit-proxy.{so, dll, dylib})")
+	signStringCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (default: p11-kit-proxy.{so, dll, dylib})")
 	signStringCmd.PersistentFlags().Var(format, "format", "Output format. One of json, text, and bin")
 	signStringCmd.PersistentFlags().Var(digestArg, "digest", "One of SHA256, SHA384, and SHA512")
 }

@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"log"
 	"os"
-    "strings"
+	"strings"
 
 	helper "github.com/aws/rolesanywhere-credential-helper/aws_signing_helper"
 	"github.com/spf13/cobra"
@@ -55,7 +55,7 @@ var readCertificateDataCmd = &cobra.Command{
 		// PrintCertificate interface can be assigned to this variable.
 		var printFunction PrintCertificate = DefaultPrintCertificate
 
-        if strings.HasPrefix(certificateId, "pkcs11:") {
+		if strings.HasPrefix(certificateId, "pkcs11:") {
 			certContainers, err = helper.GetMatchingPKCSCerts(certificateId, libPkcs11)
 			if err != nil {
 				log.Println(err)

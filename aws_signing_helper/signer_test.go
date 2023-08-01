@@ -241,7 +241,7 @@ func TestSign(t *testing.T) {
 
 		}
 	}
-    
+
 	pkcs11_objects := []string{"RSA", "EC"}
 
 	for _, object := range pkcs11_objects {
@@ -264,7 +264,7 @@ func TestSign(t *testing.T) {
 	for _, credOpts := range testTable {
 		signer, _, err := GetSigner(&credOpts)
 		if err != nil {
-            t.Log(err)
+			t.Log(err)
 			var logMsg string
 			if credOpts.CertificateId != "" || credOpts.PrivateKeyId != "" {
 				logMsg = fmt.Sprintf("Failed to get signer for '%s'/'%s'",
