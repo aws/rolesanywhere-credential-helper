@@ -472,9 +472,9 @@ func GetMatchingPKCSCerts(uriStr string, lib string) (matchingCerts []Certificat
 			curUri.AddPathAttribute("object", string(obj.label[:]))
 		}
 		curUri.AddPathAttribute("type", "cert")
-		curUriStr, err := curUri.Format()
+		curUriStr, err := curUri.Format() // nosemgrep
 		if err != nil {
-			curUriStr = "" // nosemgrep
+			curUriStr = ""
 		}
 		matchingCerts = append(matchingCerts, CertificateContainer{obj.x509, curUriStr})
 	}
