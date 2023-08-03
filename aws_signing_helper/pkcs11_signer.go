@@ -54,24 +54,14 @@ var PKCS11_TEST_VERSION int16 = 1
 var MAX_OBJECT_LIMIT int = 1000
 
 type PKCS11Signer struct {
-	cert             *x509.Certificate
-	certChain        []*x509.Certificate
-	module           *pkcs11.Ctx
-	session          pkcs11.SessionHandle
-	privateKeyHandle pkcs11.ObjectHandle
-	pin              string
-	keyType          uint
-}
-
-// Helper function to check whether the passed in []uint contains a given element
-func contains(slice []uint, find uint) bool {
-	for _, v := range slice {
-		if v == find {
-			return true
-		}
-	}
-
-	return false
+	cert               *x509.Certificate
+	certChain          []*x509.Certificate
+	module             *pkcs11.Ctx
+	session            pkcs11.SessionHandle
+	privateKeyHandle   pkcs11.ObjectHandle
+	pin                string
+	contextSpecificPin string
+	keyType            uint
 }
 
 // Used to enumerate slots with all token/slot info for matching
@@ -484,7 +474,7 @@ func GetMatchingPKCSCerts(uriStr string, lib string) (matchingCerts []Certificat
 		curUri.AddPathAttribute("type", "cert")
 		curUriStr, err := curUri.Format()
 		if err != nil {
-			curUriStr = ""
+			curUriStr = "" // nosemgrep
 		}
 		matchingCerts = append(matchingCerts, CertificateContainer{obj.x509, curUriStr})
 	}
@@ -512,7 +502,7 @@ func (pkcs11Signer *PKCS11Signer) Close() {
 }
 
 // Helper function to sign a digest using a PKCS#11 private key handle
-func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHandle pkcs11.ObjectHandle, alwaysAuth uint, pkcs11Pin string, keyType uint, digest []byte, hashFunc crypto.Hash) (signature []byte, err error) {
+func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHandle pkcs11.ObjectHandle, alwaysAuth uint, pkcs11Pin string, keyType uint, digest []byte, hashFunc crypto.Hash) (contextSpecificPin string, signature []byte, err error) {
 	// XXX: If you use this outside the context of IAM RA, be aware that
 	// you'll want to use something other than SHA256 in many cases.
 	// For TLSv1.3 the hash needs to precisely match the bit size of the
@@ -532,7 +522,7 @@ func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHand
 			hash := sha512.Sum512(digest)
 			digest = hash[:]
 		default:
-			return nil, ErrUnsupportedHash
+			return "", nil, ErrUnsupportedHash
 		}
 		mechanism = pkcs11.CKM_ECDSA
 	} else {
@@ -544,40 +534,49 @@ func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHand
 		case crypto.SHA512:
 			mechanism = pkcs11.CKM_SHA512_RSA_PKCS
 		default:
-			return nil, ErrUnsupportedHash
+			return "", nil, ErrUnsupportedHash
 		}
 	}
 
 	err = module.SignInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, nil)}, privateKeyHandle)
 	if err != nil {
-		return nil, fmt.Errorf("signing initiation failed (%s)", err.Error())
+		return "", nil, fmt.Errorf("signing initiation failed (%s)", err.Error())
 	}
 
-	// We assume it's the same PIN as the token itself? Which was only
-	// "saved" for us in PKCS11Signer if the CKA_ALWAYS_AUTHENTICATE
-	// attribute was set (assuming this method is called with the attributes
-	// of an existing PKCS11Signer object).
-	if alwaysAuth != 0 && pkcs11Pin != "" {
-		err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pkcs11Pin)
+	if alwaysAuth != 0 {
+		if pkcs11Pin != "" {
+			err = module.Login(session, pkcs11.CKU_CONTEXT_SPECIFIC, pkcs11Pin)
+			if err == nil {
+				goto afterContextSpecificLogin
+			} else {
+				if Debug {
+					fmt.Fprintf(os.Stderr, "user re-authentication attempt failed (%s)", err.Error())
+				}
+			}
+		}
+		passwordName := "context-specific pin"
+		finalAuthErrMsg := "user re-authentication failed (%s)"
+		_, err = pkcs11PasswordPrompt(module, session, pkcs11.CKU_CONTEXT_SPECIFIC, passwordName, finalAuthErrMsg)
 		if err != nil {
-			return nil, fmt.Errorf("user re-authentication failed (%s)", err.Error())
+			return "", nil, err
 		}
 	}
 
+afterContextSpecificLogin:
 	sig, err := module.Sign(session, digest)
 	if err != nil {
-		return nil, fmt.Errorf("signing failed (%s)", err.Error())
+		return pkcs11Pin, nil, fmt.Errorf("signing failed (%s)", err.Error())
 	}
 
 	// Yay, we have to do the ASN.1 encoding of the R, S values ourselves.
 	if mechanism == pkcs11.CKM_ECDSA {
 		sig, err = encodeEcdsaSigValue(sig)
 		if err != nil {
-			return nil, err
+			return pkcs11Pin, nil, err
 		}
 	}
 
-	return sig, nil
+	return pkcs11Pin, sig, nil
 }
 
 // Implements the crypto.Signer interface and signs the passed in digest
@@ -586,10 +585,19 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 	session := pkcs11Signer.session
 	privateKeyHandle := pkcs11Signer.privateKeyHandle
 	keyType := pkcs11Signer.keyType
-	pin := pkcs11Signer.pin
 	hashFunc := opts.HashFunc()
+	pin := pkcs11Signer.contextSpecificPin
 
-	return signHelper(module, session, privateKeyHandle, 0, pin, keyType, digest, hashFunc)
+	// We only care about the context-specific PIN, which (from my understanding)
+	// can be different from the user PIN. If the context-specific PIN has been
+	// saved already, use it. Otherwise, default to the user PIN.
+	if pin == "" {
+		pin = pkcs11Signer.pin
+	}
+
+	// Save the context-specific PIN, so that we don't need to prompt for it anymore
+	pkcs11Signer.contextSpecificPin, signature, err = signHelper(module, session, privateKeyHandle, 0, pin, keyType, digest, hashFunc) // nosemgrep
+	return signature, err
 }
 
 // Gets the x509.Certificate associated with this PKCS11Signer
@@ -645,18 +653,8 @@ func (pkcs11Signer *PKCS11Signer) CertificateChain() (chain []*x509.Certificate,
 	return chain, nil
 }
 
-// Gets the manufacturer ID for the PKCS #11 module
-func getManufacturerId(module *pkcs11.Ctx) (string, error) {
-	info, err := module.GetInfo()
-	if err != nil {
-		return "", err
-	}
-
-	return info.ManufacturerID, nil
-}
-
 // Checks whether the private key and certificate are associated with each other
-func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, keyType uint, alwaysAuth uint, pinPkcs11 string, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate, manufacturerId string) bool {
+func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, keyType uint, alwaysAuth uint, pinPkcs11 string, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate, manufacturerId string) (string, bool) {
 	var digestSuffix []byte
 	publicKey := certificate.PublicKey
 	ecdsaPublicKey, isEcKey := publicKey.(*ecdsa.PublicKey)
@@ -664,7 +662,7 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 		digestSuffixArr := sha256.Sum256(append([]byte("IAM RA"), elliptic.Marshal(ecdsaPublicKey, ecdsaPublicKey.X, ecdsaPublicKey.Y)...))
 		digestSuffix = digestSuffixArr[:]
 		if keyType != pkcs11.CKK_EC {
-			return false
+			return "", false
 		}
 	}
 
@@ -673,7 +671,7 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 		digestSuffixArr := sha256.Sum256(append([]byte("IAM RA"), x509.MarshalPKCS1PublicKey(rsaPublicKey)...))
 		digestSuffix = digestSuffixArr[:]
 		if keyType != pkcs11.CKK_RSA {
-			return false
+			return "", false
 		}
 	}
 	// "AWS Roles Anywhere Credential Helper PKCS11 Test" || PKCS11_TEST_VERSION ||
@@ -683,22 +681,22 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 	digestBytes := []byte(digest)
 	hash := sha256.Sum256(digestBytes)
 
-	signature, err := signHelper(module, session, privateKeyHandle, alwaysAuth, pinPkcs11, keyType, digestBytes, crypto.SHA256)
+	contextSpecificPin, signature, err := signHelper(module, session, privateKeyHandle, alwaysAuth, pinPkcs11, keyType, digestBytes, crypto.SHA256)
 	if err != nil {
-		return false
+		return "", false
 	}
 
 	if isEcKey {
 		valid := ecdsa.VerifyASN1(ecdsaPublicKey, hash[:], signature)
-		return valid
+		return contextSpecificPin, valid
 	}
 
 	if isRsaKey {
 		err := rsa.VerifyPKCS1v15(rsaPublicKey, crypto.SHA256, hash[:], signature)
-		return err == nil
+		return contextSpecificPin, err == nil
 	}
 
-	return false
+	return "", false
 }
 
 // This is not my proudest moment. But there's no binary.NativeEndian.
@@ -762,7 +760,8 @@ func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, certificat
 	var keyUri *pkcs11uri.Pkcs11URI
 	var slotNr uint
 	var slots []SlotIdInfo
-	var pinPkcs11 string
+	var userPin string
+	var contextSpecificPin string
 	var certObj []CertObjInfo
 	var keyAttributes []*pkcs11.Attribute
 	var keyType uint
@@ -782,8 +781,8 @@ func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, certificat
 		if err != nil {
 			goto fail
 		}
-		pinPkcs11, _ := certUri.GetQueryAttribute("pin-value", false)
-		slotNr, session, loggedIn, certObj, err = getMatchingCerts(module, slots, certUri, &pinPkcs11, true)
+		userPin, _ = certUri.GetQueryAttribute("pin-value", false)
+		slotNr, session, loggedIn, certObj, err = getMatchingCerts(module, slots, certUri, &userPin, true)
 		if err != nil {
 			goto fail
 		}
@@ -802,7 +801,7 @@ func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, certificat
 	} else {
 		keyUri = certUri
 	}
-	pinPkcs11, _ = keyUri.GetQueryAttribute("pin-value", false)
+	userPin, _ = keyUri.GetQueryAttribute("pin-value", false)
 
 	// This time we're looking for a *single* slot, as we (presumably)
 	// will have to log in to access the key.
@@ -810,6 +809,7 @@ func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, certificat
 	if len(slots) == 1 {
 		if slotNr != slots[0].id {
 			slotNr = slots[0].id
+			manufacturerId = slots[0].info.ManufacturerID
 			if session != 0 {
 				if loggedIn {
 					module.Logout(session)
@@ -825,6 +825,7 @@ func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, certificat
 		// that.
 		for _, slot := range slots {
 			if slot.id == slotNr {
+				manufacturerId = slot.info.ManufacturerID
 				goto got_slot
 			}
 		}
@@ -842,40 +843,15 @@ got_slot:
 
 	// And *now* we fall back to prompting the user for a PIN if necessary.
 	if !loggedIn {
-		if pinPkcs11 == "" {
-			parseErrMsg := "unable to read PKCS#11 user pin"
-			prompt := "Please enter your user pin:"
-
-			ttyPath := "/dev/tty"
-			if runtime.GOOS == "windows" {
-				ttyPath = "CON"
-			}
-
-			ttyFile, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
+		if userPin == "" {
+			passwordName := "user pin"
+			finalAuthErrMsg := "user authentication failed (%s)"
+			_, err = pkcs11PasswordPrompt(module, session, pkcs11.CKU_USER, passwordName, finalAuthErrMsg)
 			if err != nil {
 				goto fail
 			}
-			defer ttyFile.Close()
-
-			for true {
-				pinPkcs11, err = GetPassword(ttyFile, prompt, parseErrMsg)
-				if err != nil && err.Error() == parseErrMsg {
-					continue
-				}
-
-				err = module.Login(session, pkcs11.CKU_USER, pinPkcs11)
-				if err != nil {
-					// Loop on failure in case the user mistyped their PIN.
-					if strings.Contains(err.Error(), "CKR_PIN_INCORRECT") {
-						prompt = "Incorrect user pin. Please re-enter your user pin:"
-						continue
-					}
-					goto fail
-				}
-				break
-			}
 		} else {
-			err = module.Login(session, pkcs11.CKU_USER, pinPkcs11)
+			err = module.Login(session, pkcs11.CKU_USER, userPin)
 			if err != nil {
 				goto fail
 			}
@@ -902,12 +878,6 @@ retry_search:
 		}
 	}
 	if err = module.FindObjectsFinal(session); err != nil {
-		goto fail
-	}
-
-	// Get manufacturer ID once, so that it can be used in the test string to sign when testing candidate private keys
-	manufacturerId, err = getManufacturerId(module)
-	if err != nil {
 		goto fail
 	}
 
@@ -938,9 +908,20 @@ retry_search:
 			alwaysAuth = 0
 		}
 
-		if certificate == nil ||
-			checkPrivateKeyMatchesCert(module, session, keyType, alwaysAuth, pinPkcs11, curPrivateKeyHandle, certificate, manufacturerId) {
+		if certificate == nil {
 			privateKeyHandle = curPrivateKeyHandle
+			break
+		}
+
+		curContextSpecificPin := contextSpecificPin
+		if curContextSpecificPin == "" {
+			curContextSpecificPin = userPin
+		}
+		privateKeyMatchesCert := false
+		curContextSpecificPin, privateKeyMatchesCert = checkPrivateKeyMatchesCert(module, session, keyType, alwaysAuth, curContextSpecificPin, curPrivateKeyHandle, certificate, manufacturerId)
+		if privateKeyMatchesCert {
+			privateKeyHandle = curPrivateKeyHandle
+			contextSpecificPin = curContextSpecificPin
 			break
 		}
 	}
@@ -976,11 +957,7 @@ retry_search:
 		return nil, "", errors.New("unsupported algorithm")
 	}
 
-	if alwaysAuth == 0 {
-		pinPkcs11 = ""
-	}
-
-	return &PKCS11Signer{certificate, nil, module, session, privateKeyHandle, pinPkcs11, keyType}, signingAlgorithm, nil
+	return &PKCS11Signer{certificate, nil, module, session, privateKeyHandle, userPin, contextSpecificPin, keyType}, signingAlgorithm, nil
 
 fail:
 	if module != nil {
@@ -993,6 +970,48 @@ fail:
 	}
 
 	return nil, "", err
+}
+
+// Does PIN prompting until the password has been received.
+// Note that finalAuthErrMsg should contain a `%s` so that the actual
+// error message can be included.
+func pkcs11PasswordPrompt(module *pkcs11.Ctx, session pkcs11.SessionHandle, userType uint, passwordName string, finalAuthErrMsg string) (string, error) {
+	var pin string
+
+	parseErrMsg := fmt.Sprintf("unable to read PKCS#11 %s", passwordName)
+	prompt := fmt.Sprintf("Please enter your %s", passwordName)
+
+	ttyPath := "/dev/tty"
+	if runtime.GOOS == "windows" {
+		ttyPath = "CON"
+	}
+
+	ttyFile, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
+	if err != nil {
+		return "", errors.New(parseErrMsg)
+	}
+	defer ttyFile.Close()
+
+	for true {
+		pin, err = GetPassword(ttyFile, prompt, parseErrMsg)
+		if err != nil && err.Error() == parseErrMsg {
+			continue
+		}
+
+		err = module.Login(session, userType, pin)
+		if err != nil {
+			// Loop on failure in case the user mistyped their PIN.
+			if strings.Contains(err.Error(), "CKR_PIN_INCORRECT") {
+				prompt = fmt.Sprintf("Incorrect %s. Please re-enter your %s:", passwordName, passwordName)
+				continue
+			}
+			return "", fmt.Errorf(finalAuthErrMsg, err.Error())
+		}
+		return pin, nil
+	}
+
+	// Code should never reach here
+	return "", fmt.Errorf("unexpected error when prompting for %s", passwordName)
 }
 
 // Prompts the user for their password
