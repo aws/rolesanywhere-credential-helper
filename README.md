@@ -83,6 +83,10 @@ Vends temporary credentials by sending a `CreateSession` request to the Roles An
 
 Note that if more than one certificate matches the `--cert-selector` parameter within the OS-specific secure store, the `credential-process` command will fail. To find the list of certificates that match a given `--cert-selector` parameter, you can use the same flag with the `read-certificate-data` command.
 
+When `credential-process` is used, AWS SDKs store the returned AWS credentials in memory. AWS SDKs will keep track of the credential expiration and generate new AWS session credentials via the credential process, provided the certificate has not expired or been revoked.
+
+When the AWS CLI uses a `credential-process`, the AWS CLI calls the `credential-process` for every CLI command issued, which will result in the creation of a new role session and a slight delay when excuting commands. To avoid this delay from getting new credentials when using the AWS CLI, you can use `serve` or `update`.
+
 #### MacOS Keychain Guidance
 
 If you would like to secure keys through MacOS Keychain and use them with IAM Roles Anywhere, you may want to consider creating a new Keychain that only the credential helper can access and store your keys there. The steps to do this are listed below. Note that the commands should be executed in bash.
@@ -128,10 +132,6 @@ certutil -user -p %UNWRAPPING_PASSWORD% -importPFX "MY" \path\to\identity.pfx
 The above command will import the PFX file into the user's "MY" certificate store. The `UNWRAPPING_PASSWORD` environment variable should contain the password to unwrap the PFX file.
 
 Also note that the above step can be done through a [Powershell cmdlet](https://learn.microsoft.com/en-us/powershell/module/pki/import-pfxcertificate?view=windowsserver2022-ps) or through [Windows CNG/Cryptography APIs](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-pfximportcertstore).
-
-When `credential-process` is used, AWS SDKs store the returned AWS credentials in memory. AWS SDKs will keep track of the credential expiration and generate new AWS session credentials via the credential process, provided the certificate has not expired or been revoked.
-
-When the AWS CLI uses a `credential-process`, the AWS CLI calls the `credential-process` for every CLI command issued, which will result in the creation of a new role session and a slight delay when excuting commands. To avoid this delay from getting new credentials when using the AWS CLI, you can use `serve` or `update`.
 
 ### update
 
