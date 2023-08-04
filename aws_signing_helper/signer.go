@@ -7,8 +7,8 @@ import (
 	"crypto/rand"
 	"crypto/rsa"
 	"crypto/sha256"
-	"crypto/sha512"
 	"crypto/x509"
+	"encoding/asn1"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/pem"
@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math/big"
 	"net/http"
 	"os"
 	"sort"
@@ -26,39 +27,6 @@ import (
 	"github.com/aws/aws-sdk-go/aws/request"
 )
 
-type SigningOpts struct {
-	// Private key to use for the signing operation.
-	PrivateKey crypto.PrivateKey
-	// Digest to use in the signing operation. For example, SHA256
-	Digest crypto.Hash
-}
-
-// Container for data that will be sent in a request to CreateSession.
-type RequestOpts struct {
-	// ARN of the Role to assume in the CreateSession call.
-	RoleArn string
-	// ARN of the Configuration to use in the CreateSession call.
-	ConfigurationArn string
-	// Certificate, as base64-encoded DER; used in the `x-amz-x509`
-	// header in the API request.
-	CertificateData string
-	// Duration of the session that will be returned by CreateSession.
-	DurationSeconds int
-}
-
-type RequestHeaderOpts struct {
-	// Certificate, as base64-encoded DER; used in the `x-amz-x509`
-	// header in the API request.
-	CertificateData string
-}
-
-type RequestQueryStringOpts struct {
-	// ARN of the Role to assume in the CreateSession call.
-	RoleArn string
-	// ARN of the Configuration to use in the CreateSession call.
-	ConfigurationArn string
-}
-
 type SignerParams struct {
 	OverriddenDate   time.Time
 	RegionName       string
@@ -66,10 +34,26 @@ type SignerParams struct {
 	SigningAlgorithm string
 }
 
-// Container for data returned after performing a signing operation.
-type SigningResult struct {
-	// Signature encoded in hex.
-	Signature string `json:"signature"`
+type CertIdentifier struct {
+	Subject      string
+	Issuer       string
+	SerialNumber *big.Int
+}
+
+var (
+	// ErrUnsupportedHash is returned by Signer.Sign() when the provided hash
+	// algorithm isn't supported.
+	ErrUnsupportedHash = errors.New("unsupported hash algorithm")
+)
+
+// Interface that all signers will have to implement
+// (as a result, they will also implement crypto.Signer)
+type Signer interface {
+	Public() crypto.PublicKey
+	Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error)
+	Certificate() (certificate *x509.Certificate, err error)
+	CertificateChain() (certificateChain []*x509.Certificate, err error)
+	Close()
 }
 
 // Container for certificate data returned to the SDK as JSON.
@@ -101,10 +85,11 @@ type CredentialProcessOutput struct {
 	Expiration string `json:"Expiration"`
 }
 
-type RolesAnywhereSigner struct {
-	PrivateKey       crypto.PrivateKey
-	Certificate      x509.Certificate
-	CertificateChain []x509.Certificate
+type CertificateContainer struct {
+	// Certificate data
+	Cert *x509.Certificate
+	// Certificate URI (only populated in the case that the certificate is a PKCS#11 object)
+	Uri string
 }
 
 // Define constants used in signing
@@ -127,6 +112,105 @@ var ignoredHeaderKeys = map[string]bool{
 	"Authorization":   true,
 	"User-Agent":      true,
 	"X-Amzn-Trace-Id": true,
+}
+
+var Debug bool = false
+
+// Find whether the current certificate matches the CertIdentifier
+func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
+	if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
+		return false
+	}
+	if certIdentifier.Issuer != "" && certIdentifier.Issuer != cert.Issuer.String() {
+		return false
+	}
+	if certIdentifier.SerialNumber != nil && certIdentifier.SerialNumber.Cmp(cert.SerialNumber) != 0 {
+		return false
+	}
+
+	return true
+}
+
+// Because of *course* we have to do this for ourselves.
+//
+// Create the DER-encoded SEQUENCE containing R and S:
+//
+//	Ecdsa-Sig-Value ::= SEQUENCE {
+//	  r                   INTEGER,
+//	  s                   INTEGER
+//	}
+//
+// This is defined in RFC3279 §2.2.3 as well as SEC.1.
+// I can't find anything which mandates DER but I've seen
+// OpenSSL refusing to verify it with indeterminate length.
+func encodeEcdsaSigValue(signature []byte) (out []byte, err error) {
+	sigLen := len(signature) / 2
+
+	return asn1.Marshal(struct {
+		R *big.Int
+		S *big.Int
+	}{
+		big.NewInt(0).SetBytes(signature[:sigLen]),
+		big.NewInt(0).SetBytes(signature[sigLen:])})
+}
+
+// Gets the Signer based on the flags passed in by the user (from which the CredentialsOpts structure is derived)
+func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string, err error) {
+	var certificate *x509.Certificate
+	var certificateChain []*x509.Certificate
+
+	privateKeyId := opts.PrivateKeyId
+	if privateKeyId == "" {
+		if opts.CertificateId == "" {
+			if Debug {
+				fmt.Fprintln(os.Stderr, "attempting to use CertStoreSigner")
+			}
+			return GetCertStoreSigner(opts.CertIdentifier)
+		}
+		privateKeyId = opts.CertificateId
+	}
+
+	if opts.CertificateId != "" {
+		certificateData, err := ReadCertificateData(opts.CertificateId)
+		if err == nil {
+			certificateDerData, err := base64.StdEncoding.DecodeString(certificateData.CertificateData)
+			if err != nil {
+				return nil, "", err
+			}
+			certificate, err = x509.ParseCertificate([]byte(certificateDerData))
+			if err != nil {
+				return nil, "", err
+			}
+		} else if opts.PrivateKeyId == "" {
+			if Debug {
+				fmt.Fprintln(os.Stderr, "not a PEM certificate, so trying PKCS#12")
+			}
+			// Not a PEM certificate? Try PKCS#12
+			return GetPKCS12Signer(opts.CertificateId)
+		} else {
+			return nil, "", err
+		}
+	}
+
+	if opts.CertificateBundleId != "" {
+		certificateChainPointers, err := ReadCertificateBundleData(opts.CertificateBundleId)
+		if err != nil {
+			return nil, "", err
+		}
+		for _, certificate := range certificateChainPointers {
+			certificateChain = append(certificateChain, certificate)
+		}
+	}
+
+	privateKey, err := ReadPrivateKeyData(privateKeyId)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if Debug {
+		fmt.Fprintln(os.Stderr, "attempting to use FileSystemSigner")
+	}
+	return GetFileSystemSigner(privateKey, certificate, certificateChain)
 }
 
 // Obtain the date-time, formatted as specified by SigV4
@@ -153,12 +237,12 @@ func (signerParams *SignerParams) GetScope() string {
 }
 
 // Convert certificate to string, so that it can be present in the HTTP request header
-func certificateToString(certificate x509.Certificate) string {
+func certificateToString(certificate *x509.Certificate) string {
 	return base64.StdEncoding.EncodeToString(certificate.Raw)
 }
 
 // Convert certificate chain to string, so that it can be pressent in the HTTP request header
-func certificateChainToString(certificateChain []x509.Certificate) string {
+func certificateChainToString(certificateChain []*x509.Certificate) string {
 	var x509ChainString strings.Builder
 	for i, certificate := range certificateChain {
 		x509ChainString.WriteString(certificateToString(certificate))
@@ -169,65 +253,46 @@ func certificateChainToString(certificateChain []x509.Certificate) string {
 	return x509ChainString.String()
 }
 
-// Create a function that will sign requests, given the signing certificate, optional certificate chain, and the private key
-func CreateSignFunction(privateKey crypto.PrivateKey, certificate x509.Certificate, certificateChain []x509.Certificate) func(*request.Request) {
-	v4x509 := RolesAnywhereSigner{privateKey, certificate, certificateChain}
-	return func(r *request.Request) {
-		v4x509.SignWithCurrTime(r)
+func CreateRequestSignFunction(signer crypto.Signer, signingAlgorithm string, certificate *x509.Certificate, certificateChain []*x509.Certificate) func(*request.Request) {
+	return func(req *request.Request) {
+		region := req.ClientInfo.SigningRegion
+		if region == "" {
+			region = aws.StringValue(req.Config.Region)
+		}
+
+		name := req.ClientInfo.SigningName
+		if name == "" {
+			name = req.ClientInfo.ServiceName
+		}
+
+		signerParams := SignerParams{time.Now(), region, name, signingAlgorithm}
+
+		// Set headers that are necessary for signing
+		req.HTTPRequest.Header.Set(host, req.HTTPRequest.URL.Host)
+		req.HTTPRequest.Header.Set(x_amz_date, signerParams.GetFormattedSigningDateTime())
+		req.HTTPRequest.Header.Set(x_amz_x509, certificateToString(certificate))
+		if certificateChain != nil {
+			req.HTTPRequest.Header.Set(x_amz_x509_chain, certificateChainToString(certificateChain))
+		}
+
+		contentSha256 := calculateContentHash(req.HTTPRequest, req.Body)
+		if req.HTTPRequest.Header.Get(x_amz_content_sha256) == "required" {
+			req.HTTPRequest.Header.Set(x_amz_content_sha256, contentSha256)
+		}
+
+		canonicalRequest, signedHeadersString := createCanonicalRequest(req.HTTPRequest, req.Body, contentSha256)
+
+		stringToSign := CreateStringToSign(canonicalRequest, signerParams)
+		signatureBytes, err := signer.Sign(rand.Reader, []byte(stringToSign), crypto.SHA256)
+		if err != nil {
+			log.Println(err.Error())
+			os.Exit(1)
+		}
+		signature := hex.EncodeToString(signatureBytes)
+
+		req.HTTPRequest.Header.Set(authorization, BuildAuthorizationHeader(req.HTTPRequest, req.Body, signedHeadersString, signature, certificate, signerParams))
+		req.SignedHeaderVals = req.HTTPRequest.Header
 	}
-}
-
-// Sign the request using the current time
-func (v4x509 RolesAnywhereSigner) SignWithCurrTime(req *request.Request) error {
-	// Find the signing algorithm
-	var signingAlgorithm string
-	_, isRsaKey := v4x509.PrivateKey.(rsa.PrivateKey)
-	if isRsaKey {
-		signingAlgorithm = aws4_x509_rsa_sha256
-	}
-	_, isEcKey := v4x509.PrivateKey.(ecdsa.PrivateKey)
-	if isEcKey {
-		signingAlgorithm = aws4_x509_ecdsa_sha256
-	}
-	if signingAlgorithm == "" {
-		log.Println("unsupported algorithm")
-		return errors.New("unsupported algorithm")
-	}
-
-	region := req.ClientInfo.SigningRegion
-	if region == "" {
-		region = aws.StringValue(req.Config.Region)
-	}
-
-	name := req.ClientInfo.SigningName
-	if name == "" {
-		name = req.ClientInfo.ServiceName
-	}
-
-	signerParams := SignerParams{time.Now(), region, name, signingAlgorithm}
-
-	// Set headers that are necessary for signing
-	req.HTTPRequest.Header.Set(host, req.HTTPRequest.URL.Host)
-	req.HTTPRequest.Header.Set(x_amz_date, signerParams.GetFormattedSigningDateTime())
-	req.HTTPRequest.Header.Set(x_amz_x509, certificateToString(v4x509.Certificate))
-	if v4x509.CertificateChain != nil {
-		req.HTTPRequest.Header.Set(x_amz_x509_chain, certificateChainToString(v4x509.CertificateChain))
-	}
-
-	contentSha256 := calculateContentHash(req.HTTPRequest, req.Body)
-	if req.HTTPRequest.Header.Get(x_amz_content_sha256) == "required" {
-		req.HTTPRequest.Header.Set(x_amz_content_sha256, contentSha256)
-	}
-
-	canonicalRequest, signedHeadersString := createCanonicalRequest(req.HTTPRequest, req.Body, contentSha256)
-
-	stringToSign := CreateStringToSign(canonicalRequest, signerParams)
-
-	signingResult, _ := Sign([]byte(stringToSign), SigningOpts{v4x509.PrivateKey, crypto.SHA256})
-
-	req.HTTPRequest.Header.Set(authorization, BuildAuthorizationHeader(req.HTTPRequest, req.Body, signedHeadersString, signingResult.Signature, v4x509.Certificate, signerParams))
-	req.SignedHeaderVals = req.HTTPRequest.Header
-	return nil
 }
 
 // Find the SHA256 hash of the provided request body as a io.ReadSeeker
@@ -370,7 +435,7 @@ func CreateStringToSign(canonicalRequest string, signerParams SignerParams) stri
 }
 
 // Builds the complete authorization header
-func BuildAuthorizationHeader(request *http.Request, body io.ReadSeeker, signedHeadersString string, signature string, certificate x509.Certificate, signerParams SignerParams) string {
+func BuildAuthorizationHeader(request *http.Request, body io.ReadSeeker, signedHeadersString string, signature string, certificate *x509.Certificate, signerParams SignerParams) string {
 	signingCredentials := certificate.SerialNumber.String() + "/" + signerParams.GetScope()
 	credential := "Credential=" + signingCredentials
 	signerHeaders := "SignedHeaders=" + signedHeadersString
@@ -386,44 +451,6 @@ func BuildAuthorizationHeader(request *http.Request, body io.ReadSeeker, signedH
 	authHeaderStringBuilder.WriteString(signatureHeader)
 	authHeaderString := authHeaderStringBuilder.String()
 	return authHeaderString
-}
-
-// Sign the provided payload with the specified options.
-func Sign(payload []byte, opts SigningOpts) (SigningResult, error) {
-	var hash []byte
-	switch opts.Digest {
-	case crypto.SHA256:
-		sum := sha256.Sum256(payload)
-		hash = sum[:]
-	case crypto.SHA384:
-		sum := sha512.Sum384(payload)
-		hash = sum[:]
-	case crypto.SHA512:
-		sum := sha512.Sum512(payload)
-		hash = sum[:]
-	default:
-		log.Println("unsupported digest")
-		return SigningResult{}, errors.New("unsupported digest")
-	}
-
-	ecdsaPrivateKey, ok := opts.PrivateKey.(ecdsa.PrivateKey)
-	if ok {
-		sig, err := ecdsa.SignASN1(rand.Reader, &ecdsaPrivateKey, hash[:])
-		if err == nil {
-			return SigningResult{hex.EncodeToString(sig)}, nil
-		}
-	}
-
-	rsaPrivateKey, ok := opts.PrivateKey.(rsa.PrivateKey)
-	if ok {
-		sig, err := rsa.SignPKCS1v15(rand.Reader, &rsaPrivateKey, opts.Digest, hash[:])
-		if err == nil {
-			return SigningResult{hex.EncodeToString(sig)}, nil
-		}
-	}
-
-	log.Println("unsupported algorithm")
-	return SigningResult{}, errors.New("unsupported algorithm")
 }
 
 func encodeDer(der []byte) (string, error) {
