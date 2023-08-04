@@ -73,19 +73,23 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 	var certContainers []CertificateContainer
 	var certRef C.SecCertificateRef
 	var identRef C.SecIdentityRef
+	var isMatch bool
 	for _, curIdentRef := range identRefs {
 		curCertRef, err := getCertRef(C.SecIdentityRef(curIdentRef))
 		if err != nil {
 			return 0, 0, nil, errors.New("unable to get cert ref")
 		}
-		curCert, err := getCert(curCertRef)
+		curCert, err := exportCertRef(curCertRef)
 		if err != nil {
-			return 0, 0, nil, errors.New("unable to get cert")
+			if Debug {
+				fmt.Fprintf(os.Stderr, "unable to parse certificate with error (%s) - skipping\n", err)
+			}
+			goto nextIteration
 		}
 
 		// Find whether there is a matching certificate
-		certMatches := certMatches(certIdentifier, *curCert)
-		if certMatches {
+		isMatch = certMatches(certIdentifier, *curCert)
+		if isMatch {
 			certContainers = append(certContainers, CertificateContainer{curCert, ""})
 			// Assign to certRef and identRef at most once in the loop
 			// Both values are only useful if there is exactly one match in the certificate store
@@ -95,6 +99,8 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 				identRef = C.SecIdentityRef(curIdentRef)
 			}
 		}
+
+	nextIteration:
 	}
 
 	if Debug {
@@ -153,16 +159,6 @@ func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAl
 	return &DarwinCertStoreSigner{identRef, keyRef, certRef, cert, nil}, signingAlgorithm, nil
 }
 
-// Gets a pointer to the certificate from a certificate reference
-func getCert(certRef C.SecCertificateRef) (*x509.Certificate, error) {
-	cert, err := exportCertRef(certRef)
-	if err != nil {
-		return nil, errors.New("unable to export certificate reference to x509.Certificate")
-	}
-
-	return cert, nil
-}
-
 // Gets the certificate associated with this DarwinCertStoreSigner
 func (signer *DarwinCertStoreSigner) Certificate() (*x509.Certificate, error) {
 	if signer.cert != nil {
@@ -174,7 +170,7 @@ func (signer *DarwinCertStoreSigner) Certificate() (*x509.Certificate, error) {
 		return nil, err
 	}
 
-	cert, err := getCert(certRef)
+	cert, err := exportCertRef(certRef)
 	if err != nil {
 		return nil, err
 	}
