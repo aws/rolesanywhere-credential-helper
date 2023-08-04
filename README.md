@@ -83,6 +83,10 @@ Vends temporary credentials by sending a `CreateSession` request to the Roles An
 
 Note that if more than one certificate matches the `--cert-selector` parameter within the OS-specific secure store, the `credential-process` command will fail. To find the list of certificates that match a given `--cert-selector` parameter, you can use the same flag with the `read-certificate-data` command.
 
+When `credential-process` is used, AWS SDKs store the returned AWS credentials in memory. AWS SDKs will keep track of the credential expiration and generate new AWS session credentials via the credential process, provided the certificate has not expired or been revoked.
+
+When the AWS CLI uses a `credential-process`, the AWS CLI calls the `credential-process` for every CLI command issued, which will result in the creation of a new role session and a slight delay when excuting commands. To avoid this delay from getting new credentials when using the AWS CLI, you can use `serve` or `update`.
+
 #### MacOS Keychain Guidance
 
 If you would like to secure keys through MacOS Keychain and use them with IAM Roles Anywhere, you may want to consider creating a new Keychain that only the credential helper can access and store your keys there. The steps to do this are listed below. Note that the commands should be executed in bash.
@@ -133,9 +137,16 @@ Also note that the above step can be done through a [Powershell cmdlet](https://
 
 Updates temporary credentials in the [credential file](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html). Parameters for this command include those for the `credential-process` command, as well as `--profile`, which specifies the named profile for which credentials should be updated (if the profile doesn't already exist, it will be created), and `--once`, which specifies that credentials should be updated only once. Both arguments are optional. If `--profile` isn't specified, the default profile will have its credentials updated, and if `--once` isn't specified, credentials will be continuously updated. In this case, credentials will be updated through a call to `CreateSession` five minutes before the previous set of credentials are set to expire. Please note that running the `update` command multiple times, creating multiple processes, may not work as intended. There may be issues with concurrent writes to the credentials file.
 
+Because when you use `update` credentials are written to a credential file on disk, it's important to understand that any user or process who can read the credential file may be able to read and use those AWS credentials. If using `update` to update any profile other than default, your application must be reference the correct profile to use. AWS SDKs will request new AWS credentials from the from the credential file as required.
+
+
 ### serve
 
 Vends temporary credentials through an endpoint running on localhost. Parameters for this command include those for the `credential-process` command, as well as an optional `--port`, to specify the port on which the local endpoint will be exposed. By default, the port will be `9911`. Once again, credentials will be updated through a call to `CreateSession` five minutes before the previous set of credentials are set to expire. Note that the URIs and request headers are the same as those used in [IMDSv2](https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/configuring-instance-metadata-service.html) (only the address of the endpoint changes from `169.254.169.254` to `127.0.0.1`). In order to make the credentials served from the local endpoint available to the SDK, set the `AWS_EC2_METADATA_SERVICE_ENDPOINT` environment variable appropriately.
+
+When you use `serve` AWS SDKs will be able to discover the credentials from the credential helper using their [credential providers](https://docs.aws.amazon.com/sdkref/latest/guide/standardized-credentials.html) without any changes to code or configuration.  AWS SDKs will request new AWS credentials from the credential helper's server listening on 127.0.0.1 as required. 
+
+When using `serve` it is important to understand that processes running on a system that can reach 127.0.0.1 will be able to retrieve AWS credentials from the credential helper. 
 
 ### Scripts
 
