@@ -79,7 +79,7 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 		if err != nil {
 			return 0, 0, nil, errors.New("unable to get cert ref")
 		}
-		curCert, err := getCert(curCertRef)
+		curCert, err := exportCertRef(curCertRef)
 		if err != nil {
 			if Debug {
 				fmt.Fprintf(os.Stderr, "unable to parse certificate with error (%s) - skipping\n", err)
@@ -159,16 +159,6 @@ func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAl
 	return &DarwinCertStoreSigner{identRef, keyRef, certRef, cert, nil}, signingAlgorithm, nil
 }
 
-// Gets a pointer to the certificate from a certificate reference
-func getCert(certRef C.SecCertificateRef) (*x509.Certificate, error) {
-	cert, err := exportCertRef(certRef)
-	if err != nil {
-		return nil, errors.New("unable to export certificate reference to x509.Certificate")
-	}
-
-	return cert, nil
-}
-
 // Gets the certificate associated with this DarwinCertStoreSigner
 func (signer *DarwinCertStoreSigner) Certificate() (*x509.Certificate, error) {
 	if signer.cert != nil {
@@ -180,7 +170,7 @@ func (signer *DarwinCertStoreSigner) Certificate() (*x509.Certificate, error) {
 		return nil, err
 	}
 
-	cert, err := getCert(certRef)
+	cert, err := exportCertRef(certRef)
 	if err != nil {
 		return nil, err
 	}
