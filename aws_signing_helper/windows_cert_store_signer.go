@@ -157,7 +157,7 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 			x509CertChain[j], err = exportCertContext(curCertCtx)
 			if err != nil {
 				if Debug {
-					fmt.Fprintf(os.Stderr, "unable to parse certificate - skipping\n")
+					fmt.Fprintf(os.Stderr, "unable to parse certificate with error (%s) - skipping\n", err)
 				}
 				goto nextIteration
 			}
