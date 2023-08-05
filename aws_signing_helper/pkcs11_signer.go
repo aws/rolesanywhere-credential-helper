@@ -6,7 +6,7 @@ package aws_signing_helper
 // and Do The Right Thing. There should be no additional configuration or
 // anything else to confuse the user.
 //
-// Users shouldn't even need to specify the PKCS#11 "provider" librrary, as
+// Users shouldn't even need to specify the PKCS#11 "provider" library, as
 // most systems should use p11-kit for that. Properly packaged providers
 // will ship with a p11-kit 'module' file which makes them discoverable.
 //
@@ -165,32 +165,6 @@ fail:
 		module.Destroy()
 	}
 	return nil, nil, err
-}
-
-// Opens a session with the PKCS #11 module
-func openPKCS11Session(lib string, slot uint, uri *pkcs11uri.Pkcs11URI) (module *pkcs11.Ctx, session pkcs11.SessionHandle, err error) {
-
-	module, _, err = openPKCS11Module(lib)
-	if err != nil {
-		goto fail
-	}
-
-	session, err = module.OpenSession(slot, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
-	if err != nil {
-		goto fail
-	}
-
-	return module, session, nil
-
-fail:
-	if module != nil {
-		if session != 0 {
-			module.CloseSession(session)
-		}
-		module.Finalize()
-		module.Destroy()
-	}
-	return nil, 0, err
 }
 
 // Convert the object-related fields in a URI to pkcs11.Attributes for FindObjectsInit()
