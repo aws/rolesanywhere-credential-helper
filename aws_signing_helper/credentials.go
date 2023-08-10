@@ -45,7 +45,7 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 	}
 
 	if trustAnchorArn.Region != profileArn.Region {
-		return CredentialProcessOutput{}, err
+		return CredentialProcessOutput{}, errors.New("trust anchor and profile regions don't match")
 	}
 
 	if opts.Region == "" {
