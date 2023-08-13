@@ -147,7 +147,7 @@ func enumerateSlotsInPKCS11Module(module *pkcs11.Ctx) (slots []SlotIdInfo, err e
 	return slots, nil
 }
 
-// Return true if the URI specifies the attribute and it *doesn't* match
+// Return true if the URI specifies the attribute and it *doesn't* match.
 func mismatchAttr(uri *pkcs11uri.Pkcs11URI, attr string, val string) bool {
 	var (
 		uriVal string
@@ -158,7 +158,7 @@ func mismatchAttr(uri *pkcs11uri.Pkcs11URI, attr string, val string) bool {
 	return ok && uriVal != val
 }
 
-// Return the set of slots which match the given uri
+// Return the set of slots which match the given URI.
 func matchSlots(slots []SlotIdInfo, uri *pkcs11uri.Pkcs11URI) (matches []SlotIdInfo) {
 	var (
 		uriSlotNr uint64
@@ -193,7 +193,7 @@ func matchSlots(slots []SlotIdInfo, uri *pkcs11uri.Pkcs11URI) (matches []SlotIdI
 	return matches
 }
 
-// Convert the object-related fields in a URI to []*pkcs11.Attribute for FindObjectsInit()
+// Convert the object-related fields in a URI to []*pkcs11.Attribute for FindObjectsInit().
 func getFindTemplate(uri *pkcs11uri.Pkcs11URI, class uint) (template []*pkcs11.Attribute) {
 	var (
 		v  string
@@ -226,7 +226,7 @@ func getCertsInSession(module *pkcs11.Ctx, slotId uint, session pkcs11.SessionHa
 		templateCrt        []*pkcs11.Attribute
 	)
 
-	// Convert the URI into a template for FindObjectsInit()
+	// Convert the URI into a template for FindObjectsInit().
 	templateCrt = getFindTemplate(uri, pkcs11.CKO_CERTIFICATE)
 
 	if err = module.FindObjectsInit(session, templateCrt); err != nil {
@@ -292,13 +292,19 @@ func getCertsInSession(module *pkcs11.Ctx, slotId uint, session pkcs11.SessionHa
 
 // Scan all matching slots to until we find certificates that match the URI.
 // If there is at least one matching certificate found, the returned session
-// will be left open and returned. The session may also be logged into in the
+// will be left open and returned. The session may also be logged in to in the
 // case that the certificate being searched for could only be found after
 // logging in to the token.
 //
 // NB: It's generally only looking for *one* cert to use. If you want
 // `p11tool --list-certificates`, use that instead.
 func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkcs11URI, userPin string, single bool) (matchedSlot SlotIdInfo, session pkcs11.SessionHandle, loggedIn bool, matchingCerts []CertObjInfo, err error) {
+	var (
+		errNoMatchingCerts error
+	)
+
+	errNoMatchingCerts = errors.New("no matching certificates")
+
 	if uri != nil {
 		slots = matchSlots(slots, uri)
 	}
@@ -346,8 +352,6 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 	// which matches the URI, and not if there are multiple possible
 	// tokens in which the object could reside."
 	if len(slots) == 1 && userPin != "" {
-		errNoMatchingCerts := errors.New("no matching certificates")
-
 		curSession, err := module.OpenSession(slots[0].id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 		if err != nil {
 			err = errNoMatchingCerts
@@ -376,8 +380,7 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 		module.CloseSession(curSession)
 	}
 
-	// No matching certificates
-	err = errors.New("no matching certificates")
+	err = errNoMatchingCerts
 	goto fail
 
 foundCert:
@@ -386,7 +389,7 @@ foundCert:
 		goto fail
 	}
 
-	// Exactly one matching certificate after logging into the appropriate token
+	// Exactly one matching certificate after logging in to the appropriate token
 	// iff single is true (otherwise there can be multiple matching certificates).
 	return matchedSlot, session, loggedIn, matchingCerts, nil
 
@@ -555,6 +558,62 @@ func (pkcs11Signer *PKCS11Signer) CloseSession() {
 	pkcs11Signer.slots = nil
 }
 
+// Does PIN prompting until the password has been received.
+// This method is used both for prompting for the user PIN and the
+// context-specific PIN. Note that finalAuthErrMsg should contain a
+// `%s` so that the actual error message can be included.
+func pkcs11PasswordPrompt(module *pkcs11.Ctx, session pkcs11.SessionHandle, userType uint, passwordName string, finalAuthErrMsg string) (string, error) {
+	var pin string
+
+	parseErrMsg := fmt.Sprintf("unable to read PKCS#11 %s", passwordName)
+	prompt := fmt.Sprintf("Please enter your %s", passwordName)
+
+	ttyPath := "/dev/tty"
+	if runtime.GOOS == "windows" {
+		ttyPath = "CON"
+	}
+
+	ttyFile, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
+	if err != nil {
+		return "", errors.New(parseErrMsg)
+	}
+	defer ttyFile.Close()
+
+	for true {
+		pin, err = GetPassword(ttyFile, prompt, parseErrMsg)
+		if err != nil && err.Error() == parseErrMsg {
+			continue
+		}
+
+		err = module.Login(session, userType, pin)
+		if err != nil {
+			// Loop on failure in case the user mistyped their PIN.
+			if strings.Contains(err.Error(), "CKR_PIN_INCORRECT") {
+				prompt = fmt.Sprintf("Incorrect %s. Please re-enter your %s:", passwordName, passwordName)
+				continue
+			}
+			return "", fmt.Errorf(finalAuthErrMsg, err.Error())
+		}
+		return pin, nil
+	}
+
+	// Code should never reach here
+	return "", fmt.Errorf("unexpected error when prompting for %s", passwordName)
+}
+
+// Prompts the user for their password
+func GetPassword(ttyFile *os.File, prompt string, parseErrMsg string) (string, error) {
+	fmt.Fprintln(ttyFile, prompt)
+	passwordBytes, err := term.ReadPassword(int(ttyFile.Fd()))
+	if err != nil {
+		return "", errors.New(parseErrMsg)
+	}
+
+	password := string(passwordBytes[:])
+	strings.Replace(password, "\r", "", -1) // Remove CR
+	return password, nil
+}
+
 // Helper function to sign a digest using a PKCS#11 private key handle.
 func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHandle pkcs11.ObjectHandle, alwaysAuth uint, pkcs11Pin string, keyType uint, digest []byte, hashFunc crypto.Hash) (contextSpecificPin string, signature []byte, err error) {
 	// XXX: If you use this outside the context of IAM RA, be aware that
@@ -633,6 +692,8 @@ afterContextSpecificLogin:
 	return pkcs11Pin, sig, nil
 }
 
+// Gets a handle to the private key object (along with some other information
+// that may need to be saved).
 func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn bool, certUri *pkcs11uri.Pkcs11URI, keyUri *pkcs11uri.Pkcs11URI, certSlotNr uint, certObj CertObjInfo, userPin string, contextSpecificPin string, slots []SlotIdInfo) (_session pkcs11.SessionHandle, keyType uint, privateKeyHandle pkcs11.ObjectHandle, alwaysAuth uint, _contextSpecificPin string, err error) {
 	var (
 		keySlotNr          uint
@@ -802,6 +863,10 @@ fail:
 	return 0, 0, 0, 0, "", err
 }
 
+// Gets the certificate with a token, given the URI that identifies the
+// certificate. This method also optionally takes in a user PIN, which is
+// only used (and prompted for, if not given and needed) the token has to be
+// logged in to, in order to obtain the certificate.
 func getCertificate(module *pkcs11.Ctx, certUri *pkcs11uri.Pkcs11URI, userPin string) (certSlot SlotIdInfo, slots []SlotIdInfo, session pkcs11.SessionHandle, loggedIn bool, certObj CertObjInfo, err error) {
 	var (
 		matchingCerts []CertObjInfo
@@ -869,6 +934,7 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 			goto fail
 		}
 
+		// Save the values we need after finding the certificate.
 		pkcs11Signer.slots = slots
 		pkcs11Signer.session = session
 		pkcs11Signer.loggedIn = loggedIn
@@ -880,6 +946,9 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 			goto fail
 		}
 	}
+
+	// These variables' values could have been updated by the above function
+	// calls, so update them.
 	slots = pkcs11Signer.slots
 	certObj = pkcs11Signer.certObj
 	loggedIn = pkcs11Signer.loggedIn
@@ -917,7 +986,7 @@ fail:
 	return signature, err
 }
 
-// Gets the *x509.Certificate associated with this PKCS11Signer
+// Gets the *x509.Certificate associated with this PKCS11Signer.
 func (pkcs11Signer *PKCS11Signer) Certificate() (certificate *x509.Certificate, err error) {
 	var (
 		module   *pkcs11.Ctx
@@ -934,6 +1003,7 @@ func (pkcs11Signer *PKCS11Signer) Certificate() (certificate *x509.Certificate, 
 	module = pkcs11Signer.module
 	cert = pkcs11Signer.certObj.cert
 
+	// If the certificate was saved, return it.
 	if cert != nil {
 		return cert, nil
 	}
@@ -953,7 +1023,7 @@ func (pkcs11Signer *PKCS11Signer) Certificate() (certificate *x509.Certificate, 
 	return pkcs11Signer.certObj.cert, nil
 }
 
-// Checks whether the first certificate issues the second
+// Checks whether the first certificate issues the second.
 func certIssues(issuer *x509.Certificate, candidate *x509.Certificate) bool {
 	roots := x509.NewCertPool()
 	roots.AddCert(issuer)
@@ -966,7 +1036,7 @@ func certIssues(issuer *x509.Certificate, candidate *x509.Certificate) bool {
 	return err != nil
 }
 
-// Gets the certificate chain associated with this PKCS11Signer
+// Gets the certificate chain associated with this PKCS11Signer.
 func (pkcs11Signer *PKCS11Signer) CertificateChain() (chain []*x509.Certificate, err error) {
 	var (
 		module     *pkcs11.Ctx
@@ -1030,7 +1100,7 @@ func (pkcs11Signer *PKCS11Signer) CertificateChain() (chain []*x509.Certificate,
 	return chain, err
 }
 
-// Checks whether the private key and certificate are associated with each other
+// Checks whether the private key and certificate are associated with each other.
 func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, keyType uint, alwaysAuth uint, pinPkcs11 string, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate, manufacturerId string) (string, bool) {
 	var digestSuffix []byte
 	publicKey := certificate.PublicKey
@@ -1105,10 +1175,10 @@ func bytesToUint(b []byte) (res uint, err error) {
  * https://github.com/stefanberger/go-pkcs11uri/issues/11
  */
 
-// upper character hex digits needed for pct-encoding
+// Upper character hex digits needed for pct-encoding.
 const hexchar = "0123456789ABCDEF"
 
-// escapeAll pct-escapes all characters in the string
+// escapeAll pct-escapes all characters in the string.
 func escapeAll(s []byte) string {
 	res := make([]byte, len(s)*3)
 	j := 0
@@ -1125,7 +1195,7 @@ func escapeAll(s []byte) string {
 // Given an optional certificate either as *x509.Certificate (because it was
 // already found in a file) or as a PKCS#11 URI, and an optional private key
 // PKCS#11 URI, return a PKCS11Signer that can be used to sign a payload
-// through a PKCS#11-compatible cryptographic device
+// through a PKCS#11-compatible cryptographic device.
 func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, certificateChain []*x509.Certificate, privateKeyId string, certificateId string) (signer Signer, signingAlgorithm string, err error) {
 	var (
 		module             *pkcs11.Ctx
@@ -1217,60 +1287,4 @@ fail:
 	}
 
 	return nil, "", err
-}
-
-// Does PIN prompting until the password has been received.
-// This method is used both for prompting for the user PIN and the
-// context-specific PIN. Note that finalAuthErrMsg should contain a
-// `%s` so that the actual error message can be included.
-func pkcs11PasswordPrompt(module *pkcs11.Ctx, session pkcs11.SessionHandle, userType uint, passwordName string, finalAuthErrMsg string) (string, error) {
-	var pin string
-
-	parseErrMsg := fmt.Sprintf("unable to read PKCS#11 %s", passwordName)
-	prompt := fmt.Sprintf("Please enter your %s", passwordName)
-
-	ttyPath := "/dev/tty"
-	if runtime.GOOS == "windows" {
-		ttyPath = "CON"
-	}
-
-	ttyFile, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
-	if err != nil {
-		return "", errors.New(parseErrMsg)
-	}
-	defer ttyFile.Close()
-
-	for true {
-		pin, err = GetPassword(ttyFile, prompt, parseErrMsg)
-		if err != nil && err.Error() == parseErrMsg {
-			continue
-		}
-
-		err = module.Login(session, userType, pin)
-		if err != nil {
-			// Loop on failure in case the user mistyped their PIN.
-			if strings.Contains(err.Error(), "CKR_PIN_INCORRECT") {
-				prompt = fmt.Sprintf("Incorrect %s. Please re-enter your %s:", passwordName, passwordName)
-				continue
-			}
-			return "", fmt.Errorf(finalAuthErrMsg, err.Error())
-		}
-		return pin, nil
-	}
-
-	// Code should never reach here
-	return "", fmt.Errorf("unexpected error when prompting for %s", passwordName)
-}
-
-// Prompts the user for their password
-func GetPassword(ttyFile *os.File, prompt string, parseErrMsg string) (string, error) {
-	fmt.Fprintln(ttyFile, prompt)
-	passwordBytes, err := term.ReadPassword(int(ttyFile.Fd()))
-	if err != nil {
-		return "", errors.New(parseErrMsg)
-	}
-
-	password := string(passwordBytes[:])
-	strings.Replace(password, "\r", "", -1) // Remove CR
-	return password, nil
 }
