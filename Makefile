@@ -97,7 +97,6 @@ $(certsdir)/cert-bundle.pem: $(RSACERTS) $(ECCERTS)
 
 test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(RSACERTS) $(ECCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem tst/softhsm2.conf
 
-# TODO: Need to clean certificates and keys added to certificate store as well
 test-clean:
 	rm -f $(RSAKEYS) $(ECKEYS)
 	rm -f $(PKCS8KEYS)

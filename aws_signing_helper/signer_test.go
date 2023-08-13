@@ -264,7 +264,6 @@ func TestSign(t *testing.T) {
 	for _, credOpts := range testTable {
 		signer, _, err := GetSigner(&credOpts)
 		if err != nil {
-			t.Log(err)
 			var logMsg string
 			if credOpts.CertificateId != "" || credOpts.PrivateKeyId != "" {
 				logMsg = fmt.Sprintf("Failed to get signer for '%s'/'%s'",
@@ -277,7 +276,6 @@ func TestSign(t *testing.T) {
 			t.Fail()
 			return
 		}
-		defer signer.Close()
 
 		pubKey := signer.Public()
 		if credOpts.CertificateId != "" && pubKey == nil {
@@ -291,6 +289,13 @@ func TestSign(t *testing.T) {
 			signatureBytes, err := signer.Sign(rand.Reader, []byte(msg), digest)
 			if err != nil {
 				t.Log("Failed to sign the input message")
+				t.Fail()
+				return
+			}
+			signer.CloseSession()
+			_, err = signer.Sign(rand.Reader, []byte(msg), digest)
+			if err != nil {
+				t.Log("Failed second signature on the input message after signer.CloseSession()")
 				t.Fail()
 				return
 			}
