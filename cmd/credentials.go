@@ -72,6 +72,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().UintVar(&slotPkcs11, "pkcs11-slot", 0, "PKCS #11 slot in which to search for the private key (and potentially certificate as well)")
 
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
+	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "intermediates")
 }
 
 // Parses a cert selector string to a map

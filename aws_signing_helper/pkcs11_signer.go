@@ -1214,7 +1214,7 @@ func escapeAll(s []byte) string {
 // already found in a file) or as a PKCS#11 URI, and an optional private key
 // PKCS#11 URI, return a PKCS11Signer that can be used to sign a payload
 // through a PKCS#11-compatible cryptographic device.
-func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, certificateChain []*x509.Certificate, privateKeyId string, certificateId string) (signer Signer, signingAlgorithm string, err error) {
+func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, privateKeyId string, certificateId string) (signer Signer, signingAlgorithm string, err error) {
 	var (
 		module             *pkcs11.Ctx
 		certObj            CertObjInfo

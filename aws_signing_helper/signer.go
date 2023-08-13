@@ -186,6 +186,11 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			if Debug {
 				log.Println("not a PEM certificate, so trying PKCS#12")
 			}
+			// TODO: Allow for certificate chain to be specified with PKCS#12 integration.
+			if opts.CertificateBundleId != "" {
+				return nil, "", errors.New("can't specify certificate chain when" +
+					" using PKCS#12 files")
+			}
 			// Not a PEM certificate? Try PKCS#12
 			return GetPKCS12Signer(opts.CertificateId)
 		} else {
@@ -193,22 +198,26 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		}
 	}
 
-	if opts.CertificateBundleId != "" {
-		certificateChainPointers, err := ReadCertificateBundleData(opts.CertificateBundleId)
-		if err != nil {
-			return nil, "", err
-		}
-		for _, certificate := range certificateChainPointers {
-			certificateChain = append(certificateChain, certificate)
-		}
-	}
-
 	if strings.HasPrefix(privateKeyId, "pkcs11:") {
 		if Debug {
-			log.Println("attempting to use PKCS#11")
+			log.Println("attempting to use PKCS11Signer")
 		}
-		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId)
+		if opts.CertificateBundleId != "" {
+			return nil, "", errors.New("can't specify certificate chain when" +
+				" using PKCS#11 integration")
+		}
+		return GetPKCS11Signer(opts.LibPkcs11, certificate, opts.PrivateKeyId, opts.CertificateId)
 	} else {
+		if opts.CertificateBundleId != "" {
+			certificateChainPointers, err := ReadCertificateBundleData(opts.CertificateBundleId)
+			if err != nil {
+				return nil, "", err
+			}
+			for _, certificate := range certificateChainPointers {
+				certificateChain = append(certificateChain, certificate)
+			}
+		}
+
 		privateKey, err := ReadPrivateKeyData(privateKeyId)
 		if err != nil {
 			return nil, "", err
