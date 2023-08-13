@@ -293,6 +293,9 @@ func (signer *WindowsCertStoreSigner) Close() {
 	signer.store = 0
 }
 
+// Unused method for DarwinCertStoreSigner.
+func (signer *WindowsCertStoreSigner) CloseSession() {}
+
 // getPrivateKey gets this identity's private *winPrivateKey
 func (signer *WindowsCertStoreSigner) getPrivateKey() (*winPrivateKey, error) {
 	if signer.privateKey != nil {

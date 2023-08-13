@@ -34,7 +34,12 @@ type CredentialsOpts struct {
 
 // Function to create session and generate credentials
 func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorithm string) (CredentialProcessOutput, error) {
-	// assign values to region and endpoint if they haven't already been assigned
+	// If there are resources that need to be released after using the Signer
+	// to perform a series of operations that are required in order to get
+	// temporary credentials, that is done here.
+	defer signer.CloseSession()
+
+	// Assign values to region and endpoint if they haven't already been assigned
 	trustAnchorArn, err := arn.Parse(opts.TrustAnchorArnStr)
 	if err != nil {
 		return CredentialProcessOutput{}, err

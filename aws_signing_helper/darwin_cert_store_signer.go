@@ -263,6 +263,9 @@ func (signer *DarwinCertStoreSigner) Close() {
 	}
 }
 
+// Unused method for DarwinCertStoreSigner.
+func (signer *DarwinCertStoreSigner) CloseSession() {}
+
 // Sign implements the crypto.Signer interface and signs the digest
 func (signer *DarwinCertStoreSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) ([]byte, error) {
 	var hash []byte

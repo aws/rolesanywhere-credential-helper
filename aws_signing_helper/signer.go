@@ -54,6 +54,7 @@ type Signer interface {
 	Certificate() (certificate *x509.Certificate, err error)
 	CertificateChain() (certificateChain []*x509.Certificate, err error)
 	Close()
+	CloseSession()
 }
 
 // Container for certificate data returned to the SDK as JSON.
