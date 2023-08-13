@@ -142,7 +142,7 @@ var signStringCmd = &cobra.Command{
 			stringToSignBytes = []byte(stringToSign)
 
 			if credentialsOptions.Debug {
-				fmt.Fprintln(os.Stderr, "Signing fixed string of the form: \"AWS Roles Anywhere "+
+				log.Println("Signing fixed string of the form: \"AWS Roles Anywhere "+
 					"Credential Helper Signing Test\" || SIGN_STRING_TEST_VERSION || SHA256(\"IAM RA\" || PUBLIC_KEY_BYTE_ARRAY)\"")
 			}
 		} else {

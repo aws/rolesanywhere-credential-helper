@@ -164,7 +164,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 	if privateKeyId == "" {
 		if opts.CertificateId == "" {
 			if Debug {
-				fmt.Fprintln(os.Stderr, "attempting to use CertStoreSigner")
+				log.Println("attempting to use CertStoreSigner")
 			}
 			return GetCertStoreSigner(opts.CertIdentifier)
 		}
@@ -184,7 +184,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			}
 		} else if opts.PrivateKeyId == "" {
 			if Debug {
-				fmt.Fprintln(os.Stderr, "not a PEM certificate, so trying PKCS#12")
+				log.Println("not a PEM certificate, so trying PKCS#12")
 			}
 			// Not a PEM certificate? Try PKCS#12
 			return GetPKCS12Signer(opts.CertificateId)
@@ -205,7 +205,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 
 	if strings.HasPrefix(privateKeyId, "pkcs11:") {
 		if Debug {
-			fmt.Fprintln(os.Stderr, "attempting to use PKCS#11")
+			log.Println("attempting to use PKCS#11")
 		}
 		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId)
 	} else {
@@ -215,7 +215,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		}
 
 		if Debug {
-			fmt.Fprintln(os.Stderr, "attempting to use FileSystemSigner")
+			log.Println("attempting to use FileSystemSigner")
 		}
 		return GetFileSystemSigner(privateKey, certificate, certificateChain)
 	}

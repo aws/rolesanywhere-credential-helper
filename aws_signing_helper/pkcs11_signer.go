@@ -39,6 +39,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"runtime"
 	"strconv"
@@ -134,10 +135,18 @@ func enumerateSlotsInPKCS11Module(module *pkcs11.Ctx) (slots []SlotIdInfo, err e
 		slotIdInfo.id = slotId
 		slotIdInfo.info, slotErr = module.GetSlotInfo(slotId)
 		if slotErr != nil {
+			if Debug {
+				log.Printf("unable to get slot info for slot %d"+
+					" (%s)\n", slotId, slotErr)
+			}
 			continue
 		}
 		slotIdInfo.tokInfo, slotErr = module.GetTokenInfo(slotId)
 		if slotErr != nil {
+			if Debug {
+				log.Printf("unable to get token info for slot %d"+
+					" (%s)\n", slotId, slotErr)
+			}
 			continue
 		}
 
@@ -318,6 +327,10 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 	for _, slot := range slots {
 		curSession, err := module.OpenSession(slot.id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 		if err != nil {
+			if Debug {
+				log.Printf("unable to open session in slot %d"+
+					" (%s)\n", slot.id, err)
+			}
 			module.CloseSession(curSession)
 			continue
 		}
@@ -330,11 +343,11 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 			if matchedSlot == (SlotIdInfo{}) {
 				matchedSlot = slot
 				session = curSession
-				goto skip
+				goto skipCloseSession
 			}
 		}
 		module.CloseSession(curSession)
-	skip:
+	skipCloseSession:
 	}
 
 	if len(matchingCerts) >= 1 {
@@ -663,7 +676,7 @@ func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHand
 				goto afterContextSpecificLogin
 			} else {
 				if Debug {
-					fmt.Fprintf(os.Stderr, "user re-authentication attempt failed (%s)", err.Error())
+					log.Printf("user re-authentication attempt failed (%s)\n", err.Error())
 				}
 			}
 		}
@@ -846,6 +859,11 @@ retry_search:
 			if keyUriStr == certUriStr {
 				_, keyHadLabel := keyUri.GetPathAttribute("object", false)
 				if keyHadLabel {
+					if Debug {
+						log.Println("unable to find private key with CKA_LABEL;" +
+							" repeating the search using CKA_ID of the certificate" +
+							" without requiring a CKA_LABEL match")
+					}
 					keyUri.RemovePathAttribute("object")
 					keyUri.SetPathAttribute("id", escapeAll(certObj.id))
 					goto retry_search
