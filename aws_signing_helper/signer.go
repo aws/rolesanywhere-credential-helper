@@ -157,8 +157,10 @@ func encodeEcdsaSigValue(signature []byte) (out []byte, err error) {
 
 // Gets the Signer based on the flags passed in by the user (from which the CredentialsOpts structure is derived)
 func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string, err error) {
-	var certificate *x509.Certificate
-	var certificateChain []*x509.Certificate
+	var (
+		certificate      *x509.Certificate
+		certificateChain []*x509.Certificate
+	)
 
 	privateKeyId := opts.PrivateKeyId
 	if privateKeyId == "" {
@@ -171,7 +173,28 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		privateKeyId = opts.CertificateId
 	}
 
-	if opts.CertificateId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
+	if strings.HasPrefix(privateKeyId, "pkcs11:") {
+		if Debug {
+			log.Println("attempting to use PKCS11Signer")
+		}
+		if opts.CertificateBundleId != "" {
+			return nil, "", errors.New("can't specify certificate chain when" +
+				" using PKCS#11 integration")
+		}
+		return GetPKCS11Signer(opts.LibPkcs11, certificate, opts.PrivateKeyId, opts.CertificateId)
+	}
+
+	if opts.CertificateBundleId != "" {
+		certificateChainPointers, err := ReadCertificateBundleData(opts.CertificateBundleId)
+		if err != nil {
+			return nil, "", err
+		}
+		for _, certificate := range certificateChainPointers {
+			certificateChain = append(certificateChain, certificate)
+		}
+	}
+
+	if opts.CertificateId != "" {
 		certificateData, err := ReadCertificateData(opts.CertificateId)
 		if err == nil {
 			certificateDerData, err := base64.StdEncoding.DecodeString(certificateData.CertificateData)
@@ -192,42 +215,21 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 					" using PKCS#12 files")
 			}
 			// Not a PEM certificate? Try PKCS#12
-			return GetPKCS12Signer(opts.CertificateId)
+			return GetPKCS12Signer(opts.CertificateId, certificateChain)
 		} else {
 			return nil, "", err
 		}
 	}
 
-	if strings.HasPrefix(privateKeyId, "pkcs11:") {
-		if Debug {
-			log.Println("attempting to use PKCS11Signer")
-		}
-		if opts.CertificateBundleId != "" {
-			return nil, "", errors.New("can't specify certificate chain when" +
-				" using PKCS#11 integration")
-		}
-		return GetPKCS11Signer(opts.LibPkcs11, certificate, opts.PrivateKeyId, opts.CertificateId)
-	} else {
-		if opts.CertificateBundleId != "" {
-			certificateChainPointers, err := ReadCertificateBundleData(opts.CertificateBundleId)
-			if err != nil {
-				return nil, "", err
-			}
-			for _, certificate := range certificateChainPointers {
-				certificateChain = append(certificateChain, certificate)
-			}
-		}
-
-		privateKey, err := ReadPrivateKeyData(privateKeyId)
-		if err != nil {
-			return nil, "", err
-		}
-
-		if Debug {
-			log.Println("attempting to use FileSystemSigner")
-		}
-		return GetFileSystemSigner(privateKey, certificate, certificateChain)
+	privateKey, err := ReadPrivateKeyData(privateKeyId)
+	if err != nil {
+		return nil, "", err
 	}
+
+	if Debug {
+		log.Println("attempting to use FileSystemSigner")
+	}
+	return GetFileSystemSigner(privateKey, certificate, certificateChain)
 }
 
 // Obtain the date-time, formatted as specified by SigV4

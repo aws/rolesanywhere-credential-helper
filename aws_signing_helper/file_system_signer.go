@@ -105,7 +105,7 @@ func GetFileSystemSigner(privateKey crypto.PrivateKey, certificate *x509.Certifi
 	return FileSystemSigner{privateKey, certificate, certificateChain}, signingAlgorithm, nil
 }
 
-func GetPKCS12Signer(certificateId string) (signer Signer, signingAlgorithm string, err error) {
+func GetPKCS12Signer(certificateId string, certificateChain []*x509.Certificate) (signer Signer, signingAlgorithm string, err error) {
 	bytes, err := os.ReadFile(certificateId)
 	if err != nil {
 		return nil, "", err
@@ -127,7 +127,7 @@ func GetPKCS12Signer(certificateId string) (signer Signer, signingAlgorithm stri
 	ecPrivateKey, ok := privateKey.(*ecdsa.PrivateKey)
 	if ok {
 		signingAlgorithm = aws4_x509_ecdsa_sha256
-		return FileSystemSigner{*ecPrivateKey, certificate, nil}, signingAlgorithm, nil
+		return FileSystemSigner{*ecPrivateKey, certificate, certificateChain}, signingAlgorithm, nil
 	}
 
 	return nil, "", errors.New("unsupported algorithm on PKCS#12 key")

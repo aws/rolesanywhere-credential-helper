@@ -82,7 +82,7 @@ type PKCS11Signer struct {
 	privateKeyHandle   pkcs11.ObjectHandle
 	loggedIn           bool
 	certSlotNr         uint
-    keyInDiffSlot bool
+	keyInDiffSlot      bool
 	slots              []SlotIdInfo
 }
 
@@ -727,7 +727,7 @@ func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn boo
 	slots = matchSlots(slots, keyUri)
 	if len(slots) == 1 {
 		if certSlotNr != slots[0].id {
-            keyInDiffSlot = true
+			keyInDiffSlot = true
 			keySlotNr = slots[0].id
 			manufacturerId = slots[0].info.ManufacturerID
 			if session != 0 {
@@ -922,7 +922,7 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 		loggedIn           bool
 		alwaysAuth         uint
 		certSlot           SlotIdInfo
-        keyInDiffSlot bool
+		keyInDiffSlot      bool
 	)
 
 	hashFunc := opts.HashFunc()
@@ -988,7 +988,7 @@ gotCert:
 	pkcs11Signer.alwaysAuth = alwaysAuth
 	pkcs11Signer.contextSpecificPin = contextSpecificPin
 	pkcs11Signer.loggedIn = true
-    pkcs11Signer.keyInDiffSlot = keyInDiffSlot
+	pkcs11Signer.keyInDiffSlot = keyInDiffSlot
 
 gotPrivateKey:
 	// We only care about the context-specific PIN when it comes to signing with
@@ -1061,14 +1061,14 @@ func certIssues(issuer *x509.Certificate, candidate *x509.Certificate) bool {
 // Gets the certificate chain associated with this PKCS11Signer.
 func (pkcs11Signer *PKCS11Signer) CertificateChain() (chain []*x509.Certificate, err error) {
 	var (
-		module     *pkcs11.Ctx
-		session    pkcs11.SessionHandle
-		certChain  []*x509.Certificate
-		certsFound []CertObjInfo
-		cert       *x509.Certificate
-		certUri    *pkcs11uri.Pkcs11URI
-        certSlotNr uint
-        keyInDiffSlot bool
+		module        *pkcs11.Ctx
+		session       pkcs11.SessionHandle
+		certChain     []*x509.Certificate
+		certsFound    []CertObjInfo
+		cert          *x509.Certificate
+		certUri       *pkcs11uri.Pkcs11URI
+		certSlotNr    uint
+		keyInDiffSlot bool
 	)
 
 	module = pkcs11Signer.module
@@ -1091,22 +1091,22 @@ func (pkcs11Signer *PKCS11Signer) CertificateChain() (chain []*x509.Certificate,
 	}
 
 	chain = append(chain, cert)
-    certSlotNr = pkcs11Signer.certSlotNr
-    keyInDiffSlot = pkcs11Signer.keyInDiffSlot
+	certSlotNr = pkcs11Signer.certSlotNr
+	keyInDiffSlot = pkcs11Signer.keyInDiffSlot
 
-    // If the certificate and key were found in different slots, the stored 
-    // session will be one in which the key was found. In that case, the 
-    // rest of the certificate chain should be searched for in the same slot 
-    // that the certificate was found. 
-    if !keyInDiffSlot {
-        session = pkcs11Signer.session
-    } else {
+	// If the certificate and key were found in different slots, the stored
+	// session will be one in which the key was found. In that case, the
+	// rest of the certificate chain should be searched for in the same slot
+	// that the certificate was found.
+	if !keyInDiffSlot {
+		session = pkcs11Signer.session
+	} else {
 		session, err = module.OpenSession(certSlotNr, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
-        if err != nil {
-            return nil, err
-        }
-        defer module.CloseSession(session)
-    }
+		if err != nil {
+			return nil, err
+		}
+		defer module.CloseSession(session)
+	}
 
 	certsFound, err = getCertsInSession(module, 0, session, nil)
 	if err != nil {
@@ -1251,7 +1251,7 @@ func GetPKCS11Signer(libPkcs11 string, certificate *x509.Certificate, privateKey
 		keyUri             *pkcs11uri.Pkcs11URI
 		slots              []SlotIdInfo
 		certSlot           SlotIdInfo
-        keyInDiffSlot bool
+		keyInDiffSlot      bool
 	)
 
 	module, err = initializePKCS11Module(libPkcs11)
