@@ -79,7 +79,7 @@ Signs a fixed strings: `"AWS Roles Anywhere Credential Helper Signing Test" || S
 
 ### credential-process
 
-Vends temporary credentials by sending a `CreateSession` request to the Roles Anywhere service. The request is signed by the private key whose path can be provided with the `--private-key` parameter. Other parameters include `--certificate` (the path to the end-entity certificate), `--role-arn` (the ARN of the role to obtain temporary credentials for), `--profile-arn` (the ARN of the profile that provides a mapping for the specified role), and `--trust-anchor-arn` (the ARN of the trust anchor used to authenticate). Optional parameters that can be used are `--debug` (to provide debugging output about the request sent), `--no-verify-ssl` (to skip verification of the SSL certificate on the endpoint called), `--intermediates` (the path to intermediate certificates), `--with-proxy` (to make the binary proxy aware), `--endpoint` (the endpoint to call), `--region` (the region to scope the request to), and `--session-duration` (the duration of the vended session). Instead of passing in paths to the plaintext private key on your file system, another option (depending on your OS) could be to use the `--cert-selector` flag. More details can be found below.
+Vends temporary credentials by sending a `CreateSession` request to the Roles Anywhere service. The request is signed by the private key whose path can be provided with the `--private-key` parameter. Currently, only plaintext private keys are supported. Other parameters include `--certificate` (the path to the end-entity certificate), `--role-arn` (the ARN of the role to obtain temporary credentials for), `--profile-arn` (the ARN of the profile that provides a mapping for the specified role), and `--trust-anchor-arn` (the ARN of the trust anchor used to authenticate). Optional parameters that can be used are `--debug` (to provide debugging output about the request sent), `--no-verify-ssl` (to skip verification of the SSL certificate on the endpoint called), `--intermediates` (the path to intermediate certificates), `--with-proxy` (to make the binary proxy aware), `--endpoint` (the endpoint to call), `--region` (the region to scope the request to), and `--session-duration` (the duration of the vended session). Instead of passing in paths to the plaintext private key on your file system, another option (depending on your OS) could be to use the `--cert-selector` flag. More details can be found below.
 
 Note that if more than one certificate matches the `--cert-selector` parameter within the OS-specific secure store, the `credential-process` command will fail. To find the list of certificates that match a given `--cert-selector` parameter, you can use the same flag with the `read-certificate-data` command.
 
@@ -134,29 +134,36 @@ Also note that the above step can be done through a [Powershell cmdlet](https://
 As you should expect from all applications which use keys and certificates, you can simply give a
 [PKCS#11 URI](https://datatracker.ietf.org/doc/html/rfc7512) in place of a filename in order to
 use certificates and/or keys from hardware or software PKCS#11 tokens / HSMs. A hybrid mode
-using a certificate from a file but only the key in PKCS#11 is also supported. Some examples:
+using a certificate from a file but only the key in the token is also supported. Some examples:
 
   * `--certificate 'pkcs11:manufacturer=piv_II;id=%01'`
   * `--certificate 'pkcs11:object=My%20RA%20key'`
   * `--certificate client-cert.pem --private-key 'pkcs11:model=SoftHSM%20v2;object=My%20RA%20key'`
 
 Some documentation which may assist with finding the correct URI for
-your key can be found [here](https://www.infradead.org/openconnect/pkcs11.html).
+your key can be found [here](https://www.infradead.org/openconnect/pkcs11.html). Otherwise, you 
+can also potentially scope down your PKCS#11 URI by using the `read-certificate-data` diagnostic 
+command. 
 
 Most Linux and similar *nix systems use
 [p11-kit](https://p11-glue.github.io/p11-glue/p11-kit/manual/config.html)
 to provide consistent system-wide and per-user configuration of
 available PKCS#11 providers. Any properly packaged provider module
 will register itself with p11-kit and will be automatically visible
-through the `p11-kit-proxy.so` provider which is used by default.
+through the `p11-kit-proxy.{dylib, dll, so}` provider which is used by default.
 
 If you have a poorly packaged provider module from a vendor, then
-after you have filed a bug you can manually create a p11-kit [module
+after you have filed a bug, you can manually create a p11-kit [module
 file](https://p11-glue.github.io/p11-glue/p11-kit/manual/pkcs11-conf.html)
 for it.
 
 For systems or containers which lack p11-kit, a specific PKCS#11
 provider library can be specified using the `--pkcs11-lib` parameter.
+
+The searching methodology used to find objects within PKCS#11 tokens can be found 
+[here](https://datatracker.ietf.org/doc/html/draft-woodhouse-cert-best-practice-01). Note that 
+there are some differences in how tokens are searched in the credential helper, but 
+it should mostly follow that document. 
 
 ### update
 
