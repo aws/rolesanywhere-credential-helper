@@ -292,10 +292,9 @@ func TestSign(t *testing.T) {
 				t.Fail()
 				return
 			}
-			signer.CloseSession()
 			_, err = signer.Sign(rand.Reader, []byte(msg), digest)
 			if err != nil {
-				t.Log("Failed second signature on the input message after signer.CloseSession()")
+				t.Log("Failed second signature on the input message")
 				t.Fail()
 				return
 			}

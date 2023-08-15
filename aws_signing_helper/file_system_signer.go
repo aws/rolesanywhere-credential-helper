@@ -36,9 +36,6 @@ func (fileSystemSigner FileSystemSigner) Public() crypto.PublicKey {
 
 func (fileSystemSigner FileSystemSigner) Close() {}
 
-// Unused method for FileSystemSigner.
-func (fileSystemSigner FileSystemSigner) CloseSession() {}
-
 func (fileSystemSigner FileSystemSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	var hash []byte
 	switch opts.HashFunc() {

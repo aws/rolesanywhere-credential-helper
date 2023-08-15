@@ -55,7 +55,6 @@ type Signer interface {
 	Certificate() (certificate *x509.Certificate, err error)
 	CertificateChain() (certificateChain []*x509.Certificate, err error)
 	Close()
-	CloseSession()
 }
 
 // Container for certificate data returned to the SDK as JSON.
@@ -175,18 +174,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		privateKeyId = opts.CertificateId
 	}
 
-	if strings.HasPrefix(privateKeyId, "pkcs11:") {
-		if Debug {
-			log.Println("attempting to use PKCS11Signer")
-		}
-		if opts.CertificateBundleId != "" {
-			return nil, "", errors.New("can't specify certificate chain when" +
-				" using PKCS#11 integration")
-		}
-		return GetPKCS11Signer(opts.LibPkcs11, certificate, opts.PrivateKeyId, opts.CertificateId)
-	}
-
-	if opts.CertificateId != "" {
+	if opts.CertificateId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
 		certificateData, err := ReadCertificateData(opts.CertificateId)
 		if err == nil {
 			certificateDerData, err := base64.StdEncoding.DecodeString(certificateData.CertificateData)
@@ -238,15 +226,22 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		}
 	}
 
-	privateKey, err = ReadPrivateKeyData(privateKeyId)
-	if err != nil {
-		return nil, "", err
-	}
+	if strings.HasPrefix(privateKeyId, "pkcs11:") {
+		if Debug {
+			log.Println("attempting to use PKCS11Signer")
+		}
+		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId)
+	} else {
+		privateKey, err = ReadPrivateKeyData(privateKeyId)
+		if err != nil {
+			return nil, "", err
+		}
 
-	if Debug {
-		log.Println("attempting to use FileSystemSigner")
+		if Debug {
+			log.Println("attempting to use FileSystemSigner")
+		}
+		return GetFileSystemSigner(privateKey, certificate, certificateChain)
 	}
-	return GetFileSystemSigner(privateKey, certificate, certificateChain)
 }
 
 // Obtain the date-time, formatted as specified by SigV4
