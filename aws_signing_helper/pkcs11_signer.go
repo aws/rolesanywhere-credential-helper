@@ -665,7 +665,7 @@ afterContextSpecificLogin:
 
 // Gets a handle to the private key object (along with some other information
 // that may need to be saved).
-func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn bool, certUri *pkcs11uri.Pkcs11URI, keyUri *pkcs11uri.Pkcs11URI, certSlotNr uint, certObj CertObjInfo, userPin string, contextSpecificPin string, slots []SlotIdInfo) (_session pkcs11.SessionHandle, _userPin string, _keyUri *pkcs11uri.Pkcs11URI, keyType uint, privateKeyHandle pkcs11.ObjectHandle, alwaysAuth uint, _contextSpecificPin string, err error) {
+func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn bool, certUri *pkcs11uri.Pkcs11URI, keyUri *pkcs11uri.Pkcs11URI, noKeyUri bool, certSlotNr uint, certObj CertObjInfo, userPin string, contextSpecificPin string, slots []SlotIdInfo) (_session pkcs11.SessionHandle, _userPin string, _keyUri *pkcs11uri.Pkcs11URI, keyType uint, privateKeyHandle pkcs11.ObjectHandle, alwaysAuth uint, _contextSpecificPin string, err error) {
 	var (
 		keySlotNr          uint
 		manufacturerId     string
@@ -676,6 +676,7 @@ func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn boo
 
 	if keyUri == nil {
 		keyUri = certUri
+		noKeyUri = true
 	}
 
 	if userPin == "" {
@@ -814,10 +815,8 @@ retry_search:
 		 *
 		 * http://david.woodhou.se/draft-woodhouse-cert-best-practice.html#rfc.section.8.2
 		 */
-		keyUriStr, _ := keyUri.Format()
-		certUriStr, _ := certUri.Format()
 		if certObj.cert != nil {
-			if keyUriStr == certUriStr {
+			if noKeyUri {
 				_, keyHadLabel := keyUri.GetPathAttribute("object", false)
 				if keyHadLabel {
 					if Debug {
@@ -923,7 +922,7 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 		}
 	}
 
-	session, userPin, keyUri, keyType, privateKeyHandle, alwaysAuth, contextSpecificPin, err = getPKCS11Key(module, session, loggedIn, certUri, keyUri, certSlotNr, certObj, userPin, contextSpecificPin, slots)
+	session, userPin, keyUri, keyType, privateKeyHandle, alwaysAuth, contextSpecificPin, err = getPKCS11Key(module, session, loggedIn, certUri, keyUri, false, certSlotNr, certObj, userPin, contextSpecificPin, slots)
 	if err != nil {
 		goto cleanUp
 	}
@@ -1136,6 +1135,7 @@ func GetPKCS11Signer(libPkcs11 string, cert *x509.Certificate, certChain []*x509
 		keyUri             *pkcs11uri.Pkcs11URI
 		slots              []SlotIdInfo
 		certSlot           SlotIdInfo
+		noKeyUri           bool
 	)
 
 	module, err = initializePKCS11Module(libPkcs11)
@@ -1193,6 +1193,7 @@ func GetPKCS11Signer(libPkcs11 string, cert *x509.Certificate, certChain []*x509
 		}
 	} else {
 		keyUri = certUri
+		noKeyUri = true
 	}
 	userPin, _ = keyUri.GetQueryAttribute("pin-value", false)
 
@@ -1204,7 +1205,7 @@ func GetPKCS11Signer(libPkcs11 string, cert *x509.Certificate, certChain []*x509
 		}
 	}
 
-	session, userPin, keyUri, keyType, _, alwaysAuth, contextSpecificPin, err = getPKCS11Key(module, session, loggedIn, certUri, keyUri, certSlotNr, certObj, userPin, contextSpecificPin, slots)
+	session, userPin, keyUri, keyType, _, alwaysAuth, contextSpecificPin, err = getPKCS11Key(module, session, loggedIn, certUri, keyUri, noKeyUri, certSlotNr, certObj, userPin, contextSpecificPin, slots)
 	if err != nil {
 		goto fail
 	}
