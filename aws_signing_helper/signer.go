@@ -230,6 +230,9 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		if Debug {
 			log.Println("attempting to use PKCS11Signer")
 		}
+		if certificate != nil {
+			opts.CertificateId = ""
+		}
 		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId)
 	} else {
 		privateKey, err = ReadPrivateKeyData(privateKeyId)
