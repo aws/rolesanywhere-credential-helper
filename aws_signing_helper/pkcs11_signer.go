@@ -1192,7 +1192,9 @@ func GetPKCS11Signer(libPkcs11 string, cert *x509.Certificate, certChain []*x509
 			goto fail
 		}
 	} else {
-		keyUri = certUri
+		certUriStr, _ := certUri.Format()
+		keyUri = pkcs11uri.New()
+		keyUri.Parse(certUriStr)
 		noKeyUri = true
 	}
 	userPin, _ = keyUri.GetQueryAttribute("pin-value", false)
