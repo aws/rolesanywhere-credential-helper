@@ -18,6 +18,7 @@ func init() {
 	readCertificateDataCmd.PersistentFlags().StringVar(&certificateId, "certificate", "", "Path to certificate file")
 	readCertificateDataCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store."+
 		" Can be passed in either as string or a file name (prefixed by \"file://\")")
+	readCertificateDataCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
 	readCertificateDataCmd.PersistentFlags().BoolVar(&debug, "debug", false, "To print debug output")
 }
 
