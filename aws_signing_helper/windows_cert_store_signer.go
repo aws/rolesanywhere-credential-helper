@@ -76,6 +76,9 @@ const (
 	// NTE_BAD_ALGID — Invalid algorithm specified
 	NTE_BAD_ALGID = 0x80090008
 
+	// NTE_SILENT_CONTEXT - KSP must display UI to operate
+	NTE_SILENT_CONTEXT = 0x80090022
+
 	// WIN_API_FLAG specifies the flags that should be passed to
 	// CryptAcquireCertificatePrivateKey. This impacts whether the CryptoAPI or CNG
 	// API will be used.
@@ -87,6 +90,12 @@ const (
 	//	0x00020000 — CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG — Prefer CNG.
 	//	0x00040000 — CRYPT_ACQUIRE_ONLY_NCRYPT_KEY_FLAG   — Only use CNG.
 	WIN_API_FLAG = windows.CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG
+)
+
+var (
+	// ErrRequiresUI is used when providers are required to display
+	// UI to perform signing operations.
+	ErrRequiresUI = errors.New("provider requries UI to operate")
 )
 
 // Error codes for Windows APIs - implements the error interface
@@ -441,9 +450,16 @@ func (signer *WindowsCertStoreSigner) cngSignHash(digest []byte, hash crypto.Has
 	// Get signature
 	sig := make([]byte, sigLen)
 	sigPtr := (*C.BYTE)(&sig[0])
-	if err := checkStatus(C.NCryptSignHash(*cngKeyHandle, padPtr, digestPtr, digestLen, sigPtr, sigLen, &sigLen, flags)); err != nil {
+	if err := checkStatus(C.NCryptSignHash(*cngKeyHandle, padPtr, digestPtr, digestLen, sigPtr, sigLen, &sigLen, flags|C.NCRYPT_SILENT_FLAG)); err != nil {
+		if err == ErrRequiresUI {
+			if err = checkStatus(C.NCryptSignHash(*cngKeyHandle, padPtr, digestPtr, digestLen, sigPtr, sigLen, &sigLen, flags)); err == nil {
+				goto got_signature
+			}
+		}
+
 		return nil, fmt.Errorf("failed to sign digest: %w", err)
 	}
+got_signature:
 
 	// CNG returns a raw ECDSA signature, but we want ASN.1 DER encoding
 	if _, isEC := privateKey.publicKey.(*ecdsa.PublicKey); isEC {
@@ -616,6 +632,10 @@ func checkStatus(s C.SECURITY_STATUS) error {
 
 	if secStatus == NTE_BAD_ALGID {
 		return ErrUnsupportedHash
+	}
+
+	if secStatus == NTE_SILENT_CONTEXT {
+		return ErrRequiresUI
 	}
 
 	return secStatus
