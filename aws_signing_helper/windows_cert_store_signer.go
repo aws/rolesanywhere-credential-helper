@@ -104,7 +104,7 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 		return 0, nil, nil, nil, errors.New("unable to UTF-16 encode personal certificate store name")
 	}
 
-	store, err = windows.CertOpenStore(windows.CERT_STORE_PROV_SYSTEM_W, 0, 0, windows.CERT_SYSTEM_STORE_CURRENT_USER, uintptr(unsafe.Pointer(storeName)))
+	store, err = windows.CertOpenStore(windows.CERT_STORE_PROV_SYSTEM_W, 0, 0, windows.CERT_SYSTEM_STORE_LOCAL_MACHINE, uintptr(unsafe.Pointer(storeName)))
 	if err != nil {
 		return 0, nil, nil, nil, errors.New("failed to open system cert store")
 	}

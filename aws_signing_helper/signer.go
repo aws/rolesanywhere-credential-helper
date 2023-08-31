@@ -121,7 +121,7 @@ func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
 	if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
 		return false
 	}
-	if certIdentifier.Issuer != "" && certIdentifier.Issuer != cert.Issuer.String() {
+	if certIdentifier.Issuer != "" && !strings.Contains(cert.Issuer.String(), certIdentifier.Issuer) {
 		return false
 	}
 	if certIdentifier.SerialNumber != nil && certIdentifier.SerialNumber.Cmp(cert.SerialNumber) != 0 {
