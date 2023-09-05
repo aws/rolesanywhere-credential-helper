@@ -160,10 +160,21 @@ for it.
 For systems or containers which lack p11-kit, a specific PKCS#11
 provider library can be specified using the `--pkcs11-lib` parameter.
 
-The searching methodology used to find objects within PKCS#11 tokens can be found 
-[here](https://datatracker.ietf.org/doc/html/draft-woodhouse-cert-best-practice-01). Note that 
-there are some differences in how tokens are searched in the credential helper, but 
-it should mostly follow that document. 
+The searching methodology used to find objects within PKCS#11 tokens can largely be found 
+[here](https://datatracker.ietf.org/doc/html/draft-woodhouse-cert-best-practice-01). Do note 
+that there are some slight differences in objects are found in the credential helper 
+application. 
+
+Note that if you're using a YubiKey device with PIV support, when a key pair 
+and certificate exist in slots 9a or 9c (PIV authentication and digital signature, 
+respectively), the YubiKey will automatically generate an attestation certificate 
+for the slot. Testing has shown that the attestation certificate can't be deleted. 
+In this case, if you attempt to use the `CKA_ID` of your certificate to identify 
+it in your supplied PKCS#11 URI, there will be two certificates that match. One 
+way in which you can disambiguate between the two in your PKCS#11 URI can be through 
+`CKA_LABEL`. Attestation certificates in either of these two slots can be identified 
+through the hard-coded labels, `X.509 Certificate for PIV Attestation 9a` or 
+`X.509 Certificate for PIV Attestation 9c`. 
 
 ### update
 
