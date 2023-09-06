@@ -79,10 +79,17 @@ func TestReadInvalidCertificateData(t *testing.T) {
 }
 
 func TestReadCertificateBundleData(t *testing.T) {
-	_, err := ReadCertificateBundleData("../tst/certs/cert-bundle.pem")
-	if err != nil {
-		t.Log("Failed to read certificate bundle data")
-		t.Fail()
+	fixtures := []string{
+		"../tst/certs/cert-bundle.pem",
+		"../tst/certs/cert-bundle-with-comments.pem",
+	}
+
+	for _, fixture := range fixtures {
+		_, err := ReadCertificateBundleData(fixture)
+		if err != nil {
+			t.Log("Failed to read certificate bundle data")
+			t.Fail()
+		}
 	}
 }
 

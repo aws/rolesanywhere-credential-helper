@@ -528,7 +528,7 @@ func ReadCertificateBundleData(certificateBundleId string) ([]*x509.Certificate,
 	for len(bytes) > 0 {
 		block, bytes = pem.Decode(bytes)
 		if block == nil {
-			return nil, errors.New("unable to parse PEM data")
+			break
 		}
 		if block.Type != "CERTIFICATE" {
 			return nil, errors.New("invalid certificate chain")
@@ -594,8 +594,8 @@ func readPKCS8PrivateKey(privateKeyId string) (crypto.PrivateKey, error) {
 
 // Reads and parses a PKCS#12 file (which should contain an end-entity
 // certificate, (optional) certificate chain, and the key associated with the
-// end-entity certificate). The end-entity certificate will be returned as the
-// first certificate in the returned chain.
+// end-entity certificate). The end-entity certificate will be the first
+// certificate in the returned chain.
 func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privateKey crypto.PrivateKey, err error) {
 	var (
 		bytes     []byte

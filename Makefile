@@ -105,7 +105,13 @@ $(ECKEYS):
 $(certsdir)/cert-bundle.pem: $(RSACERTS) $(ECCERTS)
 	cat $^ > $@
 
-test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(RSACERTS) $(ECCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem tst/softhsm2.conf
+$(certsdir)/cert-bundle-with-comments.pem: $(RSACERTS) $(ECCERTS)
+	for dep in $^; do \
+		cat $$dep >> $@; \
+		echo "Comment in bundle\n" >> $@; \
+	done
+
+test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(RSACERTS) $(ECCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem tst/softhsm2.conf
 
 test-clean:
 	rm -f $(RSAKEYS) $(ECKEYS)
@@ -113,5 +119,6 @@ test-clean:
 	rm -f $(RSACERTS) $(ECCERTS)
 	rm -f $(PKCS12CERTS)
 	rm -f $(certsdir)/cert-bundle.pem
+	rm -f $(certsdir)/cert-with-comments.pem
 	rm -f tst/softhsm2.conf
 	rm -rf tst/softhsm/*
