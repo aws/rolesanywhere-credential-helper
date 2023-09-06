@@ -523,25 +523,41 @@ func (pkcs11Signer *PKCS11Signer) Close() {
 // This method is used both for prompting for the user PIN and the
 // context-specific PIN. Note that finalAuthErrMsg should contain a
 // `%s` so that the actual error message can be included.
-func pkcs11PasswordPrompt(module *pkcs11.Ctx, session pkcs11.SessionHandle, userType uint, passwordName string, finalAuthErrMsg string) (string, error) {
-	var pin string
+func pkcs11PasswordPrompt(module *pkcs11.Ctx, session pkcs11.SessionHandle, userType uint, passwordName string, finalAuthErrMsg string) (pinValue string, err error) {
+	var (
+		parseErrMsg  string
+		pin          string
+		prompt       string
+		ttyReadPath  string
+		ttyWritePath string
+		ttyReadFile  *os.File
+		ttyWriteFile *os.File
+	)
 
-	parseErrMsg := fmt.Sprintf("unable to read PKCS#11 %s", passwordName)
-	prompt := fmt.Sprintf("Please enter your %s:", passwordName)
+	parseErrMsg = fmt.Sprintf("unable to read PKCS#11 %s", passwordName)
+	prompt = fmt.Sprintf("Please enter your %s:", passwordName)
 
-	ttyPath := "/dev/tty"
+	ttyReadPath = "/dev/tty"
+	ttyWritePath = ttyReadPath
 	if runtime.GOOS == "windows" {
-		ttyPath = "CON"
+		ttyReadPath = "CONIN$"
+		ttyWritePath = "CONOUT$"
 	}
 
-	ttyFile, err := os.OpenFile(ttyPath, os.O_RDWR, 0)
+	ttyReadFile, err = os.OpenFile(ttyReadPath, os.O_RDWR, 0)
 	if err != nil {
 		return "", errors.New(parseErrMsg)
 	}
-	defer ttyFile.Close()
+	defer ttyReadFile.Close()
+
+	ttyWriteFile, err = os.OpenFile(ttyWritePath, os.O_WRONLY, 0)
+	if err != nil {
+		return "", errors.New(parseErrMsg)
+	}
+	defer ttyWriteFile.Close()
 
 	for true {
-		pin, err = GetPassword(ttyFile, prompt, parseErrMsg)
+		pin, err = GetPassword(ttyReadFile, ttyWriteFile, prompt, parseErrMsg)
 		if err != nil && err.Error() == parseErrMsg {
 			continue
 		}
@@ -563,9 +579,9 @@ func pkcs11PasswordPrompt(module *pkcs11.Ctx, session pkcs11.SessionHandle, user
 }
 
 // Prompts the user for their password
-func GetPassword(ttyFile *os.File, prompt string, parseErrMsg string) (string, error) {
-	fmt.Fprintln(ttyFile, prompt)
-	passwordBytes, err := term.ReadPassword(int(ttyFile.Fd()))
+func GetPassword(ttyReadFile *os.File, ttyWriteFile *os.File, prompt string, parseErrMsg string) (string, error) {
+	fmt.Fprintln(ttyWriteFile, prompt)
+	passwordBytes, err := term.ReadPassword(int(ttyReadFile.Fd()))
 	if err != nil {
 		return "", errors.New(parseErrMsg)
 	}
