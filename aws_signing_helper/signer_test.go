@@ -242,20 +242,34 @@ func TestSign(t *testing.T) {
 		}
 	}
 
-	pkcs11_objects := []string{"RSA", "EC"}
+	pkcs11_objects := []string{"rsa-2048", "ec-prime256v1"}
 
 	for _, object := range pkcs11_objects {
-		pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s?pin-value=1234", object)
+		basic_pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s?pin-value=1234", object)
+		always_auth_pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s-always-auth?pin-value=1234", object)
+		cert_file := fmt.Sprintf("../tst/certs/%s-sha256-cert.pem", object)
 
 		testTable = append(testTable, CredentialsOpts{
-			CertificateId: pkcs11_uri,
+			CertificateId: basic_pkcs11_uri,
 		})
 		testTable = append(testTable, CredentialsOpts{
-			PrivateKeyId: pkcs11_uri,
+			PrivateKeyId: basic_pkcs11_uri,
 		})
 		testTable = append(testTable, CredentialsOpts{
-			CertificateId: pkcs11_uri,
-			PrivateKeyId:  pkcs11_uri,
+			CertificateId: basic_pkcs11_uri,
+			PrivateKeyId:  basic_pkcs11_uri,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: cert_file,
+			PrivateKeyId:  basic_pkcs11_uri,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: basic_pkcs11_uri,
+			PrivateKeyId:  always_auth_pkcs11_uri,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: cert_file,
+			PrivateKeyId:  always_auth_pkcs11_uri,
 		})
 	}
 
@@ -287,6 +301,9 @@ func TestSign(t *testing.T) {
 
 		for _, digest := range digestList {
 			signatureBytes, err := signer.Sign(rand.Reader, []byte(msg), digest)
+			// Try signing again to make sure that a context-specific PIN, if
+			// needed, was cached.
+			signer.Sign(rand.Reader, []byte(msg), digest)
 			if err != nil {
 				t.Log("Failed to sign the input message")
 				t.Fail()
@@ -393,6 +410,57 @@ func TestCertStoreSignerCreationFails(t *testing.T) {
 			SerialNumber: randomLargeSerial,
 		},
 	})
+
+	for _, credOpts := range testTable {
+		_, _, err := GetSigner(&credOpts)
+		if err == nil {
+			t.Log("Expected failure when creating certificate store signer, but received none")
+			t.Fail()
+		}
+	}
+}
+
+func TestPKCS11SignerCreationFails(t *testing.T) {
+	testTable := []CredentialsOpts{}
+
+	template_uri := "pkcs11:token=credential-helper-test;object=%s?pin-value=1234"
+	rsa_generic_uri := fmt.Sprintf(template_uri, "rsa-2048")
+	ec_generic_uri := fmt.Sprintf(template_uri, "ec-prime256v1")
+	// always_auth_rsa_uri := fmt.Sprintf(template_uri, "rsa-2048-always-auth")
+	// always_auth_ec_uri := fmt.Sprintf(template_uri, "ec-prime256v1-always-auth")
+
+	testTable = append(testTable, CredentialsOpts{
+		CertificateId: rsa_generic_uri,
+		PrivateKeyId:  ec_generic_uri,
+	})
+	testTable = append(testTable, CredentialsOpts{
+		CertificateId: ec_generic_uri,
+		PrivateKeyId:  rsa_generic_uri,
+	})
+	testTable = append(testTable, CredentialsOpts{
+		CertificateId: "../tst/certs/ec-prime256v1-sha256-cert.pem",
+		PrivateKeyId:  rsa_generic_uri,
+	})
+	testTable = append(testTable, CredentialsOpts{
+		CertificateId: "../tst/certs/rsa-2048-sha256-cert.pem",
+		PrivateKeyId:  ec_generic_uri,
+	})
+	/* testTable = append(testTable, CredentialsOpts{
+	       CertificateId: rsa_generic_uri,
+	       PrivateKeyId: always_auth_ec_uri,
+	   })
+	   testTable = append(testTable, CredentialsOpts{
+	       CertificateId: ec_generic_uri,
+	       PrivateKeyId: always_auth_rsa_uri,
+	   })
+	   testTable = append(testTable, CredentialsOpts{
+	       CertificateId: "../tst/certs/ec-prime256v1-sha256-cert.pem",
+	       PrivateKeyId: always_auth_rsa_uri,
+	   })
+	   testTable = append(testTable, CredentialsOpts{
+	       CertificateId: "../tst/certs/rsa-2048-sha256-cert.pem",
+	       PrivateKeyId: always_auth_ec_uri,
+	   }) */
 
 	for _, credOpts := range testTable {
 		_, _, err := GetSigner(&credOpts)

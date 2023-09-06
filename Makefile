@@ -28,16 +28,26 @@ tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS
 		--so-pin 12345678 --pin 1234
 
 	$(SHM2_UTIL) --token credential-helper-test --pin 1234 \
-		--import $(certsdir)/rsa-2048-key-pkcs8.pem --label RSA --id 01
+		--import $(certsdir)/rsa-2048-key-pkcs8.pem --label rsa-2048 --id 01
 	$(P11TOOL) --load-certificate $(certsdir)/rsa-2048-sha256-cert.pem \
-		--no-mark-private --label RSA --id 01 --set-pin 1234 --login \
+		--no-mark-private --label rsa-2048 --id 01 --set-pin 1234 --login \
 		--write "pkcs11:token=credential-helper-test;pin-value=1234"
 
 	$(SHM2_UTIL) --token credential-helper-test --pin 1234 \
-		--import $(certsdir)/ec-prime256v1-key-pkcs8.pem --label EC --id 02
+		--import $(certsdir)/ec-prime256v1-key-pkcs8.pem --label ec-prime256v1 --id 02
 	$(P11TOOL) --load-certificate $(certsdir)/ec-prime256v1-sha256-cert.pem \
-		--no-mark-private --label EC --id 02 --set-pin 1234 --login \
+		--no-mark-private --label ec-prime256v1 --id 02 --set-pin 1234 --login \
 		--write "pkcs11:token=credential-helper-test;pin-value=1234"
+
+	$(P11TOOL) --load-privkey $(certsdir)/rsa-2048-key-pkcs8.pem \
+		--label rsa-2048-always-auth --id 03 --set-pin 1234 --login \
+		--write "pkcs11:token=credential-helper-test;pin-value=1234" \
+		--mark-always-authenticate
+
+	$(P11TOOL) --load-privkey $(certsdir)/ec-prime256v1-key-pkcs8.pem \
+		--label ec-prime256v1-always-auth --id 04 --set-pin 1234 --login \
+		--write "pkcs11:token=credential-helper-test;pin-value=1234" \
+		--mark-always-authenticate
 	mv $@.tmp $@
 
 test: test-certs tst/softhsm2.conf

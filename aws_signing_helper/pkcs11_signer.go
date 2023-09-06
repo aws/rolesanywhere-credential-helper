@@ -527,7 +527,7 @@ func pkcs11PasswordPrompt(module *pkcs11.Ctx, session pkcs11.SessionHandle, user
 	var pin string
 
 	parseErrMsg := fmt.Sprintf("unable to read PKCS#11 %s", passwordName)
-	prompt := fmt.Sprintf("Please enter your %s", passwordName)
+	prompt := fmt.Sprintf("Please enter your %s:", passwordName)
 
 	ttyPath := "/dev/tty"
 	if runtime.GOOS == "windows" {
@@ -640,7 +640,7 @@ func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHand
 		// the context-specific PIN for this object.
 		passwordName := "context-specific pin"
 		finalAuthErrMsg := "user re-authentication failed (%s)"
-		_, err = pkcs11PasswordPrompt(module, session, pkcs11.CKU_CONTEXT_SPECIFIC, passwordName, finalAuthErrMsg)
+		contextSpecificPin, err = pkcs11PasswordPrompt(module, session, pkcs11.CKU_CONTEXT_SPECIFIC, passwordName, finalAuthErrMsg)
 		if err != nil {
 			return "", nil, err
 		}
@@ -790,8 +790,14 @@ retry_search:
 		}
 
 		if certObj.cert == nil {
-			privateKeyHandle = curPrivateKeyHandle
-			break
+			if len(privateKeyObjects) == 1 {
+				privateKeyHandle = curPrivateKeyHandle
+				break
+			} else {
+				err = errors.New("multiple matching private keys, but" +
+					" no certificate provided to match with")
+				goto fail
+			}
 		}
 
 		curContextSpecificPin := contextSpecificPin
@@ -927,9 +933,11 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 		goto cleanUp
 	}
 
-	_, signature, err = signHelper(module, session, privateKeyHandle, alwaysAuth, false, userPin, contextSpecificPin, keyType, digest, hashFunc)
+	contextSpecificPin, signature, err = signHelper(module, session, privateKeyHandle, alwaysAuth, false, userPin, contextSpecificPin, keyType, digest, hashFunc)
 	if err != nil {
 		goto cleanUp
+	} else {
+		pkcs11Signer.contextSpecificPin = contextSpecificPin
 	}
 
 	// Note that the session should be logged out of and closed even if there
@@ -1180,6 +1188,9 @@ func GetPKCS11Signer(libPkcs11 string, cert *x509.Certificate, certChain []*x509
 				goto fail
 			}
 		}
+	} else if cert != nil {
+		// Populate certObj, so that it can be used to find the matching private key.
+		certObj = CertObjInfo{nil, nil, cert, 0}
 	}
 
 	// If an explicit private-key option was given, use it. Otherwise
@@ -1197,7 +1208,9 @@ func GetPKCS11Signer(libPkcs11 string, cert *x509.Certificate, certChain []*x509
 		keyUri.Parse(certUriStr)
 		noKeyUri = true
 	}
-	userPin, _ = keyUri.GetQueryAttribute("pin-value", false)
+	if _userPin, ok := keyUri.GetQueryAttribute("pin-value", false); ok {
+		userPin = _userPin
+	}
 
 	// If the certificate's PKCS#11 URI wasn't provided, enumerate slots.
 	if certificateId == "" {
