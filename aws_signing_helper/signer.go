@@ -595,11 +595,18 @@ func readPKCS8PrivateKey(privateKeyId string) (crypto.PrivateKey, error) {
 // Reads and parses a PKCS#12 file (which should contain an end-entity
 // certificate, (optional) certificate chain, and the key associated with the
 // end-entity certificate). The end-entity certificate will be the first
-// certificate in the returned chain.
+// certificate in the returned chain. This method assumes that there is
+// exactly one certificate that doesn't issue any others within the container
+// and treats that as the end-entity certificate. Also, the order of the other
+// certificates in the chain aren't guaranteed (it's also not guaranteed that
+// those certificates form a chain with the end-entity certificat either).
 func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privateKey crypto.PrivateKey, err error) {
 	var (
-		bytes     []byte
-		pemBlocks []*pem.Block
+		bytes               []byte
+		pemBlocks           []*pem.Block
+		parsedCerts         []*x509.Certificate
+		certMap             map[string]*x509.Certificate
+		endEntityFoundIndex int
 	)
 
 	bytes, err = os.ReadFile(certificateId)
@@ -615,7 +622,7 @@ func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privat
 	for _, block := range pemBlocks {
 		cert, err := x509.ParseCertificate(block.Bytes)
 		if err == nil {
-			certChain = append(certChain, cert)
+			parsedCerts = append(parsedCerts, cert)
 			continue
 		}
 		privateKeyTmp, err := ReadPrivateKeyDataFromPEMBlock(block)
@@ -627,6 +634,33 @@ func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privat
 		// Block, ignore it and continue.
 		if Debug {
 			log.Println("unable to parse PEM block in PKCS#12 file - skipping")
+		}
+	}
+
+	certMap = make(map[string]*x509.Certificate)
+	for _, cert := range parsedCerts {
+		// pkix.Name.String() roughly following the RFC 2253 Distinguished Names
+		// syntax, so we assume that it's canonical.
+		issuer := cert.Issuer.String()
+		certMap[issuer] = cert
+	}
+
+	endEntityFoundIndex = -1
+	for i, cert := range parsedCerts {
+		subject := cert.Subject.String()
+		if _, ok := certMap[subject]; !ok {
+			certChain = append(certChain, cert)
+			endEntityFoundIndex = i
+			break
+		}
+	}
+	if endEntityFoundIndex == -1 {
+		return nil, "", errors.New("no end-entity certificate found in PKCS#12 file")
+	}
+
+	for i, cert := range parsedCerts {
+		if i != endEntityFoundIndex {
+			certChain = append(certChain, cert)
 		}
 	}
 
