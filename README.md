@@ -177,6 +177,13 @@ in a URI). Attestation certificates in either of these two slots can be
 identified through the hard-coded labels, `X.509 Certificate for PIV Attestation 
 9a` or `X.509 Certificate for PIV Attestation 9c`. 
 
+#### Implementation Notes
+
+PKCS#11 PINs can be stored in memory as strings for the duration of the program and aren't 
+guaranteed to be zeroed out after the program is done with them. Since strings are 
+immutable in Golang, it's unclear how to circumvent the type system and get to the 
+underlying buffer to zero it out. 
+
 ### update
 
 Updates temporary credentials in the [credential file](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html). Parameters for this command include those for the `credential-process` command, as well as `--profile`, which specifies the named profile for which credentials should be updated (if the profile doesn't already exist, it will be created), and `--once`, which specifies that credentials should be updated only once. Both arguments are optional. If `--profile` isn't specified, the default profile will have its credentials updated, and if `--once` isn't specified, credentials will be continuously updated. In this case, credentials will be updated through a call to `CreateSession` five minutes before the previous set of credentials are set to expire. Please note that running the `update` command multiple times, creating multiple processes, may not work as intended. There may be issues with concurrent writes to the credentials file.
