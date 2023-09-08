@@ -62,6 +62,13 @@ type CertObjInfo struct {
 	certObject pkcs11.ObjectHandle
 }
 
+// In our list of keys, we want to remember the CKA_ID/CKA_LABEL too.
+type KeyObjInfo struct {
+	id        []byte
+	label     []byte
+	keyObject pkcs11.ObjectHandle
+}
+
 // Used to enumerate slots with all token/slot info for matching.
 type SlotIdInfo struct {
 	id      uint
@@ -593,14 +600,19 @@ func GetPassword(ttyReadFile *os.File, ttyWriteFile *os.File, prompt string, par
 }
 
 // Helper function to sign a digest using a PKCS#11 private key handle.
-func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHandle pkcs11.ObjectHandle, userPin string, alwaysAuth uint, contextSpecificPin string, forcePrompt bool, keyType uint, digest []byte, hashFunc crypto.Hash) (_contextSpecificPin string, signature []byte, err error) {
+func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyObj KeyObjInfo, slot SlotIdInfo, userPin string, alwaysAuth uint, contextSpecificPin string, forcePrompt bool, keyType uint, digest []byte, hashFunc crypto.Hash) (_contextSpecificPin string, signature []byte, err error) {
 	// XXX: If you use this outside the context of IAM RA, be aware that
 	// you'll want to use something other than SHA256 in many cases.
 	// For TLSv1.3 the hash needs to precisely match the bit size of the
 	// curve, IIRC. And you'll need RSA-PSS too. You might find that
 	// ThalesIgnite/crypto11 has some of that.
 	// e.g. https://github.com/ThalesIgnite/crypto11/blob/master/rsa.go#L230
-	var mechanism uint
+	var (
+		mechanism uint
+		keyUri    *pkcs11uri.Pkcs11URI
+		keyUriStr string
+	)
+
 	if keyType == pkcs11.CKK_EC {
 		switch hashFunc {
 		case crypto.SHA256:
@@ -629,7 +641,7 @@ func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHand
 		}
 	}
 
-	err = module.SignInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, nil)}, privateKeyHandle)
+	err = module.SignInit(session, []*pkcs11.Mechanism{pkcs11.NewMechanism(mechanism, nil)}, privateKeyObj.keyObject)
 	if err != nil {
 		return "", nil, fmt.Errorf("signing initiation failed (%s)", err.Error())
 	}
@@ -655,7 +667,27 @@ func signHelper(module *pkcs11.Ctx, session pkcs11.SessionHandle, privateKeyHand
 
 		// If the context-specific PIN couldn't be derived, prompt the user for
 		// the context-specific PIN for this object.
+		keyUri = pkcs11uri.New()
+		keyUri.AddPathAttribute("model", slot.tokInfo.Model)
+		keyUri.AddPathAttribute("manufacturer", slot.tokInfo.ManufacturerID)
+		keyUri.AddPathAttribute("serial", slot.tokInfo.SerialNumber)
+		keyUri.AddPathAttribute("slot-description", slot.info.SlotDescription)
+		keyUri.AddPathAttribute("slot-manufacturer", slot.info.ManufacturerID)
+		if privateKeyObj.id != nil {
+			keyUri.AddPathAttribute("id", string(privateKeyObj.id[:]))
+		}
+		if privateKeyObj.label != nil {
+			keyUri.AddPathAttribute("object", string(privateKeyObj.label[:]))
+		}
+		keyUri.AddPathAttribute("type", "private")
+		keyUriStr, err = keyUri.Format() // nosemgrep
+		if err != nil {
+			keyUriStr = ""
+		}
 		passwordName := "context-specific PIN"
+		if keyUriStr != "" {
+			passwordName = fmt.Sprintf("context-specific PIN for private key object (%s)", keyUriStr)
+		}
 		finalAuthErrMsg := "user re-authentication failed (%s)"
 		contextSpecificPin, err = pkcs11PasswordPrompt(module, session, pkcs11.CKU_CONTEXT_SPECIFIC, passwordName, finalAuthErrMsg)
 		if err != nil {
@@ -682,9 +714,9 @@ afterContextSpecificLogin:
 
 // Gets a handle to the private key object (along with some other information
 // that may need to be saved).
-func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn bool, certUri *pkcs11uri.Pkcs11URI, keyUri *pkcs11uri.Pkcs11URI, noKeyUri bool, certSlotNr uint, certObj CertObjInfo, userPin string, contextSpecificPin string, forcePrompt bool, slots []SlotIdInfo) (_session pkcs11.SessionHandle, _userPin string, _keyUri *pkcs11uri.Pkcs11URI, keyType uint, privateKeyHandle pkcs11.ObjectHandle, alwaysAuth uint, _contextSpecificPin string, err error) {
+func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn bool, certUri *pkcs11uri.Pkcs11URI, keyUri *pkcs11uri.Pkcs11URI, noKeyUri bool, certSlotNr uint, certObj CertObjInfo, userPin string, contextSpecificPin string, forcePrompt bool, slots []SlotIdInfo) (_session pkcs11.SessionHandle, _userPin string, _keyUri *pkcs11uri.Pkcs11URI, keyType uint, privateKeyObj KeyObjInfo, slot SlotIdInfo, alwaysAuth uint, _contextSpecificPin string, err error) {
 	var (
-		keySlotNr          uint
+		keySlot            SlotIdInfo
 		manufacturerId     string
 		templatePrivateKey []*pkcs11.Attribute
 		privateKeyObjects  []pkcs11.ObjectHandle
@@ -705,7 +737,7 @@ func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn boo
 	slots = matchSlots(slots, keyUri)
 	if len(slots) == 1 {
 		if certSlotNr != slots[0].id {
-			keySlotNr = slots[0].id
+			keySlot = slots[0]
 			manufacturerId = slots[0].info.ManufacturerID
 			if session != 0 {
 				if loggedIn {
@@ -722,7 +754,7 @@ func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn boo
 		// that.
 		for _, slot := range slots {
 			if certSlotNr == slot.id {
-				keySlotNr = slot.id
+				keySlot = slot
 				manufacturerId = slot.info.ManufacturerID
 				goto got_slot
 			}
@@ -733,7 +765,7 @@ func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn boo
 
 got_slot:
 	if session == 0 {
-		session, err = module.OpenSession(keySlotNr, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
+		session, err = module.OpenSession(keySlot.id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 	}
 	if err != nil {
 		goto fail
@@ -783,7 +815,6 @@ retry_search:
 	// that actually matches the cert. More realistically, there
 	// will be only one. Sanity check that it matches the cert.
 	for _, curPrivateKeyHandle := range privateKeyObjects {
-		// Find the signing algorithm
 		keyAttributes = []*pkcs11.Attribute{
 			pkcs11.NewAttribute(pkcs11.CKA_KEY_TYPE, 0),
 		}
@@ -806,9 +837,28 @@ retry_search:
 			alwaysAuth = 0
 		}
 
+		var curPrivateKeyObj KeyObjInfo
+		curPrivateKeyObj.keyObject = curPrivateKeyHandle
+
+		// Fetch the CKA_ID and CKA_LABEL of the current private key object, so
+		// that more specific attributes can be used to identify the private key
+		// when prompting for a context-specifc PIN (assuming the CKA_ALWAYS_AUTHENTICATE
+		// attribute is set on the private key object).
+		keyAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_ID, 0)
+		keyAttributes, err = module.GetAttributeValue(session, curPrivateKeyHandle, keyAttributes)
+		if err == nil {
+			curPrivateKeyObj.id = keyAttributes[0].Value
+		}
+
+		keyAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0)
+		keyAttributes, err = module.GetAttributeValue(session, curPrivateKeyHandle, keyAttributes)
+		if err == nil {
+			curPrivateKeyObj.label = keyAttributes[0].Value
+		}
+
 		if certObj.cert == nil {
 			if len(privateKeyObjects) == 1 {
-				privateKeyHandle = curPrivateKeyHandle
+				privateKeyObj = curPrivateKeyObj
 				break
 			} else {
 				err = errors.New("multiple matching private keys, but" +
@@ -822,15 +872,15 @@ retry_search:
 			curContextSpecificPin = userPin
 		}
 		privateKeyMatchesCert := false
-		curContextSpecificPin, privateKeyMatchesCert = checkPrivateKeyMatchesCert(module, session, keyType, userPin, alwaysAuth, "", forcePrompt, curPrivateKeyHandle, certObj.cert, manufacturerId)
+		curContextSpecificPin, privateKeyMatchesCert = checkPrivateKeyMatchesCert(module, session, keyType, userPin, alwaysAuth, "", forcePrompt, curPrivateKeyObj, keySlot, certObj.cert, manufacturerId)
 		if privateKeyMatchesCert {
-			privateKeyHandle = curPrivateKeyHandle
+			privateKeyObj = curPrivateKeyObj
 			contextSpecificPin = curContextSpecificPin
 			break
 		}
 	}
 
-	if privateKeyHandle == 0 {
+	if privateKeyObj.keyObject == 0 {
 		/* "If the key is not found and the original search was by
 		 * CKA_LABEL of the certificate, then repeat the search using
 		 * the CKA_ID of the certificate that was actually found, but
@@ -860,22 +910,17 @@ retry_search:
 
 	// So that hunting for the key can be more efficient in the future,
 	// return a key URI that has CKA_ID and CKA_VALUE appropriately set.
-	keyAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_ID, 0)
-	keyAttributes, err = module.GetAttributeValue(session, privateKeyHandle, keyAttributes)
-	if err == nil {
-		keyUri.SetPathAttribute("id", escapeAll(keyAttributes[0].Value))
+	if privateKeyObj.id != nil {
+		keyUri.SetPathAttribute("id", escapeAll(privateKeyObj.id))
+	}
+	if privateKeyObj.label != nil {
+		keyUri.SetPathAttribute("object", escapeAll(privateKeyObj.label))
 	}
 
-	keyAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0)
-	keyAttributes, err = module.GetAttributeValue(session, privateKeyHandle, keyAttributes)
-	if err == nil {
-		keyUri.SetPathAttribute("object", escapeAll(keyAttributes[0].Value))
-	}
-
-	return session, userPin, keyUri, keyType, privateKeyHandle, alwaysAuth, contextSpecificPin, nil
+	return session, userPin, keyUri, keyType, privateKeyObj, keySlot, alwaysAuth, contextSpecificPin, nil
 
 fail:
-	return 0, "", nil, 0, 0, 0, "", err
+	return 0, "", nil, 0, KeyObjInfo{}, SlotIdInfo{}, 0, "", err
 }
 
 // Gets the certificate in a token, given the URI that identifies the
@@ -909,7 +954,8 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 		keyUri             *pkcs11uri.Pkcs11URI
 		userPin            string
 		contextSpecificPin string
-		privateKeyHandle   pkcs11.ObjectHandle
+		privateKeyObj      KeyObjInfo
+		keySlot            SlotIdInfo
 		keyType            uint
 		certSlotNr         uint
 		certObj            CertObjInfo
@@ -947,12 +993,12 @@ func (pkcs11Signer *PKCS11Signer) Sign(rand io.Reader, digest []byte, opts crypt
 		}
 	}
 
-	session, userPin, keyUri, keyType, privateKeyHandle, alwaysAuth, contextSpecificPin, err = getPKCS11Key(module, session, loggedIn, certUri, keyUri, false, certSlotNr, certObj, userPin, contextSpecificPin, forcePrompt, slots)
+	session, userPin, keyUri, keyType, privateKeyObj, keySlot, alwaysAuth, contextSpecificPin, err = getPKCS11Key(module, session, loggedIn, certUri, keyUri, false, certSlotNr, certObj, userPin, contextSpecificPin, forcePrompt, slots)
 	if err != nil {
 		goto cleanUp
 	}
 
-	contextSpecificPin, signature, err = signHelper(module, session, privateKeyHandle, userPin, alwaysAuth, contextSpecificPin, forcePrompt, keyType, digest, hashFunc)
+	contextSpecificPin, signature, err = signHelper(module, session, privateKeyObj, keySlot, userPin, alwaysAuth, contextSpecificPin, forcePrompt, keyType, digest, hashFunc)
 	if err != nil {
 		goto cleanUp
 	} else {
@@ -1052,7 +1098,7 @@ func (pkcs11Signer *PKCS11Signer) CertificateChain() (certChain []*x509.Certific
 }
 
 // Checks whether the private key and certificate are associated with each other.
-func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, keyType uint, userPin string, alwaysAuth uint, contextSpecificPin string, forcePrompt bool, privateKeyHandle pkcs11.ObjectHandle, certificate *x509.Certificate, manufacturerId string) (string, bool) {
+func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle, keyType uint, userPin string, alwaysAuth uint, contextSpecificPin string, forcePrompt bool, privateKeyObj KeyObjInfo, keySlot SlotIdInfo, certificate *x509.Certificate, manufacturerId string) (string, bool) {
 	var digestSuffix []byte
 	publicKey := certificate.PublicKey
 	ecdsaPublicKey, isEcKey := publicKey.(*ecdsa.PublicKey)
@@ -1079,7 +1125,7 @@ func checkPrivateKeyMatchesCert(module *pkcs11.Ctx, session pkcs11.SessionHandle
 	digestBytes := []byte(digest)
 	hash := sha256.Sum256(digestBytes)
 
-	contextSpecificPin, signature, err := signHelper(module, session, privateKeyHandle, userPin, alwaysAuth, "", forcePrompt, keyType, digestBytes, crypto.SHA256)
+	contextSpecificPin, signature, err := signHelper(module, session, privateKeyObj, keySlot, userPin, alwaysAuth, "", forcePrompt, keyType, digestBytes, crypto.SHA256)
 	if err != nil {
 		return "", false
 	}
@@ -1239,7 +1285,7 @@ func GetPKCS11Signer(libPkcs11 string, cert *x509.Certificate, certChain []*x509
 		}
 	}
 
-	session, userPin, keyUri, keyType, _, alwaysAuth, contextSpecificPin, err = getPKCS11Key(module, session, loggedIn, certUri, keyUri, noKeyUri, certSlotNr, certObj, userPin, "", forcePrompt, slots)
+	session, userPin, keyUri, keyType, _, _, alwaysAuth, contextSpecificPin, err = getPKCS11Key(module, session, loggedIn, certUri, keyUri, noKeyUri, certSlotNr, certObj, userPin, "", forcePrompt, slots)
 	if err != nil {
 		goto fail
 	}
