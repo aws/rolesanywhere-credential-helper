@@ -21,13 +21,14 @@ var (
 	noVerifySSL       bool
 	withProxy         bool
 	debug             bool
+	forcePrompt       bool
 
 	certificateId       string
 	privateKeyId        string
 	certificateBundleId string
 	certSelector        string
 
-	libPkcs11   string
+	libPkcs11 string
 
 	credentialsOptions helper.CredentialsOpts
 
@@ -65,9 +66,13 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store. "+
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
 	subCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
+	subCmd.PersistentFlags().BoolVar(&forcePrompt, "force-prompt", false, "Force prompting for a context-specific PIN if the "+
+		"CKA_ALWAYS_AUTHENTICATE attribute is set on the desired private key. This option is only relevant for the PKCS#11 integration and will "+
+		"be ignored in all other cases")
 
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "intermediates")
+	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "force-prompt")
 }
 
 // Parses a cert selector string to a map
@@ -215,6 +220,7 @@ func PopulateCredentialsOptions() error {
 		Debug:               debug,
 		Version:             Version,
 		LibPkcs11:           libPkcs11,
+		ForcePrompt:         forcePrompt,
 	}
 
 	return nil

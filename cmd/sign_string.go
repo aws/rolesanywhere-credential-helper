@@ -79,6 +79,9 @@ func init() {
 	signStringCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store. "+
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
 	signStringCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (default: p11-kit-proxy.{so, dll, dylib})")
+	signStringCmd.PersistentFlags().BoolVar(&forcePrompt, "force-prompt", false, "Force prompting for a context-specific PIN if the "+
+		"CKA_ALWAYS_AUTHENTICATE attribute is set on the desired private key. This option is only relevant for the PKCS#11 integration and will "+
+		"be ignored in all other cases")
 	signStringCmd.PersistentFlags().Var(format, "format", "Output format. One of json, text, and bin")
 	signStringCmd.PersistentFlags().Var(digestArg, "digest", "One of SHA256, SHA384, and SHA512")
 }

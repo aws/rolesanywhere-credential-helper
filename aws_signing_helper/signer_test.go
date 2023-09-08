@@ -241,6 +241,7 @@ func TestSign(t *testing.T) {
 	pkcs11_objects := []string{"rsa-2048", "ec-prime256v1"}
 
 	for _, object := range pkcs11_objects {
+		base_pkcs11_uri := "pkcs11:token=credential-helper-test?pin-value=1234"
 		basic_pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s?pin-value=1234", object)
 		always_auth_pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s-always-auth?pin-value=1234", object)
 		cert_file := fmt.Sprintf("../tst/certs/%s-sha256-cert.pem", object)
@@ -266,6 +267,14 @@ func TestSign(t *testing.T) {
 		testTable = append(testTable, CredentialsOpts{
 			CertificateId: cert_file,
 			PrivateKeyId:  always_auth_pkcs11_uri,
+		})
+		// Note that for the below test case, there are two matching keys.
+		// Both keys will validate with the certificate, and one will be chosen
+		// (it doesn't matter which, since both are the exact same key - it's
+		// just that one has the CKA_ALWAYS_AUTHENTICATE attribute set).
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: cert_file,
+			PrivateKeyId:  base_pkcs11_uri,
 		})
 	}
 
@@ -297,8 +306,9 @@ func TestSign(t *testing.T) {
 
 		for _, digest := range digestList {
 			signatureBytes, err := signer.Sign(rand.Reader, []byte(msg), digest)
-			// Try signing again to make sure that a context-specific PIN, if
-			// needed, was cached.
+			// Try signing again to make sure that there aren't any issues
+			// with reopening sessions. Also, in some test cases, signing again
+			// makes sure that the context-specific PIN was saved.
 			signer.Sign(rand.Reader, []byte(msg), digest)
 			if err != nil {
 				t.Log("Failed to sign the input message")
