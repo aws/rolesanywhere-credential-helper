@@ -749,6 +749,9 @@ func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn boo
 			session = 0
 		}
 	} else {
+		if Debug {
+			log.Printf("Found %d matching slots for the PKCS#11 key\n", len(slots))
+		}
 		// If the URI matched multiple slots *but* one of them is the
 		// one (certSlotNr) that the certificate was found in, then use
 		// that.
