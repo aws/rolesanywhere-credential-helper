@@ -179,10 +179,10 @@ identified through the hard-coded labels, `X.509 Certificate for PIV Attestation
 
 #### Implementation Notes
 
-PKCS#11 PINs can be stored in memory as strings for the duration of the program and aren't 
-guaranteed to be zeroed out after the program is done with them. Since strings are 
-immutable in Golang, it's unclear how to circumvent the type system and get to the 
-underlying buffer to zero it out. 
+Due to this package's use of a dependency to integrate with PKCS#11 modules, we are unable 
+to guarantee that PINs are zeroized in memory after they are no longer needed. We will continue 
+to explore options to overcome this. Customers are encouraged to study the impact of this limitation 
+and determine whether compensating controls are warranted for their system and threat model.
 
 ### update
 
