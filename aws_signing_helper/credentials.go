@@ -31,7 +31,7 @@ type CredentialsOpts struct {
 	Debug               bool
 	Version             string
 	LibPkcs11           string
-	ForcePrompt         bool
+	ReusePin            bool
 }
 
 // Function to create session and generate credentials

@@ -233,7 +233,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		if certificate != nil {
 			opts.CertificateId = ""
 		}
-		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId, opts.ForcePrompt)
+		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId, opts.ReusePin)
 	} else {
 		privateKey, err = ReadPrivateKeyData(privateKeyId)
 		if err != nil {

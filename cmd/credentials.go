@@ -21,7 +21,7 @@ var (
 	noVerifySSL       bool
 	withProxy         bool
 	debug             bool
-	forcePrompt       bool
+	reusePin          bool
 
 	certificateId       string
 	privateKeyId        string
@@ -66,13 +66,13 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store. "+
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
 	subCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
-	subCmd.PersistentFlags().BoolVar(&forcePrompt, "force-prompt", false, "Force prompting for a context-specific PIN if the "+
-		"CKA_ALWAYS_AUTHENTICATE attribute is set on the desired private key. This option is only relevant for the PKCS#11 integration and will "+
-		"be ignored in all other cases")
+	subCmd.PersistentFlags().BoolVar(&reusePin, "reuse-pin", false, "Use the CKU_USER PIN as the CKU_CONTEXT_SPECIFIC PIN for "+
+		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
+		"for a given private key object, fall back to prompting the user")
 
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "intermediates")
-	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "force-prompt")
+	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
 }
 
 // Parses a cert selector string to a map
@@ -220,7 +220,7 @@ func PopulateCredentialsOptions() error {
 		Debug:               debug,
 		Version:             Version,
 		LibPkcs11:           libPkcs11,
-		ForcePrompt:         forcePrompt,
+		ReusePin:            reusePin,
 	}
 
 	return nil

@@ -263,10 +263,12 @@ func TestSign(t *testing.T) {
 		testTable = append(testTable, CredentialsOpts{
 			CertificateId: basic_pkcs11_uri,
 			PrivateKeyId:  always_auth_pkcs11_uri,
+			ReusePin:      true,
 		})
 		testTable = append(testTable, CredentialsOpts{
 			CertificateId: cert_file,
 			PrivateKeyId:  always_auth_pkcs11_uri,
+			ReusePin:      true,
 		})
 		// Note that for the below test case, there are two matching keys.
 		// Both keys will validate with the certificate, and one will be chosen
@@ -275,6 +277,7 @@ func TestSign(t *testing.T) {
 		testTable = append(testTable, CredentialsOpts{
 			CertificateId: cert_file,
 			PrivateKeyId:  base_pkcs11_uri,
+			ReusePin:      true,
 		})
 	}
 
@@ -496,18 +499,22 @@ func TestPKCS11SignerCreationFails(t *testing.T) {
 	testTable = append(testTable, CredentialsOpts{
 		CertificateId: rsa_generic_uri,
 		PrivateKeyId:  always_auth_ec_uri,
+		ReusePin:      true,
 	})
 	testTable = append(testTable, CredentialsOpts{
 		CertificateId: ec_generic_uri,
 		PrivateKeyId:  always_auth_rsa_uri,
+		ReusePin:      true,
 	})
 	testTable = append(testTable, CredentialsOpts{
 		CertificateId: "../tst/certs/ec-prime256v1-sha256-cert.pem",
 		PrivateKeyId:  always_auth_rsa_uri,
+		ReusePin:      true,
 	})
 	testTable = append(testTable, CredentialsOpts{
 		CertificateId: "../tst/certs/rsa-2048-sha256-cert.pem",
 		PrivateKeyId:  always_auth_ec_uri,
+		ReusePin:      true,
 	})
 
 	for _, credOpts := range testTable {
