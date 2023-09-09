@@ -160,10 +160,22 @@ for it.
 For systems or containers which lack p11-kit, a specific PKCS#11
 provider library can be specified using the `--pkcs11-lib` parameter.
 
+The other relevant parameter is `--reuse-pin`. This is a boolean parameter that can 
+be specified if the private key object you would like to use to sign data has the 
+`CKA_ALWAYS_AUTHENTICATE` attribute set and the `CKU_CONTEXT_SPECIFIC` PIN for the 
+object matches the `CKU_USER` PIN. If this parameter isn't set, you will be prompted 
+to provide the `CKU_CONTEXT_SPECIFIC` PIN for the object through the console. If this 
+parameter is set and the `CKU_USER` PIN doesn't match the `CKU_CONTEXT_SPECIFIC` PIN, 
+the credential helper application will fall back to prompting you. 
+
 The searching methodology used to find objects within PKCS#11 tokens can largely be found 
 [here](https://datatracker.ietf.org/doc/html/draft-woodhouse-cert-best-practice-01). Do note 
-that there are some slight differences in objects are found in the credential helper 
+that there are some slight differences in how objects are found in the credential helper 
 application. 
+
+#### Other Notes
+
+##### YubiKey Attestation Certificates
 
 Note that if you're using a YubiKey device with PIV support, when a key pair 
 and certificate exist in slots 9a or 9c (PIV authentication and digital signature, 
@@ -177,7 +189,7 @@ in a URI). Attestation certificates in either of these two slots can be
 identified through the hard-coded labels, `X.509 Certificate for PIV Attestation 
 9a` or `X.509 Certificate for PIV Attestation 9c`. 
 
-#### Implementation Notes
+##### Implementation Note
 
 Due to this package's use of a dependency to integrate with PKCS#11 modules, we are unable 
 to guarantee that PINs are zeroized in memory after they are no longer needed. We will continue 
