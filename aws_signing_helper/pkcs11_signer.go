@@ -369,37 +369,43 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 	// login should only be attempted if there is precisely one token
 	// which matches the URI, and not if there are multiple possible
 	// tokens in which the object could reside."
-	if len(slots) == 1 && userPin != "" {
-		curSession, err := module.OpenSession(slots[0].id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
-		if err != nil {
-			err = errNoMatchingCerts
-			goto fail
-		}
-
-		err = module.Login(curSession, pkcs11.CKU_USER, userPin)
-		if err != nil {
-			err = errNoMatchingCerts
-			goto fail
-		}
-
-		curMatchingCerts, err := getCertsInSession(module, slots[0].id, curSession, uri)
-		if err == nil && len(curMatchingCerts) > 0 {
-			matchingCerts = append(matchingCerts, curMatchingCerts...)
-			// We only care about this value when there is a single matching
-			// certificate found.
-			if session == 0 {
-				loggedIn = true
-				matchedSlot = slots[0]
-				session = curSession
-				goto foundCert
+	if len(slots) == 1 {
+		if userPin != "" {
+			curSession, err := module.OpenSession(slots[0].id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
+			if err != nil {
+				err = errNoMatchingCerts
+				goto fail
 			}
-		}
-		module.Logout(curSession)
-		module.CloseSession(curSession)
-	}
 
-	err = errNoMatchingCerts
-	goto fail
+			err = module.Login(curSession, pkcs11.CKU_USER, userPin)
+			if err != nil {
+				err = errNoMatchingCerts
+				goto fail
+			}
+
+			curMatchingCerts, err := getCertsInSession(module, slots[0].id, curSession, uri)
+			if err == nil && len(curMatchingCerts) > 0 {
+				matchingCerts = append(matchingCerts, curMatchingCerts...)
+				// We only care about this value when there is a single matching
+				// certificate found.
+				if session == 0 {
+					loggedIn = true
+					matchedSlot = slots[0]
+					session = curSession
+					goto foundCert
+				}
+			}
+		} else {
+			err = errors.New("one matching slot, but no user PIN provided")
+			goto fail
+		}
+	} else if len(slots) == 0 {
+		err = errors.New("no matching slots")
+		goto fail
+	} else {
+		err = errors.New("multiple matching slots")
+		goto fail
+	}
 
 foundCert:
 	if single && len(matchingCerts) > 1 {
@@ -870,10 +876,7 @@ retry_search:
 			}
 		}
 
-		curContextSpecificPin := contextSpecificPin
-		if curContextSpecificPin == "" {
-			curContextSpecificPin = userPin
-		}
+		var curContextSpecificPin string
 		privateKeyMatchesCert := false
 		curContextSpecificPin, privateKeyMatchesCert = checkPrivateKeyMatchesCert(module, session, keyType, userPin, alwaysAuth, "", reusePin, curPrivateKeyObj, keySlot, certObj.cert, manufacturerId)
 		if privateKeyMatchesCert {
@@ -912,7 +915,7 @@ retry_search:
 	}
 
 	// So that hunting for the key can be more efficient in the future,
-	// return a key URI that has CKA_ID and CKA_VALUE appropriately set.
+	// return a key URI that has CKA_ID and CKA_LABEL appropriately set.
 	if privateKeyObj.id != nil {
 		keyUri.SetPathAttribute("id", escapeAll(privateKeyObj.id))
 	}
