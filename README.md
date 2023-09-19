@@ -166,7 +166,12 @@ be specified if the private key object you would like to use to sign data has th
 object matches the `CKU_USER` PIN. If this parameter isn't set, you will be prompted 
 to provide the `CKU_CONTEXT_SPECIFIC` PIN for the object through the console. If this 
 parameter is set and the `CKU_USER` PIN doesn't match the `CKU_CONTEXT_SPECIFIC` PIN, 
-the credential helper application will fall back to prompting you. 
+the credential helper application will fall back to prompting you. In an unattended 
+scenario, this flag is very helpful. There is currently no way in which to specify 
+the `CKU_CONTEXT_SPECIFIC` PIN without being prompted for it, so you are out of luck 
+for the time being when it comes to unattended workloads if the `CKU_CONTEXT_SPECIFIC` 
+PIN of the private key object you want to use is different from the `CKU_USER` PIN of 
+the token that it belongs to. 
 
 The searching methodology used to find objects within PKCS#11 tokens can largely be found 
 [here](https://datatracker.ietf.org/doc/html/draft-woodhouse-cert-best-practice-01). Do note 
