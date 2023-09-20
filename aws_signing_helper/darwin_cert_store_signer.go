@@ -82,7 +82,7 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 		curCert, err := exportCertRef(curCertRef)
 		if err != nil {
 			if Debug {
-				fmt.Fprintf(os.Stderr, "unable to parse certificate with error (%s) - skipping\n", err)
+				log.Printf("unable to parse certificate with error (%s) - skipping\n", err)
 			}
 			goto nextIteration
 		}
