@@ -36,9 +36,9 @@ The project also comes with two bash scripts at its root, called `generate-certs
 
 ### read-certificate-data
 
-Reads a certificate that is on disk. Either the path to the certificate on disk is provided with the `--certificate` parameter, or the `--cert-selector` flag is provided to select a certificate within an OS certificate store. Further details about the flag are provided below.
+Reads a certificate. Either the path to the certificate on disk or PKCS#11 URI to identify the certificate is provided with the `--certificate` parameter, or the `--cert-selector` flag is provided to select a certificate within an OS certificate store. Further details about the `--cert-selector` flag are provided below.
 
-If there are multiple certificates that match a given `--cert-selector`, information about each of them is printed. 
+If there are multiple certificates that match a given `--cert-selector` or PKCS#11 URI (as specified through the `--certificate` parameter), information about each of them is printed. For PKCS#11, URIs for each matched certificate is also printed in the hopes that it will be useful in uniquely identifying a certificate. 
 
 #### cert-selector flag
 
@@ -79,7 +79,7 @@ Signs a fixed strings: `"AWS Roles Anywhere Credential Helper Signing Test" || S
 
 ### credential-process
 
-Vends temporary credentials by sending a `CreateSession` request to the Roles Anywhere service. The request is signed by the private key whose path can be provided with the `--private-key` parameter. Other parameters include `--certificate` (the path to the end-entity certificate), `--role-arn` (the ARN of the role to obtain temporary credentials for), `--profile-arn` (the ARN of the profile that provides a mapping for the specified role), and `--trust-anchor-arn` (the ARN of the trust anchor used to authenticate). Optional parameters that can be used are `--debug` (to provide debugging output about the request sent), `--no-verify-ssl` (to skip verification of the SSL certificate on the endpoint called), `--intermediates` (the path to intermediate certificates), `--with-proxy` (to make the binary proxy aware), `--endpoint` (the endpoint to call), `--region` (the region to scope the request to), and `--session-duration` (the duration of the vended session). Instead of passing in paths to the plaintext private key on your file system, another option (depending on your OS) could be to use the `--cert-selector` flag. More details can be found below.
+Vends temporary credentials by sending a `CreateSession` request to the Roles Anywhere service. The request is signed by the private key whose path can be provided with the `--private-key` parameter. Currently, only plaintext private keys are supported. Other parameters include `--certificate` (the path to the end-entity certificate), `--role-arn` (the ARN of the role to obtain temporary credentials for), `--profile-arn` (the ARN of the profile that provides a mapping for the specified role), and `--trust-anchor-arn` (the ARN of the trust anchor used to authenticate). Optional parameters that can be used are `--debug` (to provide debugging output about the request sent), `--no-verify-ssl` (to skip verification of the SSL certificate on the endpoint called), `--intermediates` (the path to intermediate certificates), `--with-proxy` (to make the binary proxy aware), `--endpoint` (the endpoint to call), `--region` (the region to scope the request to), and `--session-duration` (the duration of the vended session). Instead of passing in paths to the plaintext private key on your file system, another option (depending on your OS) could be to use the `--cert-selector` flag. More details can be found below.
 
 Note that if more than one certificate matches the `--cert-selector` parameter within the OS-specific secure store, the `credential-process` command will fail. To find the list of certificates that match a given `--cert-selector` parameter, you can use the same flag with the `read-certificate-data` command.
 
@@ -132,6 +132,78 @@ certutil -user -p %UNWRAPPING_PASSWORD% -importPFX "MY" \path\to\identity.pfx
 The above command will import the PFX file into the user's "MY" certificate store. The `UNWRAPPING_PASSWORD` environment variable should contain the password to unwrap the PFX file.
 
 Also note that the above step can be done through a [Powershell cmdlet](https://learn.microsoft.com/en-us/powershell/module/pki/import-pfxcertificate?view=windowsserver2022-ps) or through [Windows CNG/Cryptography APIs](https://learn.microsoft.com/en-us/windows/win32/api/wincrypt/nf-wincrypt-pfximportcertstore).
+
+#### PKCS#11 Integration
+
+As you should expect from all applications which use keys and certificates, you can simply give a
+[PKCS#11 URI](https://datatracker.ietf.org/doc/html/rfc7512) in place of a filename in order to
+use certificates and/or keys from hardware or software PKCS#11 tokens / HSMs. A hybrid mode
+using a certificate from a file but only the key in the token is also supported. Some examples:
+
+  * `--certificate 'pkcs11:manufacturer=piv_II;id=%01'`
+  * `--certificate 'pkcs11:object=My%20RA%20key'`
+  * `--certificate client-cert.pem --private-key 'pkcs11:model=SoftHSM%20v2;object=My%20RA%20key'`
+
+Some documentation which may assist with finding the correct URI for
+your key can be found [here](https://www.infradead.org/openconnect/pkcs11.html). Otherwise, you 
+can also potentially scope down your PKCS#11 URI by using the `read-certificate-data` diagnostic 
+command. 
+
+Most Linux and similar *nix systems use
+[p11-kit](https://p11-glue.github.io/p11-glue/p11-kit/manual/config.html)
+to provide consistent system-wide and per-user configuration of
+available PKCS#11 providers. Any properly packaged provider module
+will register itself with p11-kit and will be automatically visible
+through the `p11-kit-proxy.{dylib, dll, so}` provider which is used by default.
+
+If you have a poorly packaged provider module from a vendor, then
+after you have filed a bug, you can manually create a p11-kit [module
+file](https://p11-glue.github.io/p11-glue/p11-kit/manual/pkcs11-conf.html)
+for it.
+
+For systems or containers which lack p11-kit, a specific PKCS#11
+provider library can be specified using the `--pkcs11-lib` parameter.
+
+The other relevant parameter is `--reuse-pin`. This is a boolean parameter that can 
+be specified if the private key object you would like to use to sign data has the 
+`CKA_ALWAYS_AUTHENTICATE` attribute set and the `CKU_CONTEXT_SPECIFIC` PIN for the 
+object matches the `CKU_USER` PIN. If this parameter isn't set, you will be prompted 
+to provide the `CKU_CONTEXT_SPECIFIC` PIN for the object through the console. If this 
+parameter is set and the `CKU_USER` PIN doesn't match the `CKU_CONTEXT_SPECIFIC` PIN, 
+the credential helper application will fall back to prompting you. In an unattended 
+scenario, this flag is very helpful. There is currently no way in which to specify 
+the `CKU_CONTEXT_SPECIFIC` PIN without being prompted for it, so you are out of luck 
+for the time being when it comes to unattended workloads if the `CKU_CONTEXT_SPECIFIC` 
+PIN of the private key object you want to use is different from the `CKU_USER` PIN of 
+the token that it belongs to. 
+
+The searching methodology used to find objects within PKCS#11 tokens can largely be found 
+[here](https://datatracker.ietf.org/doc/html/draft-woodhouse-cert-best-practice-01). Do note 
+that there are some slight differences in how objects are found in the credential helper 
+application. 
+
+#### Other Notes
+
+##### YubiKey Attestation Certificates
+
+Note that if you're using a YubiKey device with PIV support, when a key pair 
+and certificate exist in slots 9a or 9c (PIV authentication and digital signature, 
+respectively), the YubiKey will automatically generate an attestation certificate 
+for the slot. Testing has shown that the attestation certificate can't be deleted. 
+In this case, if you attempt to use the `CKA_ID` (the `id` path attribute in a URI) 
+of your certificate to identify it in your supplied PKCS#11 URI, there will be 
+two certificates that match. One way in which you can disambiguate between the 
+two in your PKCS#11 URI can be through `CKA_LABEL` (the `object` path attribute 
+in a URI). Attestation certificates in either of these two slots can be 
+identified through the hard-coded labels, `X.509 Certificate for PIV Attestation 
+9a` or `X.509 Certificate for PIV Attestation 9c`. 
+
+##### Implementation Note
+
+Due to this package's use of a dependency to integrate with PKCS#11 modules, we are unable 
+to guarantee that PINs are zeroized in memory after they are no longer needed. We will continue 
+to explore options to overcome this. Customers are encouraged to study the impact of this limitation 
+and determine whether compensating controls are warranted for their system and threat model.
 
 ### update
 

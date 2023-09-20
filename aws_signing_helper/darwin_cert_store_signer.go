@@ -22,7 +22,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
+	"log"
 	"unsafe"
 )
 
@@ -104,7 +104,7 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 	}
 
 	if Debug {
-		fmt.Fprintf(os.Stderr, "found %d matching identities\n", len(certContainers))
+		log.Printf("found %d matching identities\n", len(certContainers))
 	}
 
 	// Only retain the SecIdentityRef if it should be used later on

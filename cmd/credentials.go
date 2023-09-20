@@ -21,16 +21,14 @@ var (
 	noVerifySSL       bool
 	withProxy         bool
 	debug             bool
+	reusePin          bool
 
 	certificateId       string
 	privateKeyId        string
 	certificateBundleId string
 	certSelector        string
 
-	libPkcs11   string
-	pinPkcs11   string
-	slotPkcs11  uint
-	checkPkcs11 bool
+	libPkcs11 string
 
 	credentialsOptions helper.CredentialsOpts
 
@@ -67,8 +65,14 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&certificateBundleId, "intermediates", "", "Path to intermediate certificate bundle file")
 	subCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store. "+
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
+	subCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
+	subCmd.PersistentFlags().BoolVar(&reusePin, "reuse-pin", false, "Use the CKU_USER PIN as the CKU_CONTEXT_SPECIFIC PIN for "+
+		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
+		"for a given private key object, fall back to prompting the user")
 
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
+	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "intermediates")
+	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
 }
 
 // Parses a cert selector string to a map
@@ -216,6 +220,7 @@ func PopulateCredentialsOptions() error {
 		Debug:               debug,
 		Version:             Version,
 		LibPkcs11:           libPkcs11,
+		ReusePin:            reusePin,
 	}
 
 	return nil

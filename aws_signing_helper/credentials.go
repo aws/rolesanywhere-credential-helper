@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
+	"log"
 	"net/http"
 	"runtime"
 
@@ -30,11 +31,12 @@ type CredentialsOpts struct {
 	Debug               bool
 	Version             string
 	LibPkcs11           string
+	ReusePin            bool
 }
 
 // Function to create session and generate credentials
 func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorithm string) (CredentialProcessOutput, error) {
-	// assign values to region and endpoint if they haven't already been assigned
+	// Assign values to region and endpoint if they haven't already been assigned
 	trustAnchorArn, err := arn.Parse(opts.TrustAnchorArnStr)
 	if err != nil {
 		return CredentialProcessOutput{}, err
@@ -87,7 +89,10 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 	}
 	certificateChain, err := signer.CertificateChain()
 	if err != nil {
-		return CredentialProcessOutput{}, errors.New("unable to find certificate chain")
+		// If the chain couldn't be found, don't include it in the request
+		if Debug {
+			log.Println(err)
+		}
 	}
 	rolesAnywhereClient.Handlers.Sign.PushBackNamed(request.NamedHandler{Name: "v4x509.SignRequestHandler", Fn: CreateRequestSignFunction(signer, signatureAlgorithm, certificate, certificateChain)})
 

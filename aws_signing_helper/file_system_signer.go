@@ -8,10 +8,8 @@ import (
 	"crypto/sha512"
 	"crypto/x509"
 	"errors"
-	"golang.org/x/crypto/pkcs12"
 	"io"
 	"log"
-	"os"
 )
 
 type FileSystemSigner struct {
@@ -36,8 +34,7 @@ func (fileSystemSigner FileSystemSigner) Public() crypto.PublicKey {
 	return nil
 }
 
-func (fileSystemSigner FileSystemSigner) Close() {
-}
+func (fileSystemSigner FileSystemSigner) Close() {}
 
 func (fileSystemSigner FileSystemSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	var hash []byte
@@ -83,8 +80,7 @@ func (fileSystemSigner FileSystemSigner) CertificateChain() ([]*x509.Certificate
 	return fileSystemSigner.certChain, nil
 }
 
-// Returns a FileSystemSigner, that signs a payload using the
-// private key passed in
+// Returns a FileSystemSigner, that signs a payload using the private key passed in
 func GetFileSystemSigner(privateKey crypto.PrivateKey, certificate *x509.Certificate, certificateChain []*x509.Certificate) (signer Signer, signingAlgorithm string, err error) {
 	// Find the signing algorithm
 	_, isRsaKey := privateKey.(rsa.PrivateKey)
@@ -101,32 +97,4 @@ func GetFileSystemSigner(privateKey crypto.PrivateKey, certificate *x509.Certifi
 	}
 
 	return FileSystemSigner{privateKey, certificate, certificateChain}, signingAlgorithm, nil
-}
-
-func GetPKCS12Signer(certificateId string) (signer Signer, signingAlgorithm string, err error) {
-	bytes, err := os.ReadFile(certificateId)
-	if err != nil {
-		return nil, "", err
-	}
-	privateKey, certificate, err := pkcs12.Decode(bytes, "")
-	if err != nil {
-		return nil, "", err
-	}
-	if privateKey == nil {
-		return nil, "", errors.New("PKCS#12 has no private key")
-	}
-
-	rsaPrivateKey, ok := privateKey.(*rsa.PrivateKey)
-	if ok {
-		signingAlgorithm = aws4_x509_rsa_sha256
-		return FileSystemSigner{*rsaPrivateKey, certificate, nil}, signingAlgorithm, nil
-	}
-
-	ecPrivateKey, ok := privateKey.(*ecdsa.PrivateKey)
-	if ok {
-		signingAlgorithm = aws4_x509_ecdsa_sha256
-		return FileSystemSigner{*ecPrivateKey, certificate, nil}, signingAlgorithm, nil
-	}
-
-	return nil, "", errors.New("unsupported algorithm on PKCS#12 key")
 }

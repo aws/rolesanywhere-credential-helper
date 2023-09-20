@@ -25,6 +25,7 @@ import (
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/request"
+	"golang.org/x/crypto/pkcs12"
 )
 
 type SignerParams struct {
@@ -156,21 +157,24 @@ func encodeEcdsaSigValue(signature []byte) (out []byte, err error) {
 
 // Gets the Signer based on the flags passed in by the user (from which the CredentialsOpts structure is derived)
 func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string, err error) {
-	var certificate *x509.Certificate
-	var certificateChain []*x509.Certificate
+	var (
+		certificate      *x509.Certificate
+		certificateChain []*x509.Certificate
+		privateKey       crypto.PrivateKey
+	)
 
 	privateKeyId := opts.PrivateKeyId
 	if privateKeyId == "" {
 		if opts.CertificateId == "" {
 			if Debug {
-				fmt.Fprintln(os.Stderr, "attempting to use CertStoreSigner")
+				log.Println("attempting to use CertStoreSigner")
 			}
 			return GetCertStoreSigner(opts.CertIdentifier)
 		}
 		privateKeyId = opts.CertificateId
 	}
 
-	if opts.CertificateId != "" {
+	if opts.CertificateId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
 		certificateData, err := ReadCertificateData(opts.CertificateId)
 		if err == nil {
 			certificateDerData, err := base64.StdEncoding.DecodeString(certificateData.CertificateData)
@@ -183,10 +187,30 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			}
 		} else if opts.PrivateKeyId == "" {
 			if Debug {
-				fmt.Fprintln(os.Stderr, "not a PEM certificate, so trying PKCS#12")
+				log.Println("not a PEM certificate, so trying PKCS#12")
+			}
+			if opts.CertificateBundleId != "" {
+				return nil, "", errors.New("can't specify certificate chain when" +
+					" using PKCS#12 files; certificate bundle should be provided" +
+					" within the PKCS#12 file")
 			}
 			// Not a PEM certificate? Try PKCS#12
-			return GetPKCS12Signer(opts.CertificateId)
+			certificateChain, privateKey, err = ReadPKCS12Data(opts.CertificateId)
+			if err != nil {
+				return nil, "", err
+			}
+			if privateKey != nil {
+				ecPrivateKeyPtr, isEcKey := privateKey.(*ecdsa.PrivateKey)
+				if isEcKey {
+					privateKey = *ecPrivateKeyPtr
+				}
+
+				rsaPrivateKeyPtr, isRsaKey := privateKey.(*rsa.PrivateKey)
+				if isRsaKey {
+					privateKey = *rsaPrivateKeyPtr
+				}
+			}
+			return GetFileSystemSigner(privateKey, certificateChain[0], certificateChain)
 		} else {
 			return nil, "", err
 		}
@@ -202,15 +226,25 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		}
 	}
 
-	privateKey, err := ReadPrivateKeyData(privateKeyId)
-	if err != nil {
-		return nil, "", err
-	}
+	if strings.HasPrefix(privateKeyId, "pkcs11:") {
+		if Debug {
+			log.Println("attempting to use PKCS11Signer")
+		}
+		if certificate != nil {
+			opts.CertificateId = ""
+		}
+		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId, opts.ReusePin)
+	} else {
+		privateKey, err = ReadPrivateKeyData(privateKeyId)
+		if err != nil {
+			return nil, "", err
+		}
 
-	if Debug {
-		fmt.Fprintln(os.Stderr, "attempting to use FileSystemSigner")
+		if Debug {
+			log.Println("attempting to use FileSystemSigner")
+		}
+		return GetFileSystemSigner(privateKey, certificate, certificateChain)
 	}
-	return GetFileSystemSigner(privateKey, certificate, certificateChain)
 }
 
 // Obtain the date-time, formatted as specified by SigV4
@@ -494,7 +528,7 @@ func ReadCertificateBundleData(certificateBundleId string) ([]*x509.Certificate,
 	for len(bytes) > 0 {
 		block, bytes = pem.Decode(bytes)
 		if block == nil {
-			return nil, errors.New("unable to parse PEM data")
+			break
 		}
 		if block.Type != "CERTIFICATE" {
 			return nil, errors.New("invalid certificate chain")
@@ -555,7 +589,82 @@ func readPKCS8PrivateKey(privateKeyId string) (crypto.PrivateKey, error) {
 		return *ecPrivateKey, nil
 	}
 
-	return nil, errors.New("could not parse PKCS8 private key")
+	return nil, errors.New("could not parse PKCS#8 private key")
+}
+
+// Reads and parses a PKCS#12 file (which should contain an end-entity
+// certificate, (optional) certificate chain, and the key associated with the
+// end-entity certificate). The end-entity certificate will be the first
+// certificate in the returned chain. This method assumes that there is
+// exactly one certificate that doesn't issue any others within the container
+// and treats that as the end-entity certificate. Also, the order of the other
+// certificates in the chain aren't guaranteed (it's also not guaranteed that
+// those certificates form a chain with the end-entity certificat either).
+func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privateKey crypto.PrivateKey, err error) {
+	var (
+		bytes               []byte
+		pemBlocks           []*pem.Block
+		parsedCerts         []*x509.Certificate
+		certMap             map[string]*x509.Certificate
+		endEntityFoundIndex int
+	)
+
+	bytes, err = os.ReadFile(certificateId)
+	if err != nil {
+		return nil, nil, nil
+	}
+
+	pemBlocks, err = pkcs12.ToPEM(bytes, "")
+	if err != nil {
+		return nil, "", err
+	}
+
+	for _, block := range pemBlocks {
+		cert, err := x509.ParseCertificate(block.Bytes)
+		if err == nil {
+			parsedCerts = append(parsedCerts, cert)
+			continue
+		}
+		privateKeyTmp, err := ReadPrivateKeyDataFromPEMBlock(block)
+		if err == nil {
+			privateKey = privateKeyTmp
+			continue
+		}
+		// If neither a certificate nor a private key could be parsed from the
+		// Block, ignore it and continue.
+		if Debug {
+			log.Println("unable to parse PEM block in PKCS#12 file - skipping")
+		}
+	}
+
+	certMap = make(map[string]*x509.Certificate)
+	for _, cert := range parsedCerts {
+		// pkix.Name.String() roughly following the RFC 2253 Distinguished Names
+		// syntax, so we assume that it's canonical.
+		issuer := cert.Issuer.String()
+		certMap[issuer] = cert
+	}
+
+	endEntityFoundIndex = -1
+	for i, cert := range parsedCerts {
+		subject := cert.Subject.String()
+		if _, ok := certMap[subject]; !ok {
+			certChain = append(certChain, cert)
+			endEntityFoundIndex = i
+			break
+		}
+	}
+	if endEntityFoundIndex == -1 {
+		return nil, "", errors.New("no end-entity certificate found in PKCS#12 file")
+	}
+
+	for i, cert := range parsedCerts {
+		if i != endEntityFoundIndex {
+			certChain = append(certChain, cert)
+		}
+	}
+
+	return certChain, privateKey, nil
 }
 
 // Load the private key referenced by `privateKeyId`.
@@ -569,6 +678,21 @@ func ReadPrivateKeyData(privateKeyId string) (crypto.PrivateKey, error) {
 	}
 
 	if key, err := readRSAPrivateKey(privateKeyId); err == nil {
+		return key, nil
+	}
+
+	return nil, errors.New("unable to parse private key")
+}
+
+// Reads private key data from a *pem.Block.
+func ReadPrivateKeyDataFromPEMBlock(block *pem.Block) (key crypto.PrivateKey, err error) {
+	key, err = x509.ParseECPrivateKey(block.Bytes)
+	if err == nil {
+		return key, nil
+	}
+
+	key, err = x509.ParsePKCS1PrivateKey(block.Bytes)
+	if err == nil {
 		return key, nil
 	}
 
