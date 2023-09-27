@@ -98,12 +98,49 @@ var (
 	ErrRequiresUI = errors.New("provider requries UI to operate")
 )
 
-// Error codes for Windows APIs - implements the error interface
+// Error codes for Windows APIs - implements the error interface.
+// Error codes are maintained on a per-thread basis. In order to
+// get the last error code, C.GetLastError needs to be called (called
+// within the checkError() function). Some Windows APIs only return
+// BOOLs indicating success or failure, and for more detailed error
+// information, error codes are used.
 type errCode uint64
 
-// Security status for Windows APIs - implements the error interface
-// Go representation of the C SECURITY_STATUS
+// Implements the error interface for errCode and returns a string
+// version of the errCode
+func (c errCode) Error() string {
+	var cMsg C.LPSTR
+	ret := C.FormatMessage(
+		C.FORMAT_MESSAGE_ALLOCATE_BUFFER|
+			C.FORMAT_MESSAGE_FROM_SYSTEM|
+			C.FORMAT_MESSAGE_IGNORE_INSERTS,
+		nil,
+		C.DWORD(c),
+		C.ulong(C.MAKE_LANG_ID(C.LANG_NEUTRAL, C.SUBLANG_DEFAULT)),
+		cMsg,
+		0, nil)
+	if ret == 0 {
+		return fmt.Sprintf("Error %X", int(c))
+	}
+
+	if cMsg == nil {
+		return fmt.Sprintf("Error %X", int(c))
+	}
+
+	goMsg := C.GoString(cMsg)
+
+	return fmt.Sprintf("Error: %X %s", int(c), goMsg)
+}
+
+// Security status for Windows APIs - implements the error interface.
+// Some Windows API calls return this type directly.
+// Go representation of the C SECURITY_STATUS.
 type securityStatus uint64
+
+// Implements the error interface
+func (secStatus securityStatus) Error() string {
+	return fmt.Sprintf("SECURITY_STATUS %d", int(secStatus))
+}
 
 // Gets the certificates that match the given CertIdentifier within the user's "MY" certificate store.
 // If there is only a single matching certificate, then its chain will be returned too
@@ -596,32 +633,6 @@ func checkError(msg string) error {
 	return nil
 }
 
-// Implements the error interface for errCode and returns a string
-// version of the errCode
-func (c errCode) Error() string {
-	var cMsg C.LPSTR
-	ret := C.FormatMessage(
-		C.FORMAT_MESSAGE_ALLOCATE_BUFFER|
-			C.FORMAT_MESSAGE_FROM_SYSTEM|
-			C.FORMAT_MESSAGE_IGNORE_INSERTS,
-		nil,
-		C.DWORD(c),
-		C.ulong(C.MAKE_LANG_ID(C.LANG_NEUTRAL, C.SUBLANG_DEFAULT)),
-		cMsg,
-		0, nil)
-	if ret == 0 {
-		return fmt.Sprintf("Error %X", int(c))
-	}
-
-	if cMsg == nil {
-		return fmt.Sprintf("Error %X", int(c))
-	}
-
-	goMsg := C.GoString(cMsg)
-
-	return fmt.Sprintf("Error: %X %s", int(c), goMsg)
-}
-
 // Converts a SECURITY_STATUS into a securityStatus
 func checkStatus(s C.SECURITY_STATUS) error {
 	secStatus := securityStatus(s)
@@ -639,9 +650,4 @@ func checkStatus(s C.SECURITY_STATUS) error {
 	}
 
 	return secStatus
-}
-
-// Implements the error interface
-func (secStatus securityStatus) Error() string {
-	return fmt.Sprintf("SECURITY_STATUS %d", int(secStatus))
 }
