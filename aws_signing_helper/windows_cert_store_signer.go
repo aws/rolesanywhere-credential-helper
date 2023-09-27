@@ -76,6 +76,9 @@ const (
 	// NTE_BAD_ALGID — Invalid algorithm specified
 	NTE_BAD_ALGID = 0x80090008
 
+	// NTE_SILENT_CONTEXT - KSP must display UI to operate
+	NTE_SILENT_CONTEXT = 0x80090022
+
 	// WIN_API_FLAG specifies the flags that should be passed to
 	// CryptAcquireCertificatePrivateKey. This impacts whether the CryptoAPI or CNG
 	// API will be used.
@@ -89,12 +92,55 @@ const (
 	WIN_API_FLAG = windows.CRYPT_ACQUIRE_PREFER_NCRYPT_KEY_FLAG
 )
 
-// Error codes for Windows APIs - implements the error interface
+var (
+	// ErrRequiresUI is used when providers are required to display
+	// UI to perform signing operations.
+	ErrRequiresUI = errors.New("provider requries UI to operate")
+)
+
+// Error codes for Windows APIs - implements the error interface.
+// Error codes are maintained on a per-thread basis. In order to
+// get the last error code, C.GetLastError needs to be called (called
+// within the checkError() function). Some Windows APIs only return
+// BOOLs indicating success or failure, and for more detailed error
+// information, error codes are used.
 type errCode uint64
 
-// Security status for Windows APIs - implements the error interface
-// Go representation of the C SECURITY_STATUS
+// Implements the error interface for errCode and returns a string
+// version of the errCode
+func (c errCode) Error() string {
+	var cMsg C.LPSTR
+	ret := C.FormatMessage(
+		C.FORMAT_MESSAGE_ALLOCATE_BUFFER|
+			C.FORMAT_MESSAGE_FROM_SYSTEM|
+			C.FORMAT_MESSAGE_IGNORE_INSERTS,
+		nil,
+		C.DWORD(c),
+		C.ulong(C.MAKE_LANG_ID(C.LANG_NEUTRAL, C.SUBLANG_DEFAULT)),
+		cMsg,
+		0, nil)
+	if ret == 0 {
+		return fmt.Sprintf("Error %X", int(c))
+	}
+
+	if cMsg == nil {
+		return fmt.Sprintf("Error %X", int(c))
+	}
+
+	goMsg := C.GoString(cMsg)
+
+	return fmt.Sprintf("Error: %X %s", int(c), goMsg)
+}
+
+// Security status for Windows APIs - implements the error interface.
+// Some Windows API calls return this type directly.
+// Go representation of the C SECURITY_STATUS.
 type securityStatus uint64
+
+// Implements the error interface
+func (secStatus securityStatus) Error() string {
+	return fmt.Sprintf("SECURITY_STATUS %d", int(secStatus))
+}
 
 // Gets the certificates that match the given CertIdentifier within the user's "MY" certificate store.
 // If there is only a single matching certificate, then its chain will be returned too
@@ -441,9 +487,16 @@ func (signer *WindowsCertStoreSigner) cngSignHash(digest []byte, hash crypto.Has
 	// Get signature
 	sig := make([]byte, sigLen)
 	sigPtr := (*C.BYTE)(&sig[0])
-	if err := checkStatus(C.NCryptSignHash(*cngKeyHandle, padPtr, digestPtr, digestLen, sigPtr, sigLen, &sigLen, flags)); err != nil {
+	if err := checkStatus(C.NCryptSignHash(*cngKeyHandle, padPtr, digestPtr, digestLen, sigPtr, sigLen, &sigLen, flags|C.NCRYPT_SILENT_FLAG)); err != nil {
+		if err == ErrRequiresUI {
+			if err = checkStatus(C.NCryptSignHash(*cngKeyHandle, padPtr, digestPtr, digestLen, sigPtr, sigLen, &sigLen, flags)); err == nil {
+				goto got_signature
+			}
+		}
+
 		return nil, fmt.Errorf("failed to sign digest: %w", err)
 	}
+got_signature:
 
 	// CNG returns a raw ECDSA signature, but we want ASN.1 DER encoding
 	if _, isEC := privateKey.publicKey.(*ecdsa.PublicKey); isEC {
@@ -580,32 +633,6 @@ func checkError(msg string) error {
 	return nil
 }
 
-// Implements the error interface for errCode and returns a string
-// version of the errCode
-func (c errCode) Error() string {
-	var cMsg C.LPSTR
-	ret := C.FormatMessage(
-		C.FORMAT_MESSAGE_ALLOCATE_BUFFER|
-			C.FORMAT_MESSAGE_FROM_SYSTEM|
-			C.FORMAT_MESSAGE_IGNORE_INSERTS,
-		nil,
-		C.DWORD(c),
-		C.ulong(C.MAKE_LANG_ID(C.LANG_NEUTRAL, C.SUBLANG_DEFAULT)),
-		cMsg,
-		0, nil)
-	if ret == 0 {
-		return fmt.Sprintf("Error %X", int(c))
-	}
-
-	if cMsg == nil {
-		return fmt.Sprintf("Error %X", int(c))
-	}
-
-	goMsg := C.GoString(cMsg)
-
-	return fmt.Sprintf("Error: %X %s", int(c), goMsg)
-}
-
 // Converts a SECURITY_STATUS into a securityStatus
 func checkStatus(s C.SECURITY_STATUS) error {
 	secStatus := securityStatus(s)
@@ -618,10 +645,9 @@ func checkStatus(s C.SECURITY_STATUS) error {
 		return ErrUnsupportedHash
 	}
 
-	return secStatus
-}
+	if secStatus == NTE_SILENT_CONTEXT {
+		return ErrRequiresUI
+	}
 
-// Implements the error interface
-func (secStatus securityStatus) Error() string {
-	return fmt.Sprintf("SECURITY_STATUS %d", int(secStatus))
+	return secStatus
 }
