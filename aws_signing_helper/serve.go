@@ -289,6 +289,9 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	roleName := roleResourceParts[len(roleResourceParts)-1] // Find role name without path
 	putTokenHandler, getRoleNameHandler, getCredentialsHandler := AllIssuesHandlers(&endpoint.TmpCred, roleName, &credentialsOptions, signer, signatureAlgorithm)
 
+	http.HandleFunc("/health", func(writer http.ResponseWriter, request *http.Request) {
+		writer.WriteHeader(http.StatusOK)
+	})
 	http.HandleFunc(TOKEN_RESOURCE_PATH, putTokenHandler)
 	http.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH, getRoleNameHandler)
 	http.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH+roleName, getCredentialsHandler)
