@@ -27,6 +27,7 @@ var (
 	privateKeyId        string
 	certificateBundleId string
 	certSelector        string
+	systemStoreName     string
 
 	libPkcs11 string
 
@@ -65,12 +66,15 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&certificateBundleId, "intermediates", "", "Path to intermediate certificate bundle file")
 	subCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store. "+
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
+	subCmd.PersistentFlags().StringVar(&systemStoreName, "system-store-name", "MY", "Name of the system store to search for within the "+
+		"CERT_SYSTEM_STORE_CURRENT_USER context. Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
 	subCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
 	subCmd.PersistentFlags().BoolVar(&reusePin, "reuse-pin", false, "Use the CKU_USER PIN as the CKU_CONTEXT_SPECIFIC PIN for "+
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
 		"for a given private key object, fall back to prompting the user")
 
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
+	subCmd.MarkFlagsMutuallyExclusive("private-key", "system-store-name")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "intermediates")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
 }
@@ -173,9 +177,12 @@ func PopulateCertIdentifierFromCertSelectorStr(certSelectorStr string) (helper.C
 
 // Populates a CertIdentifier using a cert selector
 // Note that this method can take in a file name as a the cert selector
-func PopulateCertIdentifier(certSelector string) (helper.CertIdentifier, error) {
-	var certIdentifier helper.CertIdentifier
-	var err error
+func PopulateCertIdentifier(certSelector string, systemStoreName string) (helper.CertIdentifier, error) {
+	var (
+		certIdentifier helper.CertIdentifier
+		err            error
+	)
+
 	if certSelector != "" {
 		if strings.HasPrefix(certSelector, "file://") {
 			certSelectorFile, err := ioutil.ReadFile(strings.TrimPrefix(certSelector, "file://"))
@@ -193,13 +200,24 @@ func PopulateCertIdentifier(certSelector string) (helper.CertIdentifier, error) 
 			}
 		}
 	}
+	matchedPredefinedSystemStoreName := false
+	for _, predefinedSystemStoreName := range helper.SystemStoreNames {
+		if strings.EqualFold(systemStoreName, predefinedSystemStoreName) {
+			certIdentifier.SystemStoreName = predefinedSystemStoreName
+			matchedPredefinedSystemStoreName = true
+			break
+		}
+	}
+	if !matchedPredefinedSystemStoreName {
+		certIdentifier.SystemStoreName = systemStoreName
+	}
 
 	return certIdentifier, err
 }
 
 // Populate CredentialsOpts that is used to aggregate all the information required to call CreateSession
 func PopulateCredentialsOptions() error {
-	certIdentifier, err := PopulateCertIdentifier(certSelector)
+	certIdentifier, err := PopulateCertIdentifier(certSelector, systemStoreName)
 	if err != nil {
 		return err
 	}

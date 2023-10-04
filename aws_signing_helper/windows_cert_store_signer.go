@@ -142,10 +142,11 @@ func (secStatus securityStatus) Error() string {
 	return fmt.Sprintf("SECURITY_STATUS %d", int(secStatus))
 }
 
-// Gets the certificates that match the given CertIdentifier within the user's "MY" certificate store.
+// Gets the certificates that match the given CertIdentifier within the user's specified system
+// certificate store. By default, that is "MY".
 // If there is only a single matching certificate, then its chain will be returned too
 func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Handle, certCtx *windows.CertContext, certChain []*x509.Certificate, certContainers []CertificateContainer, err error) {
-	storeName, err := windows.UTF16PtrFromString("MY")
+	storeName, err := windows.UTF16PtrFromString(certIdentifier.SystemStoreName)
 	if err != nil {
 		return 0, nil, nil, nil, errors.New("unable to UTF-16 encode personal certificate store name")
 	}

@@ -36,15 +36,25 @@ type SignerParams struct {
 }
 
 type CertIdentifier struct {
-	Subject      string
-	Issuer       string
-	SerialNumber *big.Int
+	Subject         string
+	Issuer          string
+	SerialNumber    *big.Int
+	SystemStoreName string // Only relevant in the case of Windows
 }
 
 var (
 	// ErrUnsupportedHash is returned by Signer.Sign() when the provided hash
 	// algorithm isn't supported.
 	ErrUnsupportedHash = errors.New("unsupported hash algorithm")
+
+	// Predefined system store names.
+	// See: https://learn.microsoft.com/en-us/windows/win32/seccrypto/system-store-locations
+	SystemStoreNames = []string{
+		"MY",
+		"Root",
+		"Trust",
+		"CA",
+	}
 )
 
 // Interface that all signers will have to implement

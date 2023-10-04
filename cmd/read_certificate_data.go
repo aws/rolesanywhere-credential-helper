@@ -18,6 +18,8 @@ func init() {
 	readCertificateDataCmd.PersistentFlags().StringVar(&certificateId, "certificate", "", "Path to certificate file")
 	readCertificateDataCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store."+
 		" Can be passed in either as string or a file name (prefixed by \"file://\")")
+	readCertificateDataCmd.PersistentFlags().StringVar(&systemStoreName, "system-store-name", "MY", "Name of the system store to search for within the "+
+		"CERT_SYSTEM_STORE_CURRENT_USER context. Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
 	readCertificateDataCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
 	readCertificateDataCmd.PersistentFlags().BoolVar(&debug, "debug", false, "To print debug output")
 }
@@ -43,7 +45,7 @@ var readCertificateDataCmd = &cobra.Command{
 	Long: `Diagnostic command to read certificate data, either from files or 
     from a certificate store`,
 	Run: func(cmd *cobra.Command, args []string) {
-		certIdentifier, err := PopulateCertIdentifier(certSelector)
+		certIdentifier, err := PopulateCertIdentifier(certSelector, systemStoreName)
 		if err != nil {
 			log.Println("unable to populate CertIdentifier")
 			os.Exit(1)
