@@ -84,9 +84,13 @@ var readCertificateDataCmd = &cobra.Command{
 				os.Exit(1)
 			}
 		}
-		fmt.Printf("Matching identities\n")
-		for index, certContainer := range certContainers {
-			printFunction(index, certContainer)
+		if len(certContainers) == 0 {
+			fmt.Println("No matching identities")
+		} else {
+			fmt.Println("Matching identities")
+			for index, certContainer := range certContainers {
+				printFunction(index, certContainer)
+			}
 		}
 	},
 }
