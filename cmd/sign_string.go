@@ -73,7 +73,7 @@ func init() {
 	rootCmd.AddCommand(signStringCmd)
 	format = newEnum([]string{"json", "text", "bin"}, "json")
 	digestArg = newEnum([]string{"SHA256", "SHA384", "SHA512"}, "SHA256")
-	signStringCmd.PersistentFlags().StringVar(&certificateId, "certificate", "", "Path to certificate file or PKCS#11 URI to identify the certificate")
+	signStringCmd.PersistentFlags().StringVar(&certificateId, "certificate", "", "PKCS#11 URI to identify the certificate")
 	signStringCmd.PersistentFlags().StringVar(&privateKeyId, "private-key", "", "Path to private key file or PKCS#11 URI to identify the private key")
 	signStringCmd.PersistentFlags().BoolVar(&debug, "debug", false, "To print debug output")
 	signStringCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store. "+
@@ -86,6 +86,13 @@ func init() {
 		"for a given private key object, fall back to prompting the user")
 	signStringCmd.PersistentFlags().Var(format, "format", "Output format. One of json, text, and bin")
 	signStringCmd.PersistentFlags().Var(digestArg, "digest", "One of SHA256, SHA384, and SHA512")
+
+	signStringCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
+	signStringCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
+	signStringCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
+	signStringCmd.MarkFlagsMutuallyExclusive("private-key", "system-store-name")
+	signStringCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
+	signStringCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
 }
 
 func getFixedStringToSign(publicKey crypto.PublicKey) string {

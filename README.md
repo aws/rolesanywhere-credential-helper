@@ -71,7 +71,7 @@ If the above is placed in a file called `selector.json`, it can be specified wit
 --cert-selector Key=x509Subject,Value=CN=Subject Key=x509Issuer,Value=CN=Issuer Key=x509Serial,Value=15D19632234BF759A32802C0DA88F9E8AFC8702D
 ```
 
-The example given here is quite simple (they each only contain a single RDN), so it may not be obvious, but the Subject and Issuer values roughly follow the [RFC 2253](https://www.rfc-editor.org/rfc/rfc2253.html) Distinguished Names syntax.
+The example given here is quite simple (the Subject and Issuer each contain only a single RDN), so it may not be obvious, but the Subject and Issuer values roughly follow the [RFC 2253](https://www.rfc-editor.org/rfc/rfc2253.html) Distinguished Names syntax.
 
 ### sign-string
 

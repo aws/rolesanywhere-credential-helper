@@ -73,10 +73,13 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
 		"for a given private key object, fall back to prompting the user")
 
+	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
+	subCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "system-store-name")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "intermediates")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
+	subCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
 }
 
 // Parses a cert selector string to a map

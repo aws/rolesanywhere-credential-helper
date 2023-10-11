@@ -22,6 +22,9 @@ func init() {
 		"CERT_SYSTEM_STORE_CURRENT_USER context. Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
 	readCertificateDataCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
 	readCertificateDataCmd.PersistentFlags().BoolVar(&debug, "debug", false, "To print debug output")
+
+	readCertificateDataCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
+	readCertificateDataCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
 }
 
 type PrintCertificate func(int, helper.CertificateContainer)
