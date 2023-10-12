@@ -18,7 +18,7 @@ func TestValidSelectorParsing(t *testing.T) {
 		"Key=x509Issuer,Value=CN=Issuer",
 	}
 	for _, fixture := range fixtures {
-		_, err := PopulateCertIdentifier(fixture)
+		_, err := PopulateCertIdentifier(fixture, "MY")
 		if err != nil {
 			t.Log("Unable to populate cert identifier from selector")
 			t.Fail()
@@ -36,7 +36,7 @@ func TestInvalidSelectorParsing(t *testing.T) {
 		"Key=aljsdf,Value=aljsdfadsf",
 	}
 	for _, fixture := range fixtures {
-		_, err := PopulateCertIdentifier(fixture)
+		_, err := PopulateCertIdentifier(fixture, "MY")
 		if err == nil {
 			t.Log("Expected parsing failure, but received none")
 			t.Fail()
