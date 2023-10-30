@@ -286,13 +286,17 @@ func getCertsInSession(module *pkcs11.Ctx, slotId uint, session pkcs11.SessionHa
 		// Fetch the CKA_ID and CKA_LABEL of the matching cert(s), so
 		// that they can be used later when hunting for the matching
 		// key.
-		crtAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_ID, 0)
+		crtAttributes = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_ID, 0),
+		}
 		crtAttributes, err = module.GetAttributeValue(session, certObject, crtAttributes)
 		if err == nil {
 			certObj.id = crtAttributes[0].Value
 		}
 
-		crtAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0)
+		crtAttributes = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0),
+		}
 		crtAttributes, err = module.GetAttributeValue(session, certObject, crtAttributes)
 		if err == nil {
 			certObj.label = crtAttributes[0].Value
@@ -835,7 +839,9 @@ retry_search:
 			goto fail
 		}
 
-		keyAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_ALWAYS_AUTHENTICATE, 0)
+		keyAttributes = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_ALWAYS_AUTHENTICATE, 0),
+		}
 		keyAttributes, err = module.GetAttributeValue(session, curPrivateKeyHandle, keyAttributes)
 		if err == nil {
 			alwaysAuth, err = bytesToUint(keyAttributes[0].Value)
@@ -853,13 +859,17 @@ retry_search:
 		// that more specific attributes can be used to identify the private key
 		// when prompting for a context-specifc PIN (assuming the CKA_ALWAYS_AUTHENTICATE
 		// attribute is set on the private key object).
-		keyAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_ID, 0)
+		keyAttributes = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_ID, 0),
+		}
 		keyAttributes, err = module.GetAttributeValue(session, curPrivateKeyHandle, keyAttributes)
 		if err == nil {
 			curPrivateKeyObj.id = keyAttributes[0].Value
 		}
 
-		keyAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0)
+		keyAttributes = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0),
+		}
 		keyAttributes, err = module.GetAttributeValue(session, curPrivateKeyHandle, keyAttributes)
 		if err == nil {
 			curPrivateKeyObj.label = keyAttributes[0].Value
@@ -1247,7 +1257,9 @@ func GetPKCS11Signer(libPkcs11 string, cert *x509.Certificate, certChain []*x509
 			certUri.SetPathAttribute("id", escapeAll(crtAttributes[0].Value))
 		}
 
-		crtAttributes[0] = pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0)
+		crtAttributes = []*pkcs11.Attribute{
+			pkcs11.NewAttribute(pkcs11.CKA_LABEL, 0),
+		}
 		crtAttributes, err = module.GetAttributeValue(session, certObj.certObject, crtAttributes)
 		if err == nil {
 			certUri.SetPathAttribute("object", escapeAll(crtAttributes[0].Value))
