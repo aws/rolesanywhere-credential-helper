@@ -926,10 +926,10 @@ retry_search:
 
 	// So that hunting for the key can be more efficient in the future,
 	// return a key URI that has CKA_ID and CKA_LABEL appropriately set.
-	if privateKeyObj.id != nil {
+	if privateKeyObj.id != nil && len(privateKeyObj.id) != 0 {
 		keyUri.SetPathAttribute("id", escapeAll(privateKeyObj.id))
 	}
-	if privateKeyObj.label != nil {
+	if privateKeyObj.label != nil && len(privateKeyObj.label) != 0 {
 		keyUri.SetPathAttribute("object", escapeAll(privateKeyObj.label))
 	}
 
