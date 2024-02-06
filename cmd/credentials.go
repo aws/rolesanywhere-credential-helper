@@ -12,7 +12,7 @@ import (
 )
 
 var (
-	roleArnStr        string
+	roleArnStr        []string
 	profileArnStr     string
 	trustAnchorArnStr string
 	sessionDuration   int
@@ -52,7 +52,7 @@ type MapEntry struct {
 // Parses common flags for commands that vend credentials
 func initCredentialsSubCommand(subCmd *cobra.Command) {
 	rootCmd.AddCommand(subCmd)
-	subCmd.PersistentFlags().StringVar(&roleArnStr, "role-arn", "", "Target role to assume")
+	subCmd.PersistentFlags().StringArrayVarP(&roleArnStr, "role-arn", "", []string{}, "Target role(s) to assume one-by-one, in order specified")
 	subCmd.PersistentFlags().StringVar(&profileArnStr, "profile-arn", "", "Profile to pull policies from")
 	subCmd.PersistentFlags().StringVar(&trustAnchorArnStr, "trust-anchor-arn", "", "Trust anchor to use for authentication")
 	subCmd.PersistentFlags().IntVar(&sessionDuration, "session-duration", 3600, "Duration, in seconds, for the resulting session")

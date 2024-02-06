@@ -20,7 +20,7 @@ type CredentialsOpts struct {
 	CertificateId       string
 	CertificateBundleId string
 	CertIdentifier      CertIdentifier
-	RoleArn             string
+	RoleArn             []string
 	ProfileArnStr       string
 	TrustAnchorArnStr   string
 	SessionDuration     int
@@ -98,13 +98,16 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 
 	certificateStr := base64.StdEncoding.EncodeToString(certificate.Raw)
 	durationSeconds := int64(opts.SessionDuration)
+        var firstRoleArn string
+        var remainingRoleArns []string
+        firstRoleArn, remainingRoleArns = opts.RoleArn[0], opts.RoleArn[1:]
 	createSessionRequest := rolesanywhere.CreateSessionInput{
 		Cert:               &certificateStr,
 		ProfileArn:         &opts.ProfileArnStr,
 		TrustAnchorArn:     &opts.TrustAnchorArnStr,
 		DurationSeconds:    &(durationSeconds),
 		InstanceProperties: nil,
-		RoleArn:            &opts.RoleArn,
+		RoleArn:            &firstRoleArn,
 		SessionName:        nil,
 	}
 	output, err := rolesAnywhereClient.CreateSession(&createSessionRequest)
