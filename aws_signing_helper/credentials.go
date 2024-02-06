@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"runtime"
+        "fmt"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
@@ -120,6 +121,11 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 		return CredentialProcessOutput{}, errors.New(msg)
 	}
 	credentials := output.CredentialSet[0].Credentials
+        var currentRoleArn = firstRoleArn
+        for i := 0; i < len(remainingRoleArns); i++ {
+            fmt.Printf("use %s to assume %s",currentRoleArn,remainingRoleArns[i])
+            currentRoleArn = remainingRoleArns[i]
+        }
 	credentialProcessOutput := CredentialProcessOutput{
 		Version:         1,
 		AccessKeyId:     *credentials.AccessKeyId,
