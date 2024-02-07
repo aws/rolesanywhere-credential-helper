@@ -15,6 +15,7 @@ var (
 	roleArnStr        []string
 	profileArnStr     string
 	trustAnchorArnStr string
+	roleSessionName   []string
 	sessionDuration   int
 	region            string
 	endpoint          string
@@ -55,6 +56,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringArrayVarP(&roleArnStr, "role-arn", "", []string{}, "Target role(s) to assume one-by-one, in order specified")
 	subCmd.PersistentFlags().StringVar(&profileArnStr, "profile-arn", "", "Profile to pull policies from")
 	subCmd.PersistentFlags().StringVar(&trustAnchorArnStr, "trust-anchor-arn", "", "Trust anchor to use for authentication")
+	subCmd.PersistentFlags().StringArrayVarP(&roleSessionName, "role-session-name", "", []string{}, "Session names for additional roles specified in --role-arn arguments")
 	subCmd.PersistentFlags().IntVar(&sessionDuration, "session-duration", 3600, "Duration, in seconds, for the resulting session")
 	subCmd.PersistentFlags().StringVar(&region, "region", "", "Signing region")
 	subCmd.PersistentFlags().StringVar(&endpoint, "endpoint", "", "Endpoint used to call CreateSession")
@@ -233,6 +235,7 @@ func PopulateCredentialsOptions() error {
 		RoleArn:             roleArnStr,
 		ProfileArnStr:       profileArnStr,
 		TrustAnchorArnStr:   trustAnchorArnStr,
+                RoleSessionName:     roleSessionName,
 		SessionDuration:     sessionDuration,
 		Region:              region,
 		Endpoint:            endpoint,

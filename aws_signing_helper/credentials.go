@@ -26,6 +26,7 @@ type CredentialsOpts struct {
 	RoleArn             []string
 	ProfileArnStr       string
 	TrustAnchorArnStr   string
+	RoleSessionName     []string
 	SessionDuration     int
 	Region              string
 	Endpoint            string
@@ -138,9 +139,13 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
                 ),
 	    })
             stsClient := sts.New(sess)
+            rsn := "my-session"
+            if len(opts.RoleSessionName) > i {
+              rsn = opts.RoleSessionName[i]
+            }
             stsRequest := sts.AssumeRoleInput{
                 RoleArn:         aws.String(remainingRoleArns[i]),
-                RoleSessionName: aws.String("my-role-test"),
+                RoleSessionName: aws.String(rsn),
                 DurationSeconds: aws.Int64(durationSeconds), //min allowed
             }
 
