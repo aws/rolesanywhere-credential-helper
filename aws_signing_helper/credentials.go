@@ -7,12 +7,14 @@ import (
 	"log"
 	"net/http"
 	"runtime"
-        "fmt"
+        "time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
+        awscredentials "github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
+        "github.com/aws/aws-sdk-go/service/sts"
 	"github.com/aws/rolesanywhere-credential-helper/rolesanywhere"
 )
 
@@ -123,7 +125,37 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 	credentials := output.CredentialSet[0].Credentials
         var currentRoleArn = firstRoleArn
         for i := 0; i < len(remainingRoleArns); i++ {
-            fmt.Printf("use %s to assume %s",currentRoleArn,remainingRoleArns[i])
+	    if Debug {
+		log.Printf("using %s to assume %s\n",currentRoleArn,remainingRoleArns[i])
+	    }
+
+	    sess, err := session.NewSession(&aws.Config{
+		Region:      &opts.Region,
+	        Credentials: awscredentials.NewStaticCredentials(
+                    *credentials.AccessKeyId,
+                    *credentials.SecretAccessKey,
+                    *credentials.SessionToken,
+                ),
+	    })
+            stsClient := sts.New(sess)
+            stsRequest := sts.AssumeRoleInput{
+                RoleArn:         aws.String(remainingRoleArns[i]),
+                RoleSessionName: aws.String("my-role-test"),
+                DurationSeconds: aws.Int64(durationSeconds), //min allowed
+            }
+
+            stsResponse, err := stsClient.AssumeRole(&stsRequest)
+            if err != nil {
+                return CredentialProcessOutput{}, err
+	    }
+            xp := stsResponse.Credentials.Expiration.Format(time.RFC3339)
+            credentials = &rolesanywhere.Credentials{
+                AccessKeyId:         stsResponse.Credentials.AccessKeyId,
+                SecretAccessKey:     stsResponse.Credentials.SecretAccessKey,
+                SessionToken:        stsResponse.Credentials.SessionToken,
+                Expiration:          &xp,
+            }
+
             currentRoleArn = remainingRoleArns[i]
         }
 	credentialProcessOutput := CredentialProcessOutput{
