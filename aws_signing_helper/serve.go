@@ -262,7 +262,7 @@ func AllIssuesHandlers(cred *RefreshableCred, roleName string, opts *Credentials
 func Serve(port int, credentialsOptions CredentialsOpts) {
 	var refreshableCred = RefreshableCred{}
 
-	roleArn, err := arn.Parse(credentialsOptions.RoleArn)
+	roleArn, err := arn.Parse(credentialsOptions.RoleArn[0])
 	if err != nil {
 		log.Println("invalid role ARN")
 		os.Exit(1)
