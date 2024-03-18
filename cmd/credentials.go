@@ -56,7 +56,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&roleArnStr, "role-arn", "", "Target role to assume")
 	subCmd.PersistentFlags().StringVar(&profileArnStr, "profile-arn", "", "Profile to pull policies from")
 	subCmd.PersistentFlags().StringVar(&trustAnchorArnStr, "trust-anchor-arn", "", "Trust anchor to use for authentication")
-	subCmd.PersistentFlags().IntVar(&sessionDuration, "session-duration", 3600, "Duration, in seconds, for the resulting session")
+	subCmd.PersistentFlags().IntVar(&sessionDuration, "session-duration", -1, "Duration, in seconds, for the resulting session")
 	subCmd.PersistentFlags().StringVar(&region, "region", "", "Signing region")
 	subCmd.PersistentFlags().StringVar(&endpoint, "endpoint", "", "Endpoint used to call CreateSession")
 	subCmd.PersistentFlags().BoolVar(&noVerifySSL, "no-verify-ssl", false, "To disable SSL verification")

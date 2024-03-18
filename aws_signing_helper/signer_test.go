@@ -383,12 +383,24 @@ func TestSign(t *testing.T) {
 
 func TestCredentialProcess(t *testing.T) {
 	testTable := []struct {
-		name   string
-		server *httptest.Server
+		name            string
+		server          *httptest.Server
+		durationSeconds int
 	}{
 		{
-			name:   "create-session-server-response",
-			server: GetMockedCreateSessionResponseServer(),
+			name:            "create-session-server-response",
+			server:          GetMockedCreateSessionResponseServer(),
+			durationSeconds: -1,
+		},
+		{
+			name:            "create-session-server-response",
+			server:          GetMockedCreateSessionResponseServer(),
+			durationSeconds: 900,
+		},
+		{
+			name:            "create-session-server-response",
+			server:          GetMockedCreateSessionResponseServer(),
+			durationSeconds: 3600,
 		},
 	}
 	for _, tc := range testTable {
@@ -399,7 +411,7 @@ func TestCredentialProcess(t *testing.T) {
 			ProfileArnStr:     "arn:aws:rolesanywhere:us-east-1:000000000000:profile/41cl0bae-6783-40d4-ab20-65dc5d922e45",
 			TrustAnchorArnStr: "arn:aws:rolesanywhere:us-east-1:000000000000:trust-anchor/41cl0bae-6783-40d4-ab20-65dc5d922e45",
 			Endpoint:          tc.server.URL,
-			SessionDuration:   900,
+			SessionDuration:   tc.durationSeconds,
 		}
 		t.Run(tc.name, func(t *testing.T) {
 			defer tc.server.Close()
