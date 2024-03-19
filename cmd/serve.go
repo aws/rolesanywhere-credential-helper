@@ -14,7 +14,7 @@ var (
 
 func init() {
 	initCredentialsSubCommand(serveCmd)
-	serveCmd.PersistentFlags().IntVar(&port, "port", helper.DefaultPort, "The port used to run the local server (default: 9911)")
+	serveCmd.PersistentFlags().IntVar(&port, "port", helper.DefaultPort, "The port used to run the local server")
 }
 
 var serveCmd = &cobra.Command{
