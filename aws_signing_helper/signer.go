@@ -165,7 +165,7 @@ func encodeEcdsaSigValue(signature []byte) (out []byte, err error) {
 		big.NewInt(0).SetBytes(signature[sigLen:])})
 }
 
-// Gets the Signer based on the flags passed in by the user (from which the CredentialsOpts structure is derived)
+// GetSigner gets the Signer based on the flags passed in by the user (from which the CredentialsOpts structure is derived)
 func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string, err error) {
 	var (
 		certificate      *x509.Certificate
@@ -185,16 +185,9 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 	}
 
 	if opts.CertificateId != "" && !strings.HasPrefix(opts.CertificateId, "pkcs11:") {
-		certificateData, err := ReadCertificateData(opts.CertificateId)
+		_, cert, err := ReadCertificateData(opts.CertificateId)
 		if err == nil {
-			certificateDerData, err := base64.StdEncoding.DecodeString(certificateData.CertificateData)
-			if err != nil {
-				return nil, "", err
-			}
-			certificate, err = x509.ParseCertificate([]byte(certificateDerData))
-			if err != nil {
-				return nil, "", err
-			}
+			certificate = cert
 		} else if opts.PrivateKeyId == "" {
 			if Debug {
 				log.Println("not a PEM certificate, so trying PKCS#12")
@@ -220,20 +213,18 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 					privateKey = *rsaPrivateKeyPtr
 				}
 			}
-			return GetFileSystemSigner(privateKey, certificateChain[0], certificateChain)
+			return GetFileSystemSigner(privateKey, certificateChain[0], certificateChain, opts.PrivateKeyId, opts.CertificateId, opts.CertificateBundleId, true)
 		} else {
 			return nil, "", err
 		}
 	}
 
 	if opts.CertificateBundleId != "" {
-		certificateChainPointers, err := ReadCertificateBundleData(opts.CertificateBundleId)
+		chain, err := GetCertChain(opts.CertificateBundleId)
 		if err != nil {
 			return nil, "", err
 		}
-		for _, certificate := range certificateChainPointers {
-			certificateChain = append(certificateChain, certificate)
-		}
+		certificateChain = chain
 	}
 
 	if strings.HasPrefix(privateKeyId, "pkcs11:") {
@@ -250,10 +241,13 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			return nil, "", err
 		}
 
+		if certificate == nil {
+			return nil, "", errors.New("undefined certificate value")
+		}
 		if Debug {
 			log.Println("attempting to use FileSystemSigner")
 		}
-		return GetFileSystemSigner(privateKey, certificate, certificateChain)
+		return GetFileSystemSigner(privateKey, certificate, certificateChain, privateKeyId, opts.CertificateId, opts.CertificateBundleId, false)
 	}
 }
 
@@ -709,18 +703,18 @@ func ReadPrivateKeyDataFromPEMBlock(block *pem.Block) (key crypto.PrivateKey, er
 	return nil, errors.New("unable to parse private key")
 }
 
-// Load the certificate referenced by `certificateId` and extract
+// ReadCertificateData loads the certificate referenced by `certificateId` and extracts
 // details required by the SDK to construct the StringToSign.
-func ReadCertificateData(certificateId string) (CertificateData, error) {
+func ReadCertificateData(certificateId string) (CertificateData, *x509.Certificate, error) {
 	block, err := parseDERFromPEM(certificateId, "CERTIFICATE")
 	if err != nil {
-		return CertificateData{}, errors.New("could not parse PEM data")
+		return CertificateData{}, nil, errors.New("could not parse PEM data")
 	}
 
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
 		log.Println("could not parse certificate", err)
-		return CertificateData{}, errors.New("could not parse certificate")
+		return CertificateData{}, nil, errors.New("could not parse certificate")
 	}
 
 	//extract serial number
@@ -747,5 +741,18 @@ func ReadCertificateData(certificateId string) (CertificateData, error) {
 	}
 
 	//return struct
-	return CertificateData{keyType, encodedDer, serialNumber, supportedAlgorithms}, nil
+	return CertificateData{keyType, encodedDer, serialNumber, supportedAlgorithms}, cert, nil
+}
+
+// GetCertChain reads a certificate bundle and returns a chain of all the certificates it contains
+func GetCertChain(certificateBundleId string) ([]*x509.Certificate, error) {
+	certificateChainPointers, err := ReadCertificateBundleData(certificateBundleId)
+	var chain []*x509.Certificate
+	if err != nil {
+		return nil, err
+	}
+	for _, certificate := range certificateChainPointers {
+		chain = append(chain, certificate)
+	}
+	return chain, nil
 }

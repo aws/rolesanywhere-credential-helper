@@ -27,7 +27,7 @@ import (
 const TestCredentialsFilePath = "/tmp/credentials"
 
 func setup() error {
-	generateCredentialProcessDataScript := exec.Command("/bin/sh", "../generate-credential-process-data.sh")
+	generateCredentialProcessDataScript := exec.Command("/bin/bash", "../generate-credential-process-data.sh")
 	_, err := generateCredentialProcessDataScript.Output()
 	return err
 }
@@ -56,7 +56,7 @@ func TestReadCertificateData(t *testing.T) {
 		{"../tst/certs/rsa-2048-sha256-cert.pem", "RSA"},
 	}
 	for _, fixture := range fixtures {
-		certData, err := ReadCertificateData(fixture.CertPath)
+		certData, _, err := ReadCertificateData(fixture.CertPath)
 
 		if err != nil {
 			t.Log("Failed to read certificate data")
@@ -71,7 +71,7 @@ func TestReadCertificateData(t *testing.T) {
 }
 
 func TestReadInvalidCertificateData(t *testing.T) {
-	_, err := ReadCertificateData("../tst/certs/invalid-rsa-cert.pem")
+	_, _, err := ReadCertificateData("../tst/certs/invalid-rsa-cert.pem")
 	if err == nil || !strings.Contains(err.Error(), "could not parse certificate") {
 		t.Log("Failed to throw a handled error")
 		t.Fail()
@@ -128,12 +128,14 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 		t.Fail()
 	}
 
-	certificateList, _ := ReadCertificateBundleData("../tst/certs/rsa-2048-sha256-cert.pem")
+	path := "../tst/certs/rsa-2048-sha256-cert.pem"
+	certificateList, _ := ReadCertificateBundleData(path)
 	certificate := certificateList[0]
-	privateKey, _ := ReadPrivateKeyData("../tst/certs/rsa-2048-key.pem")
+	pkPath := "../tst/certs/rsa-2048-key.pem"
+	privateKey, _ := ReadPrivateKeyData(pkPath)
 
 	awsRequest := request.Request{HTTPRequest: testRequest}
-	signer, signingAlgorithm, err := GetFileSystemSigner(privateKey, certificate, nil)
+	signer, signingAlgorithm, err := GetFileSystemSigner(privateKey, certificate, nil, pkPath, "", path, false)
 	if err != nil {
 		t.Log(err)
 		t.Fail()

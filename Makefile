@@ -1,7 +1,14 @@
 VERSION=1.1.1
 
-release:
+.PHONY: release
+release: build/bin/aws_signing_helper
+
+build/bin/aws_signing_helper:
 	go build -buildmode=pie -ldflags "-X 'github.com/aws/rolesanywhere-credential-helper/cmd.Version=${VERSION}' -linkmode=external -w -s" -trimpath -o build/bin/aws_signing_helper main.go
+
+.PHONY: clean
+clean:
+	rm -rf build
 
 # Setting up SoftHSM for PKCS#11 tests. 
 # This portion is largely copied from https://gitlab.com/openconnect/openconnect/-/blob/v9.12/tests/Makefile.am#L363. 
@@ -50,6 +57,7 @@ tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS
 		--mark-always-authenticate
 	mv $@.tmp $@
 
+.PHONY: test
 test: test-certs tst/softhsm2.conf
 	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf go test -v ./...
 
@@ -111,8 +119,10 @@ $(certsdir)/cert-bundle-with-comments.pem: $(RSACERTS) $(ECCERTS)
 		echo "Comment in bundle\n" >> $@; \
 	done
 
+.PHONY: test-certs
 test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(RSACERTS) $(ECCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem tst/softhsm2.conf
 
+.PHONY: test-clean
 test-clean:
 	rm -f $(RSAKEYS) $(ECKEYS)
 	rm -f $(PKCS8KEYS)

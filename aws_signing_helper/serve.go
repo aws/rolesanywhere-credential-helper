@@ -219,12 +219,19 @@ func AllIssuesHandlers(cred *RefreshableCred, roleName string, opts *Credentials
 
 		err := CheckValidToken(w, r)
 		if err != nil {
+			log.Printf("Token validation received error: %s\n", err)
 			return
 		}
 
 		var nextRefreshTime = cred.Expiration.Add(-RefreshTime)
 		if time.Until(nextRefreshTime) < RefreshTime {
-			credentialProcessOutput, _ := GenerateCredentials(opts, signer, signatureAlgorithm)
+			if Debug {
+				log.Println("Generating credentials")
+			}
+			credentialProcessOutput, gcErr := GenerateCredentials(opts, signer, signatureAlgorithm)
+			if gcErr != nil {
+				log.Printf("Error generating credentials: %s", gcErr)
+			}
 			cred.AccessKeyId = credentialProcessOutput.AccessKeyId
 			cred.SecretAccessKey = credentialProcessOutput.SecretAccessKey
 			cred.Token = credentialProcessOutput.SessionToken
@@ -240,6 +247,9 @@ func AllIssuesHandlers(cred *RefreshableCred, roleName string, opts *Credentials
 				return
 			}
 		} else {
+			if Debug {
+				log.Println("Using previous obtained credentials")
+			}
 			err := json.NewEncoder(w).Encode(cred)
 			if err != nil {
 				w.WriteHeader(http.StatusInternalServerError)
