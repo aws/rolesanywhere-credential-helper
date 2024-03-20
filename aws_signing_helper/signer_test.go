@@ -208,7 +208,7 @@ func Verify(payload []byte, publicKey crypto.PublicKey, digest crypto.Hash, sig 
 		sum := sha512.Sum512(payload)
 		hash = sum[:]
 	default:
-		log.Fatal("unsupported digest")
+		log.Println("unsupported digest")
 		return false, errors.New("unsupported digest")
 	}
 
