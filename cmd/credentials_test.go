@@ -16,6 +16,8 @@ func TestValidSelectorParsing(t *testing.T) {
 		"file://../tst/selectors/valid-some-attributes-selector.json",
 		"Key=x509Subject,Value=CN=Subject Key=x509Issuer,Value=CN=Issuer Key=x509Serial,Value=15D19632234BF759A32802C0DA88F9E8AFC8702D",
 		"Key=x509Subject,Value=CN=CN With Spaces Key=x509Issuer,Value=CN=CN With Spaces,OU=OU With Spaces",
+		"Key=x509Subject,Value=CN=CN With Spaces,O=O With Spaces Key=x509Issuer,Value=CN=Issuer",
+		" \n  Key=x509Subject,Value=CN=CN With Spaces,O=O With Spaces   \t   Key=x509Issuer,Value=CN=Issuer  \n",
 		"Key=x509Issuer,Value=CN=Issuer",
 	}
 	for _, fixture := range fixtures {
