@@ -45,7 +45,7 @@ var (
 		X509_SERIAL_KEY,
 	}
 
-	CERT_SELECTOR_KEY_VALUE_REGEX = `^Key=(.+?),Value=(.+?)(?: Key=|$)`
+	CERT_SELECTOR_KEY_VALUE_REGEX = `^\s*Key=(.+?),Value=(.+?)\s*(?:Key=|$)`
 )
 
 type MapEntry struct {
