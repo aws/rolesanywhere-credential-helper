@@ -22,7 +22,7 @@ const (
 )
 
 var exceptionFromCode = map[string]func(protocol.ResponseMetadata) error{
-	"AccessDeniedException":                 newErrorAccessDeniedException,
-	"ResourceNotFoundException":             newErrorResourceNotFoundException,
-	"ValidationException":                   newErrorValidationException,
+	"AccessDeniedException":     newErrorAccessDeniedException,
+	"ResourceNotFoundException": newErrorResourceNotFoundException,
+	"ValidationException":       newErrorValidationException,
 }

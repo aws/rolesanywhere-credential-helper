@@ -1,6 +1,7 @@
 package aws_signing_helper
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -27,7 +28,7 @@ import (
 const TestCredentialsFilePath = "/tmp/credentials"
 
 func setup() error {
-	generateCredentialProcessDataScript := exec.Command("/bin/sh", "../generate-credential-process-data.sh")
+	generateCredentialProcessDataScript := exec.Command("/bin/bash", "../generate-credential-process-data.sh")
 	_, err := generateCredentialProcessDataScript.Output()
 	return err
 }
@@ -56,7 +57,7 @@ func TestReadCertificateData(t *testing.T) {
 		{"../tst/certs/rsa-2048-sha256-cert.pem", "RSA"},
 	}
 	for _, fixture := range fixtures {
-		certData, err := ReadCertificateData(fixture.CertPath)
+		certData, _, err := ReadCertificateData(fixture.CertPath)
 
 		if err != nil {
 			t.Log("Failed to read certificate data")
@@ -71,7 +72,7 @@ func TestReadCertificateData(t *testing.T) {
 }
 
 func TestReadInvalidCertificateData(t *testing.T) {
-	_, err := ReadCertificateData("../tst/certs/invalid-rsa-cert.pem")
+	_, _, err := ReadCertificateData("../tst/certs/invalid-rsa-cert.pem")
 	if err == nil || !strings.Contains(err.Error(), "could not parse certificate") {
 		t.Log("Failed to throw a handled error")
 		t.Fail()
@@ -128,19 +129,24 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 		t.Fail()
 	}
 
-	certificateList, _ := ReadCertificateBundleData("../tst/certs/rsa-2048-sha256-cert.pem")
-	certificate := certificateList[0]
-	privateKey, _ := ReadPrivateKeyData("../tst/certs/rsa-2048-key.pem")
+	path := "../tst/certs/rsa-2048-sha256-cert.pem"
+	certificateList1, _ := ReadCertificateBundleData(path)
+	certificate1 := certificateList1[0]
+	pkPath := "../tst/certs/rsa-2048-key.pem"
 
 	awsRequest := request.Request{HTTPRequest: testRequest}
-	signer, signingAlgorithm, err := GetFileSystemSigner(privateKey, certificate, nil)
+	signer, signingAlgorithm, err := GetFileSystemSigner(pkPath, "", path, false)
 	if err != nil {
 		t.Log(err)
 		t.Fail()
 	}
-	certificate, err = signer.Certificate()
+	certificate, err := signer.Certificate()
 	if err != nil {
 		t.Log(err)
+		t.Fail()
+	}
+	if !bytes.Equal(certificate.Raw, certificate1.Raw) {
+		t.Log("Certificate does not match signer certificate")
 		t.Fail()
 	}
 	certificateChain, err := signer.CertificateChain()
@@ -148,8 +154,43 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 		t.Log(err)
 		t.Fail()
 	}
+	for i, cert := range certificateChain {
+		if !bytes.Equal(cert.Raw, certificateList1[i].Raw) {
+			t.Log("Certificate chain does not match signer certificate chain")
+			t.Fail()
+		}
+	}
 	requestSignFunction := CreateRequestSignFunction(signer, signingAlgorithm, certificate, certificateChain)
 	requestSignFunction(&awsRequest)
+
+	certificateList2, _ := ReadCertificateBundleData("../tst/certs/rsa-2048-2-sha256-cert.pem")
+	certificate2 := certificateList2[0]
+	os.Rename("../tst/certs/rsa-2048-sha256-cert.pem", "../tst/certs/rsa-2048-sha256-cert.pem.bak")
+	os.Rename("../tst/certs/rsa-2048-2-sha256-cert.pem", "../tst/certs/rsa-2048-sha256-cert.pem")
+	certificate, err = signer.Certificate()
+	if err != nil {
+		t.Log(err)
+		t.Fail()
+	}
+	if !bytes.Equal(certificate.Raw, certificate2.Raw) {
+		t.Log("Certificate does not match signer certificate after update")
+		t.Fail()
+	}
+	certificateChain, err = signer.CertificateChain()
+	if err != nil {
+		t.Log(err)
+		t.Fail()
+	}
+	for i, cert := range certificateChain {
+		if !bytes.Equal(cert.Raw, certificateList2[i].Raw) {
+			t.Log("Certificate chain does not match signer certificate chain after update")
+			t.Fail()
+		}
+	}
+	os.Rename("../tst/certs/rsa-2048-sha256-cert.pem", "../tst/certs/rsa-2048-2-sha256-cert.pem")
+	os.Rename("../tst/certs/rsa-2048-sha256-cert.pem.bak", "../tst/certs/rsa-2048-sha256-cert.pem")
+	requestSignFunction2 := CreateRequestSignFunction(signer, signingAlgorithm, certificate, certificateChain)
+	requestSignFunction2(&awsRequest)
 }
 
 // Verify that the provided payload was signed correctly with the provided options.
