@@ -133,6 +133,7 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 	privateKey, _ := ReadPrivateKeyData("../tst/certs/rsa-2048-key.pem")
 
 	awsRequest := request.Request{HTTPRequest: testRequest}
+
 	signer, signingAlgorithm, err := GetFileSystemSigner(privateKey, certificate, nil)
 	if err != nil {
 		t.Log(err)
