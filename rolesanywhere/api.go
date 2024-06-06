@@ -28,14 +28,13 @@ const opCreateSession = "CreateSession"
 // This method is useful when you want to inject custom logic or configuration
 // into the SDK's request lifecycle. Such as custom headers, or retry logic.
 //
+//	// Example sending a request using the CreateSessionRequest method.
+//	req, resp := client.CreateSessionRequest(params)
 //
-//    // Example sending a request using the CreateSessionRequest method.
-//    req, resp := client.CreateSessionRequest(params)
-//
-//    err := req.Send()
-//    if err == nil { // resp is now filled
-//        fmt.Println(resp)
-//    }
+//	err := req.Send()
+//	if err == nil { // resp is now filled
+//	    fmt.Println(resp)
+//	}
 //
 // See also, https://docs.aws.amazon.com/goto/WebAPI/roles-anywhere-2018-05-10/CreateSession
 func (c *RolesAnywhere) CreateSessionRequest(input *CreateSessionInput) (req *request.Request, output *CreateSessionOutput) {
@@ -64,11 +63,12 @@ func (c *RolesAnywhere) CreateSessionRequest(input *CreateSessionInput) (req *re
 // API operation CreateSession for usage and error information.
 //
 // Returned Error Types:
-//   * ValidationException
 //
-//   * ResourceNotFoundException
+//   - ValidationException
 //
-//   * AccessDeniedException
+//   - ResourceNotFoundException
+//
+//   - AccessDeniedException
 //
 // See also, https://docs.aws.amazon.com/goto/WebAPI/roles-anywhere-2018-05-10/CreateSession
 func (c *RolesAnywhere) CreateSession(input *CreateSessionInput) (*CreateSessionOutput, error) {

@@ -1,7 +1,14 @@
 VERSION=1.1.1
 
-release:
+.PHONY: release
+release: build/bin/aws_signing_helper
+
+build/bin/aws_signing_helper:
 	go build -buildmode=pie -ldflags "-X 'github.com/aws/rolesanywhere-credential-helper/cmd.Version=${VERSION}' -linkmode=external -w -s" -trimpath -o build/bin/aws_signing_helper main.go
+
+.PHONY: clean
+clean:
+	rm -rf build
 
 # Setting up SoftHSM for PKCS#11 tests. 
 # This portion is largely copied from https://gitlab.com/openconnect/openconnect/-/blob/v9.12/tests/Makefile.am#L363. 
@@ -20,7 +27,7 @@ PKCS12CERTS := $(patsubst %-cert.pem, %.p12, $(RSACERTS) $(ECCERTS))
 
 # It's hard to do a file-based rule for the contents of the SoftHSM token.
 # So just populate it as a side-effect of creating the softhsm2.conf file.
-tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS)
+tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS) tst/certs/rsa-2048-2-sha256-cert.pem
 	rm -rf tst/softhsm/*
 	sed 's|@top_srcdir@|${curdir}|g' $< > $@.tmp
 	$(SHM2_UTIL) --show-slots
@@ -50,6 +57,7 @@ tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS
 		--mark-always-authenticate
 	mv $@.tmp $@
 
+.PHONY: test
 test: test-certs tst/softhsm2.conf
 	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf go test -v ./...
 
@@ -60,6 +68,9 @@ test: test-certs tst/softhsm2.conf
 	SUBJ=$$(echo "$@" | sed -r 's|.*/([^/]+)-cert.pem|\1|'); \
 	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha1
 %-sha256-cert.pem: %-key.pem
+	SUBJ=$$(echo "$@" | sed -r 's|.*/([^/]+)-cert.pem|\1|'); \
+	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha256
+%-2-sha256-cert.pem: %-key.pem
 	SUBJ=$$(echo "$@" | sed -r 's|.*/([^/]+)-cert.pem|\1|'); \
 	openssl req -x509 -new -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -sha256
 %-sha384-cert.pem: %-key.pem
@@ -111,8 +122,10 @@ $(certsdir)/cert-bundle-with-comments.pem: $(RSACERTS) $(ECCERTS)
 		echo "Comment in bundle\n" >> $@; \
 	done
 
+.PHONY: test-certs
 test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(RSACERTS) $(ECCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem tst/softhsm2.conf
 
+.PHONY: test-clean
 test-clean:
 	rm -f $(RSAKEYS) $(ECKEYS)
 	rm -f $(PKCS8KEYS)
