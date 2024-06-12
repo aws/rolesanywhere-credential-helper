@@ -255,6 +255,18 @@ func TestSign(t *testing.T) {
 				CertificateId: cert,
 				PrivateKeyId:  key,
 			})
+
+			cert = fmt.Sprintf("../tst/certs/ec-%s-%s.p12",
+				curve, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
+
+			cert = fmt.Sprintf("../tst/certs/ec-%s-%s-combo.pem",
+				curve, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
 		}
 	}
 
@@ -275,6 +287,46 @@ func TestSign(t *testing.T) {
 			testTable = append(testTable, CredentialsOpts{
 				CertificateId: cert,
 				PrivateKeyId:  key,
+			})
+
+			cert = fmt.Sprintf("../tst/certs/rsa-%s-%s.p12",
+				keylen, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
+
+			cert = fmt.Sprintf("../tst/certs/rsa-%s-%s-combo.pem",
+				keylen, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
+		}
+	}
+
+	tpm_digests := []string{"sha1", "sha256", "sha384", "sha512"}
+	var tpm_keys []string
+
+	tpmdev := os.Getenv("TPM_DEVICE")
+	if strings.HasPrefix(tpmdev, "/dev/") {
+		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
+	} else {
+		tpm_keys = []string{"sw-rsa", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
+	}
+
+	for _, digest := range tpm_digests {
+		for _, keyname := range tpm_keys {
+			cert := fmt.Sprintf("../tst/certs/tpm-%s-%s-cert.pem",
+				keyname, digest)
+			key := fmt.Sprintf("../tst/certs/tpm-%s-key.pem", keyname)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+			})
+
+			cert = fmt.Sprintf("../tst/certs/tpm-%s-%s-combo.pem",
+				keyname, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
 			})
 		}
 	}
@@ -355,7 +407,8 @@ func TestSign(t *testing.T) {
 			// makes sure that the context-specific PIN was saved.
 			signer.Sign(rand.Reader, []byte(msg), digest)
 			if err != nil {
-				t.Log("Failed to sign the input message")
+				t.Log(fmt.Sprintf("Failed to %s sign the input message for '%s'/'%s': %s",
+					digest, credOpts.CertificateId, credOpts.PrivateKeyId, err))
 				t.Fail()
 				return
 			}
@@ -369,8 +422,8 @@ func TestSign(t *testing.T) {
 			if pubKey != nil {
 				valid, _ := Verify([]byte(msg), pubKey, digest, signatureBytes)
 				if !valid {
-					t.Log(fmt.Sprintf("Failed to verify the signature for '%s'/'%s'",
-						credOpts.CertificateId, credOpts.PrivateKeyId))
+					t.Log(fmt.Sprintf("Failed to verify %s signature for '%s'/'%s'",
+						digest, credOpts.CertificateId, credOpts.PrivateKeyId))
 					t.Fail()
 					return
 				}

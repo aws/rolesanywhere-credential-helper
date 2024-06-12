@@ -1,9 +1,12 @@
 module github.com/aws/rolesanywhere-credential-helper
 
-go 1.21
+go 1.22
+
+toolchain go1.22.4
 
 require (
 	github.com/aws/aws-sdk-go v1.50.30
+	github.com/google/go-tpm v0.3.3
 	github.com/miekg/pkcs11 v1.1.1
 	github.com/spf13/cobra v1.8.0
 	github.com/stefanberger/go-pkcs11uri v0.0.0-20230803200340-78284954bff6
