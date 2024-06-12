@@ -207,6 +207,23 @@ to guarantee that PINs are zeroized in memory after they are no longer needed. W
 to explore options to overcome this. Customers are encouraged to study the impact of this limitation 
 and determine whether compensating controls are warranted for their system and threat model.
 
+#### TPMv2 Integration
+
+Private key files containing a TPM wrapped key in the `-----BEGIN TSS2 PRIVATE KEY-----`
+form as described [here](https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html)
+are transparently supported. You can just use such a file as you would any plain key
+file and expect it to work, just as you should expect with any well-behaved application.
+
+These files are supported, and can be created by, both TPMv2 OpenSSL engines/providers, and GnuTLS.
+
+Note that some features of the TSS private key format are not yet supported. Some or all
+of these may be implemented in future versions. In some semblance of the order in which
+they're likely to be added:
+ * Password authentication on keys (and parent keys)
+ * Importable keys
+ * TPM Policy / AuthPolicy
+ * Sealed keys
+
 ### update
 
 Updates temporary credentials in the [credential file](https://docs.aws.amazon.com/cli/latest/userguide/cli-configure-files.html). Parameters for this command include those for the `credential-process` command, as well as `--profile`, which specifies the named profile for which credentials should be updated (if the profile doesn't already exist, it will be created), and `--once`, which specifies that credentials should be updated only once. Both arguments are optional. If `--profile` isn't specified, the default profile will have its credentials updated, and if `--once` isn't specified, credentials will be continuously updated. In this case, credentials will be updated through a call to `CreateSession` five minutes before the previous set of credentials are set to expire. Please note that running the `update` command multiple times, creating multiple processes, may not work as intended. There may be issues with concurrent writes to the credentials file.

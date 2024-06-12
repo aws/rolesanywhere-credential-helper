@@ -223,6 +223,11 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		}
 		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId, opts.ReusePin)
 	} else {
+		tpmkey, err := parseDERFromPEM(privateKeyId, "TSS2 PRIVATE KEY")
+		if err == nil {
+			return GetTPMv2Signer(certificate, certificateChain, tpmkey)
+		}
+
 		_, err = ReadPrivateKeyData(privateKeyId)
 		if err != nil {
 			return nil, "", err
