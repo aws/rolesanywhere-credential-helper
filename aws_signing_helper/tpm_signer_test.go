@@ -1,6 +1,9 @@
 package aws_signing_helper
 
 import (
+	"encoding/asn1"
+	"encoding/pem"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -18,7 +21,7 @@ func TestTPMSigner(t *testing.T) {
 		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
 	} else {
 		// TODO: Add "sw-rsa" back in
-		tpm_keys = []string{"sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
+		tpm_keys = []string{"sw-rsa-81000001-sign", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
 	}
 
 	for _, digest := range tpm_digests {
@@ -48,6 +51,71 @@ func TestTPMSigner(t *testing.T) {
 	RunSignTestWithTestTable(t, testTable)
 }
 
+func createRsaTpmPemKeyWithSignCapability(suffix string, emptyAuth bool) (error) {
+	privKeyFileName := fmt.Sprintf("../tst/certs/tpm-sw-rsa-81000001-sign%s.key", suffix)
+	privKeyBytes, err := os.ReadFile(privKeyFileName)
+	if err != nil {
+		return errors.New("unable to read RSA private key file")
+	}
+	pubKeyFileName := fmt.Sprintf("../tst/certs/tpm-sw-rsa-81000001-sign%s.pub", suffix)
+	pubKeyBytes, err := os.ReadFile(pubKeyFileName)
+	if err != nil {
+		return errors.New("unable to read RSA public key file")
+	}
+
+	tpmData := tpm2_TPMKey{
+		Oid: oidLoadableKey, 
+		EmptyAuth: emptyAuth,
+		Parent: 0x81000001, 
+		Pubkey: pubKeyBytes, 
+		Privkey: privKeyBytes, 
+	}
+
+	asn1Bytes, err := asn1.Marshal(tpmData)
+	if err != nil {
+		return errors.New("unable to marshal TPM key ASN.1 module")
+	}
+
+	pemBlock := &pem.Block{
+		Type: "TSS2 PRIVATE KEY", 
+		Bytes: asn1Bytes, 
+	}
+
+	pemFileName := fmt.Sprintf("../tst/certs/tpm-sw-rsa-81000001-sign-key%s.pem", suffix)
+	pemFile, err := os.Create(pemFileName)
+	if err != nil {
+		return errors.New("unable to create TPM key PEM file")
+	}
+	defer pemFile.Close()
+
+	err = pem.Encode(pemFile, pemBlock)
+	if err != nil {
+		return errors.New("unable to write TPM key to file")
+	}
+
+	return nil
+}
+
+// The RSA key with the Sign capability will have already been created 
+// as a part of the owner hierarchy (as a part of the Makefile testing 
+// target). This method will marshal the resulting data into the PEM 
+// TPM key format. 
+func TestCreateRsaTpmPemKeyWithSignCapability(t *testing.T) {
+	err := createRsaTpmPemKeyWithSignCapability("", true)
+	if err != nil {
+		fmt.Println(err.Error())
+		t.Fail()
+	}
+}
+
+func TestCreateRsaTpmPemKeyWithPasswordWithSignCapability(t *testing.T) {
+	err := createRsaTpmPemKeyWithSignCapability("-with-pw", false)
+	if err != nil {
+		fmt.Println(err.Error())
+		t.Fail()
+	}
+}
+
 func TestTPMSignerFails(t *testing.T) {
 	testTable := []CredentialsOpts{}
 
@@ -58,8 +126,9 @@ func TestTPMSignerFails(t *testing.T) {
 	if strings.HasPrefix(tpmdev, "/dev/") {
 		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
 	} else {
-		// TODO: Add sw-rsa back in
-		tpm_keys = []string{"sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
+		// Note that the "sw-rsa" key will fail to sign since it doesn't have the 
+		// Sign capability. 
+		tpm_keys = []string{"sw-rsa", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
 	}
 
 	for _, digest := range tpm_digests {
