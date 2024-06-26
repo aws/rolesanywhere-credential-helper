@@ -34,8 +34,8 @@ PKCS12CERTS := $(patsubst %-cert.pem, %.p12, $(RSACERTS) $(ECCERTS))
 #
 # For the actual test, we need it to run in UNIX socket mode, since
 # *that* is all that go-tpm can cope with. So we start it in that mode
-# in the 'test:' recipe, and stop it again afterwards.
-#
+# in the 'test:' (or 'test-tpm-signer:') recipe(s), and stop it again 
+# afterwards.
 SWTPM_STATEDIR := $(curdir)/tst/swtpm
 SWTPM_CTRLSOCK := $(curdir)/tst/swtpm-ctrl
 SWTPM_SERVSOCK := $(curdir)/tst/swtpm-serv

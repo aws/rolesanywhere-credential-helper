@@ -95,10 +95,10 @@ func createRsaTpmPemKeyWithSignCapability(suffix string, emptyAuth bool) error {
 	return nil
 }
 
-// The RSA key with the Sign capability will have already been created
-// as a part of the owner hierarchy (as a part of the Makefile testing
-// target). This method will marshal the resulting data into the PEM
-// TPM key format.
+// An RSA key with the Sign capability will have already been created by a Makefile
+// target. Another target will be responsible for calling this testing function, which will
+// then create a TPM key file that adheres to Bottomley's ASN.1 specification, so that it
+// can be used for testing RSA signing.
 func TestCreateRsaTpmPemKeyWithSignCapability(t *testing.T) {
 	err := createRsaTpmPemKeyWithSignCapability("", true)
 	if err != nil {
@@ -107,6 +107,8 @@ func TestCreateRsaTpmPemKeyWithSignCapability(t *testing.T) {
 	}
 }
 
+// This function is similar to the above, but creates a TPM key file for a key that
+// is protected by a password.
 func TestCreateRsaTpmPemKeyWithPasswordWithSignCapability(t *testing.T) {
 	err := createRsaTpmPemKeyWithSignCapability("-with-pw", false)
 	if err != nil {
@@ -138,6 +140,11 @@ func TestTPMSignerFails(t *testing.T) {
 				CertificateId:  cert,
 				PrivateKeyId:   keyWithPw,
 				TpmKeyPassword: "incorrect-password",
+			})
+
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  keyWithPw,
 			})
 		}
 	}

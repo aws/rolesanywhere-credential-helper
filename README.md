@@ -201,6 +201,52 @@ they're likely to be added:
  * TPM Policy / AuthPolicy
  * Sealed keys
 
+##### Testing
+Currently, unit tests for testing TPM support are written in such a way that TPM keys that are used 
+for testing are either bound to a hardware TPM, or are bound to a software TPM. For software TPM 
+testing, `swtpm` is used. You can find the repository [here](https://github.com/stefanberger/swtpm). 
+Also, to create the keys and certificates that are required for unit testing, you will need to install 
+the [IBM TSS](https://github.com/kgoldman/ibmtss), in addition to the 
+[IBM OpenSSL TPM engine](https://git.kernel.org/pub/scm/linux/kernel/git/jejb/openssl_tpm2_engine.git/). 
+The OpenSSL TPM engine comes with utility programs that can be used to create TPM keys that are in 
+the appropriate format to be used by the credential helper application. 
+
+Once you've installed all the dependencies, you can run just the unit tests related to TPM support 
+through `make test-tpm-signer`. Note that `swtpm` will have to be run in UNIX socket mode (it can't 
+be run in TCP socket mode) for the tests since that is all `go-tpm` can cope with. But key and 
+certificate fixtures will be created when `swtpm` is running in TCP socket mode (as a part of the 
+appropriate `Makefile` targets). Afterwards, right before the unit tests are run, `swtpm` we switch 
+`swtpm` over to run in UNIX socket mode. 
+
+##### Guidance
+Once you have initialized the TPM appropriately, you can create a primary key in the owner hierarchy. 
+Using one of the utility programs that comes with the IBM TSS (you can find more 
+information about it in the previous section), create this primary key: 
+
+```
+tsscreateprimary -hi o -ho 80000000 -hp 81000001 -ecc nistp256 -pwdk ${TPM_PRIMARY_KEY_PASSWORD}
+```
+
+This will create a primary key in the TPM owner hierarchy, with a key password of 
+`${TPM_PRIMARY_KEY_PASSWORD}`. If the owner hierarchy in your TPM has a password, you can specify it 
+through the `-pwdk` option. 
+
+Next, you can make that primary key persistent (it was created as transient above): 
+```
+tssevictcontrol -hi o -ho 80000000 -hp 81000001 -pwda ${TPM_PRIMARY_KEY_PASSWORD}
+```
+
+Next, you can create a child key, which has the previously created primary as its parent: 
+```
+create_tpm2_key -e prime256v1 -p 81000001 client-tpm-key.pem --auth --password ${TPM_CLIENT_KEY_PASSWORD}
+```
+
+Note that the above uses a utility program provided by the IBM OpenSSL engine. 
+
+Lastly, you can create a certificate using the client key that was just created. Make sure to provide 
+the client key password and the engine identifier when using the OpenSSL CLI, in addition to the 
+necessary information about the issuing CA. 
+
 #### Other Notes
 
 ##### YubiKey Attestation Certificates
