@@ -48,7 +48,6 @@ import (
 
 	"github.com/miekg/pkcs11"
 	pkcs11uri "github.com/stefanberger/go-pkcs11uri"
-	"golang.org/x/term"
 )
 
 var PKCS11_TEST_VERSION int16 = 1
@@ -594,19 +593,6 @@ func pkcs11PasswordPrompt(module *pkcs11.Ctx, session pkcs11.SessionHandle, user
 
 	// The code should never reach here.
 	return "", fmt.Errorf("unexpected error when prompting for %s", passwordName)
-}
-
-// Prompts the user for their password
-func GetPassword(ttyReadFile *os.File, ttyWriteFile *os.File, prompt string, parseErrMsg string) (string, error) {
-	fmt.Fprintln(ttyWriteFile, prompt)
-	passwordBytes, err := term.ReadPassword(int(ttyReadFile.Fd()))
-	if err != nil {
-		return "", errors.New(parseErrMsg)
-	}
-
-	password := string(passwordBytes[:])
-	strings.Replace(password, "\r", "", -1) // Remove CR
-	return password, nil
 }
 
 // Helper function to sign a digest using a PKCS#11 private key handle.

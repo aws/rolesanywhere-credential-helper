@@ -184,6 +184,23 @@ The searching methodology used to find objects within PKCS#11 tokens can largely
 that there are some slight differences in how objects are found in the credential helper 
 application. 
 
+#### TPMv2 Integration
+
+Private key files containing a TPM wrapped key in the `-----BEGIN TSS2 PRIVATE KEY-----`
+form as described [here](https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html)
+are transparently supported. You can just use such a file as you would any plain key
+file and expect it to work, just as you should expect with any well-behaved application.
+
+These files are supported, and can be created by, both TPMv2 OpenSSL engines/providers, and GnuTLS.
+
+Note that some features of the TSS private key format are not yet supported. Some or all
+of these may be implemented in future versions. In some semblance of the order in which
+they're likely to be added:
+ * Password authentication on parent keys (and hierarchies), when needing to create persistent handles
+ * Importable keys
+ * TPM Policy / AuthPolicy
+ * Sealed keys
+
 #### Other Notes
 
 ##### YubiKey Attestation Certificates
@@ -206,23 +223,6 @@ Due to this package's use of a dependency to integrate with PKCS#11 modules, we 
 to guarantee that PINs are zeroized in memory after they are no longer needed. We will continue 
 to explore options to overcome this. Customers are encouraged to study the impact of this limitation 
 and determine whether compensating controls are warranted for their system and threat model.
-
-#### TPMv2 Integration
-
-Private key files containing a TPM wrapped key in the `-----BEGIN TSS2 PRIVATE KEY-----`
-form as described [here](https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html)
-are transparently supported. You can just use such a file as you would any plain key
-file and expect it to work, just as you should expect with any well-behaved application.
-
-These files are supported, and can be created by, both TPMv2 OpenSSL engines/providers, and GnuTLS.
-
-Note that some features of the TSS private key format are not yet supported. Some or all
-of these may be implemented in future versions. In some semblance of the order in which
-they're likely to be added:
- * Password authentication on keys (and parent keys)
- * Importable keys
- * TPM Policy / AuthPolicy
- * Sealed keys
 
 ### update
 

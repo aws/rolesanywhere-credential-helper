@@ -13,6 +13,8 @@ import (
 	"io"
 	"math/big"
 	"os"
+	"runtime"
+	"strings"
 
 	tpm2 "github.com/google/go-tpm/tpm2"
 	tpmutil "github.com/google/go-tpm/tpmutil"
@@ -25,7 +27,7 @@ type tpm2_TPMPolicy struct {
 
 type tpm2_TPMAuthPolicy struct {
 	Name   string           `asn1:"utf8,optional,explicit,tag:0"`
-	Policy []tpm2_TPMPolicy `asn1:explicit,tag:1"`
+	Policy []tpm2_TPMPolicy `asn1:"explicit,tag:1"`
 }
 
 type tpm2_TPMKey struct {
@@ -40,6 +42,7 @@ type tpm2_TPMKey struct {
 }
 
 var oidLoadableKey = asn1.ObjectIdentifier{2, 23, 133, 10, 1, 3}
+var TPM_RC_AUTH_FAIL = "0x22"
 
 type TPMv2Signer struct {
 	cert      *x509.Certificate
@@ -47,6 +50,7 @@ type TPMv2Signer struct {
 	tpmData   tpm2_TPMKey
 	public    tpm2.Public
 	private   []byte
+	password string
 }
 
 func handleIsPersistent(h int) bool {
@@ -83,6 +87,7 @@ func (tpmv2Signer *TPMv2Signer) Public() crypto.PublicKey {
 func (tpmv2Signer *TPMv2Signer) Close() {
 }
 
+// TODO: Potentially unneeded (remove if so)
 func padPKCS1_15(input []byte, size uint) (output []byte, err error) {
 	var PKCS1_PAD_OVERHEAD = 11
 
@@ -133,28 +138,27 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 
 	var algo tpm2.Algorithm
 	var shadigest []byte
-	var asn1Prefix []byte
+	// var asn1Prefix []byte
 
 	switch opts.HashFunc() {
 	case crypto.SHA256:
 		sha256digest := sha256.Sum256(digest)
 		shadigest = sha256digest[:]
 		algo = tpm2.AlgSHA256
-		asn1Prefix = []byte{0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20}
+		// asn1Prefix = []byte{0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20}
 	case crypto.SHA384:
 		sha384digest := sha512.Sum384(digest)
 		shadigest = sha384digest[:]
 		algo = tpm2.AlgSHA384
-		asn1Prefix = []byte{0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05, 0x00, 0x04, 0x30}
+		// asn1Prefix = []byte{0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05, 0x00, 0x04, 0x30}
 	case crypto.SHA512:
 		sha512digest := sha512.Sum512(digest)
 		shadigest = sha512digest[:]
 		algo = tpm2.AlgSHA512
-		asn1Prefix = []byte{0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40}
+		// asn1Prefix = []byte{0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40}
 	}
 
 	if tpmv2Signer.public.Type == tpm2.AlgECC {
-
 		// For an EC key we lie to the TPM about what the hash is.
 		// It doesn't actually matter what the original digest was;
 		// the algo we feed to the TPM is *purely* based on the
@@ -166,7 +170,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 		}
 		ecPubKey, ok := pubKey.(*ecdsa.PublicKey)
 		if !ok {
-			return nil, errors.New("Failed to obtain ecdsa.PublicKey")
+			return nil, errors.New("failed to obtain ecdsa.PublicKey")
 		}
 		bitSize := ecPubKey.Curve.Params().BitSize
 		byteSize := (bitSize + 7) / 8
@@ -183,7 +187,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 		case sha1.Size:
 			algo = tpm2.AlgSHA1
 		default:
-			return nil, errors.New("Unsupported curve")
+			return nil, errors.New("unsupported curve")
 		}
 
 		if len(shadigest) > byteSize {
@@ -194,7 +198,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 			shadigest = append([]byte{0}, shadigest...)
 		}
 
-		sig, err := tpm2.Sign(rw, keyHandle, "", shadigest, nil,
+		sig, err := tpmv2Signer.signHelper(rw, keyHandle, tpmv2Signer.password, shadigest, 
 			&tpm2.SigScheme{Alg: tpm2.AlgECDSA, Hash: algo})
 		if err != nil {
 			return nil, err
@@ -207,6 +211,9 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 			return nil, err
 		}
 	} else {
+		// TODO: Figure out what to do with the below lines that have been 
+		// commented out (using raw RSA decrypt to perform RSA PKCS#1 v1.5 
+		// signing). 
 		// Both OpenSSL ENGINEs perform a raw RSA Decrypt operation,
 		// having done the ASN.1 encoding of the hash OID and the
 		// actual, and the PKCS#1 v1.5 padding, in software. This
@@ -214,18 +221,106 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 		// to use the Sign operation, and TPMs often don't support
 		// many digest algorithms. The IBM/Bottomley engine even
 		// creates keys without the Sign capability by default.
-		padded, err := padPKCS1_15(append(asn1Prefix, shadigest...),
-			uint(tpmv2Signer.public.RSAParameters.KeyBits/8))
+		//
+		// padded, err := padPKCS1_15(append(asn1Prefix, shadigest...),
+		// 	uint(tpmv2Signer.public.RSAParameters.KeyBits/8))
+		// if err != nil {
+		// 	return nil, err
+		// }
+		//
+		// signature, err = tpm2.RSADecrypt(rw, keyHandle, "", padded, &tpm2.AsymScheme{Alg: tpm2.AlgNull}, "")
+		// if err != nil {
+		// 	return nil, err
+		// }
+	
+		sig, err := tpmv2Signer.signHelper(rw, keyHandle, tpmv2Signer.password, shadigest, &tpm2.SigScheme{Alg: tpm2.AlgRSASSA, Hash: algo})
 		if err != nil {
 			return nil, err
 		}
+		signature = sig.RSA.Signature
+	}
+	return signature, nil
+}
 
-		signature, err = tpm2.RSADecrypt(rw, keyHandle, "", padded, &tpm2.AsymScheme{Alg: tpm2.AlgNull}, "")
+func (tpmv2Signer *TPMv2Signer) signHelper(rw io.ReadWriter, keyHandle tpmutil.Handle, password string, digest tpmutil.U16Bytes, sigScheme *tpm2.SigScheme) (*tpm2.Signature, error) {
+	var (
+		err error
+		ttyReadPath string
+		ttyWritePath string
+		ttyReadFile *os.File
+		ttyWriteFile *os.File
+		parseErrMsg string
+		prompt string
+		reprompt string
+		sig *tpm2.Signature
+	)
+
+	parseErrMsg = "unable to read your TPM key password"
+	prompt = "Please enter your TPM key password:"
+	reprompt = "Incorrect TPM key password. Please try again:"
+
+	ttyReadPath = "/dev/tty"
+	ttyWritePath = ttyReadPath
+	if runtime.GOOS == "windows" {
+		ttyReadPath = "CONIN$"
+		ttyWritePath = "CONOUT$"
+	}
+
+	ttyReadFile, err = os.OpenFile(ttyReadPath, os.O_RDWR, 0)
+	if err != nil {
+		return nil, errors.New(parseErrMsg)
+	}
+	defer ttyReadFile.Close()
+
+	ttyWriteFile, err = os.OpenFile(ttyWritePath, os.O_WRONLY, 0)
+	if err != nil {
+		return nil, errors.New(parseErrMsg)
+	}
+	defer ttyWriteFile.Close()
+
+	// If the password was provided explicitly, beforehand
+	if password != "" {
+		sig, err = tpm2.Sign(rw, keyHandle, password, digest, nil, sigScheme)
 		if err != nil {
+			return nil, errors.New("incorrect TPM key password")
+		}
+		return sig, nil
+	}
+
+	// Otherwise, first try to perform the sign operation without a password
+	sig, err = tpm2.Sign(rw, keyHandle, "", digest, nil, sigScheme)
+	if err == nil {
+		return sig, err
+	}
+
+	// The TPM key has a password, so prompt for it
+	if strings.Contains(err.Error(), TPM_RC_AUTH_FAIL) {
+		// Otherwise, prompt for the password
+		password, err = GetPassword(ttyReadFile, ttyWriteFile, prompt, parseErrMsg)
+		if err != nil {
+			return nil, err
+		}
+		sig, err = tpm2.Sign(rw, keyHandle, password, digest, nil, sigScheme)
+		for true {
+			// If we've found the right password, save it and return the signature
+			if err == nil {
+				tpmv2Signer.password = password
+				return sig, nil
+			}
+			// Otherwise, if the password was incorrect, prompt for it again
+			if strings.Contains(err.Error(), TPM_RC_AUTH_FAIL) {
+				password, err = GetPassword(ttyReadFile, ttyWriteFile, reprompt, parseErrMsg)
+				if err != nil {
+					return nil, err
+				}
+				sig, err = tpm2.Sign(rw, keyHandle, password, digest, nil, sigScheme)
+				continue
+			}
 			return nil, err
 		}
 	}
-	return signature, nil
+
+	return nil, err
 }
 
 // Gets the x509.Certificate associated with this TPMv2Signer
@@ -289,8 +384,7 @@ func fixupEmptyAuth(tpmData *[]byte) {
 
 // Returns a TPMv2Signer, that can be used to sign a payload through a TPMv2-compatible
 // cryptographic device
-func GetTPMv2Signer(certificate *x509.Certificate, certificateChain []*x509.Certificate, keyPem *pem.Block) (signer Signer, signingAlgorithm string, err error) {
-
+func GetTPMv2Signer(certificate *x509.Certificate, certificateChain []*x509.Certificate, keyPem *pem.Block, password string) (signer Signer, signingAlgorithm string, err error) {
 	var tpmData tpm2_TPMKey
 
 	fixupEmptyAuth(&keyPem.Bytes)
@@ -341,5 +435,5 @@ func GetTPMv2Signer(certificate *x509.Certificate, certificateChain []*x509.Cert
 		return nil, "", errors.New("Invalid length for TPMv2 PRIVATE blob")
 	}
 
-	return &TPMv2Signer{certificate, nil, tpmData, public, tpmData.Privkey[2:]}, signingAlgorithm, nil
+	return &TPMv2Signer{certificate, nil, tpmData, public, tpmData.Privkey[2:], password}, signingAlgorithm, nil
 }

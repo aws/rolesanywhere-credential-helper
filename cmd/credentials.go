@@ -31,6 +31,8 @@ var (
 
 	libPkcs11 string
 
+	tpmKeyPassword string
+
 	credentialsOptions helper.CredentialsOpts
 
 	X509_SUBJECT_KEY = "x509Subject"
@@ -72,6 +74,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().BoolVar(&reusePin, "reuse-pin", false, "Use the CKU_USER PIN as the CKU_CONTEXT_SPECIFIC PIN for "+
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
 		"for a given private key object, fall back to prompting the user")
+	subCmd.PersistentFlags().StringVar(&tpmKeyPassword, "tpm-key-password", "", "Password for TPM key, if applicable")
 
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
@@ -80,6 +83,8 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "intermediates")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
+	subCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "cert-selector")
+	subCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "reuse-pin")
 }
 
 // Parses a cert selector string to a map
@@ -242,6 +247,7 @@ func PopulateCredentialsOptions() error {
 		Version:             Version,
 		LibPkcs11:           libPkcs11,
 		ReusePin:            reusePin,
+		TpmKeyPassword: tpmKeyPassword,
 	}
 
 	return nil

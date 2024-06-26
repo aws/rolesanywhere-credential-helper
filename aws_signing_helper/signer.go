@@ -26,6 +26,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"golang.org/x/crypto/pkcs12"
+	"golang.org/x/term"
 )
 
 type SignerParams struct {
@@ -127,6 +128,19 @@ var ignoredHeaderKeys = map[string]bool{
 
 var Debug bool = false
 
+// Prompts the user for their password
+func GetPassword(ttyReadFile *os.File, ttyWriteFile *os.File, prompt string, parseErrMsg string) (string, error) {
+	fmt.Fprintln(ttyWriteFile, prompt)
+	passwordBytes, err := term.ReadPassword(int(ttyReadFile.Fd()))
+	if err != nil {
+		return "", errors.New(parseErrMsg)
+	}
+
+	password := string(passwordBytes[:])
+	strings.Replace(password, "\r", "", -1) // Remove CR
+	return password, nil
+}
+
 // Find whether the current certificate matches the CertIdentifier
 func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
 	if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
@@ -225,7 +239,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 	} else {
 		tpmkey, err := parseDERFromPEM(privateKeyId, "TSS2 PRIVATE KEY")
 		if err == nil {
-			return GetTPMv2Signer(certificate, certificateChain, tpmkey)
+			return GetTPMv2Signer(certificate, certificateChain, tpmkey, opts.TpmKeyPassword)
 		}
 
 		_, err = ReadPrivateKeyData(privateKeyId)

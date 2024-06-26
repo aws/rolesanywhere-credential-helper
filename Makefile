@@ -10,6 +10,13 @@ build/bin/aws_signing_helper:
 clean:
 	rm -rf build
 
+# TODO: Remove the below
+# Define variables to store information about 
+# AWS_SIGNING_HELPER_DIR_PATH := aws_signing_helper
+# ALL_FILES := $(wildcard $(AWS_SIGNING_HELPER_DIR_PATH)/*)
+# TEST_FILES := $(filter %test.go, $(ALL_FILES))
+# SRC_FILES := $(filter-out $(TEST_FILES), $(ALL_FILES)) # Includes testing utility source file
+
 # Setting up SoftHSM for PKCS#11 tests. 
 # This portion is largely copied from https://gitlab.com/openconnect/openconnect/-/blob/v9.12/tests/Makefile.am#L363. 
 SHM2_UTIL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp softhsm2-util
@@ -28,7 +35,7 @@ PKCS12CERTS := $(patsubst %-cert.pem, %.p12, $(RSACERTS) $(ECCERTS))
 # Software TPM. For generating keys/certs, we run the swtpm in TCP mode,
 # because that's what the tools and the OpenSSL ENGINE require. Each of
 # the rules which might need the swtpm will ensure that it's running by
-# invoking $(START_SWTPM_TCP). The 'user-certs:; rule will then *stop* it
+# invoking $(START_SWTPM_TCP). The 'test-certs:; rule will then *stop* it
 # by running $(STOP_SWTPM_TCP), after all the certs and keys have been
 # created.
 #
@@ -66,15 +73,27 @@ $(certsdir)/tpm-sw-rsa-key.pem:
 	$(START_SWTPM_TCP)
 	TPM_INTERFACE_TYPE=socsim create_tpm2_key -r $@
 
+$(certsdir)/tpm-sw-rsa-key-with-pw.pem:
+	$(START_SWTPM_TCP)
+	TPM_INTERFACE_TYPE=socsim create_tpm2_key -r $@ --auth --password 1234
+
 $(certsdir)/tpm-sw-ec-prime256-key.pem:
 	$(START_SWTPM_TCP)
 	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 $@
+
+$(certsdir)/tpm-sw-ec-prime256-key-with-pw.pem:
+	$(START_SWTPM_TCP)
+	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 $@ --auth --password 1234
 
 $(certsdir)/tpm-sw-ec-secp384r1-key.pem:
 	$(START_SWTPM_TCP)
 	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e secp384r1 $@
 
-# Create a persistent key at 0x81000001 in the owner hierarchiy, if it
+$(certsdir)/tpm-sw-ec-secp384r1-key-with-pw.pem:
+	$(START_SWTPM_TCP)
+	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e secp384r1 $@ --auth --password 1234
+
+# Create a persistent key at 0x81000001 in the owner hierarchy, if it
 # doesn't already exist. And a PEM key with that as its parent.
 $(certsdir)/tpm-sw-ec-81000001-key.pem:
 	$(START_SWTPM_TCP)
@@ -84,11 +103,23 @@ $(certsdir)/tpm-sw-ec-81000001-key.pem:
 	fi
 	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 -p 81000001 $@
 
-SWTPMKEYS := $(certsdir)/tpm-sw-rsa-key.pem $(certsdir)/tpm-sw-ec-secp384r1-key.pem $(certsdir)/tpm-sw-ec-prime256-key.pem $(certsdir)/tpm-sw-ec-81000001-key.pem
-SWTPMCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(SWTPMKEYS)))
+$(certsdir)/tpm-sw-ec-81000001-key-with-pw.pem:
+	$(START_SWTPM_TCP)
+	if ! TPM_INTERFACE_TYPE=socsim tssreadpublic -ho 81000001; then \
+		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa && \
+		TPM_INTERFACE_TYPE=socsim tssevictcontrol -hi o -ho 80000000 -hp 81000001; \
+	fi
+	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 -p 81000001 $@ --auth --password 1234
 
-HWTPMKEYS := $(certsdir)/tpm-hw-rsa-key.pem $(certsdir)/tpm-hw-ec-key.pem  $(certsdir)/tpm-hw-ec-81000001-key.pem
-HWTPMCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(HWTPMKEYS)))
+SWTPMKEYS_WO_PW := $(certsdir)/tpm-sw-rsa-key.pem $(certsdir)/tpm-sw-ec-secp384r1-key.pem $(certsdir)/tpm-sw-ec-prime256-key.pem $(certsdir)/tpm-sw-ec-81000001-key.pem
+SWTPMKEYS_W_PW := $(patsubst %.pem, %-with-pw.pem, $(SWTPMKEYS_WO_PW))
+SWTPMKEYS := $(SWTPMKEYS_WO_PW) $(SWTPMKEYS_W_PW)
+SWTPMCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(SWTPMKEYS_WO_PW)))
+
+HWTPMKEYS_WO_PW := $(certsdir)/tpm-hw-rsa-key.pem $(certsdir)/tpm-hw-ec-key.pem  $(certsdir)/tpm-hw-ec-81000001-key.pem
+HWTPMKEYS_W_PW := $(patsubst %.pem, %-with-pw.pem, $(HWTPMKEYS_WO_PW))
+HWTPMKEYS := $(HWTPMKEYS_WO_PW) $(HWTPMKEYS_W_PW)
+HWTPMCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(HWTPMKEYS_WO_PW)))
 
 # User can test on hardware TPM with `make TPM_DEVICE=/dev/tpmrm0 test`
 ifeq ($(TPM_DEVICE),)
@@ -106,11 +137,9 @@ endif
 
 export TPM_DEVICE
 
-
-
 # It's hard to ao a file-based rule for the contents of the SoftHSM token.
 # So just populate it as a side-effect of creating the softhsm2.conf file.
-tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS) tst/certs/rsa-2048-2-sha256-cert.pem
+tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS)
 	rm -rf tst/softhsm/*
 	sed 's|@top_srcdir@|${curdir}|g' $< > $@.tmp
 	$(SHM2_UTIL) --show-slots
@@ -144,6 +173,20 @@ tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS
 test: test-certs tst/softhsm2.conf
 	$(START_SWTPM)
 	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf go test -v ./... || :
+	$(STOP_SWTPM)
+
+TPMCOMBOS := $(patsubst %-cert.pem, %-combo.pem, $(TPMCERTS))
+
+.PHONY: test-tpm-signer
+test-tpm-signer: $(TPMKEYS) $(TPMCERTS) $(TPMCOMBOS)
+	# @echo "All files: $(ALL_FILES)"
+	# @echo "Test files: $(TEST_FILES)"
+	# @echo "Source files: $(SRC_FILES)"
+	# go test $(AWS_SIGNING_HELPER_DIR_PATH)/tpm_signer_test.go $(SRC_FILES)
+	# go test ./... -tags=$(TPM_TEST_TAG)
+	$(STOP_SWTPM_TCP) || :
+	$(START_SWTPM)
+	go test ./... -run "TPM"
 	$(STOP_SWTPM)
 
 define CERT_RECIPE
@@ -190,11 +233,20 @@ endef
 $(certsdir)/tpm-hw-rsa-key.pem:
 	create_tpm2_key -r $@
 
+$(certsdir)/tpm-hw-rsa-key-with-pw.pem:
+	create_tpm2_key -r $@ --auth --password 1234
+
 $(certsdir)/tpm-hw-ec-key.pem:
 	create_tpm2_key -e prime256v1 $@
 
+$(certsdir)/tpm-hw-ec-key-with-pw.pem:
+	create_tpm2_key -e prime256v1 $@ --auth --password 1234
+
 $(certsdir)/tpm-hw-ec-81000001-key.pem:
 	create_tpm2_key -e prime256v1 -p 81000001 $@
+
+$(certsdir)/tpm-hw-ec-81000001-key.pem:
+	create_tpm2_key -e prime256v1 -p 81000001 $@ --auth --password 1234
 
 $(RSAKEYS):
 	KEYLEN=$$(echo "$@" | sed 's/.*rsa-\([0-9]*\)-key.pem/\1/'); \
@@ -217,11 +269,9 @@ KEYS := $(RSAKEYS) $(ECKEYS) $(TPMKEYS) $(PKCS8KEYS)
 CERTS := $(RSACERTS) $(ECCERTS) $(TPMCERTS)
 COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(CERTS))
 
-test-certs: $(KEYS) $(CERTS) $(COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem tst/softhsm2.conf
-	$(STOP_SWTPM_TCP) 2>/dev/null || :
-
 .PHONY: test-certs
-test-certs: $(PKCS8KEYS) $(RSAKEYS) $(ECKEYS) $(RSACERTS) $(ECCERTS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem tst/softhsm2.conf
+test-certs: $(KEYS) $(CERTS) $(COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem tst/softhsm2.conf
+	$(STOP_SWTPM_TCP) 2>/dev/null || :
 
 .PHONY: test-clean
 test-clean:
