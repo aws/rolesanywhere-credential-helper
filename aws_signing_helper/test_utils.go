@@ -155,4 +155,3 @@ func Verify(payload []byte, publicKey crypto.PublicKey, digest crypto.Hash, sig 
 
 	return false, nil
 }
-

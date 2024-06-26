@@ -50,7 +50,7 @@ type TPMv2Signer struct {
 	tpmData   tpm2_TPMKey
 	public    tpm2.Public
 	private   []byte
-	password string
+	password  string
 }
 
 func handleIsPersistent(h int) bool {
@@ -85,27 +85,6 @@ func (tpmv2Signer *TPMv2Signer) Public() crypto.PublicKey {
 
 // Closes this TPMv2Signer
 func (tpmv2Signer *TPMv2Signer) Close() {
-}
-
-// TODO: Potentially unneeded (remove if so)
-func padPKCS1_15(input []byte, size uint) (output []byte, err error) {
-	var PKCS1_PAD_OVERHEAD = 11
-
-	if uint(len(input)+PKCS1_PAD_OVERHEAD) > size {
-		return nil, errors.New("Digest too large for RSA signature")
-	}
-
-	padlen := size - uint(len(input))
-	output = make([]byte, size)
-	output[0] = 0x00
-	output[1] = 0x01
-	var i uint
-	for i = 2; i < padlen-1; i++ {
-		output[i] = 0xff
-	}
-	output[padlen-1] = 0x00
-	copy(output[padlen:], input)
-	return output, nil
 }
 
 // Implements the crypto.Signer interface and signs the passed in digest
@@ -198,7 +177,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 			shadigest = append([]byte{0}, shadigest...)
 		}
 
-		sig, err := tpmv2Signer.signHelper(rw, keyHandle, tpmv2Signer.password, shadigest, 
+		sig, err := tpmv2Signer.signHelper(rw, keyHandle, tpmv2Signer.password, shadigest,
 			&tpm2.SigScheme{Alg: tpm2.AlgECDSA, Hash: algo})
 		if err != nil {
 			return nil, err
@@ -211,28 +190,6 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 			return nil, err
 		}
 	} else {
-		// TODO: Figure out what to do with the below lines that have been 
-		// commented out (using raw RSA decrypt to perform RSA PKCS#1 v1.5 
-		// signing). 
-		// Both OpenSSL ENGINEs perform a raw RSA Decrypt operation,
-		// having done the ASN.1 encoding of the hash OID and the
-		// actual, and the PKCS#1 v1.5 padding, in software. This
-		// is because the TPM needs to *know* the digest in order
-		// to use the Sign operation, and TPMs often don't support
-		// many digest algorithms. The IBM/Bottomley engine even
-		// creates keys without the Sign capability by default.
-		//
-		// padded, err := padPKCS1_15(append(asn1Prefix, shadigest...),
-		// 	uint(tpmv2Signer.public.RSAParameters.KeyBits/8))
-		// if err != nil {
-		// 	return nil, err
-		// }
-		//
-		// signature, err = tpm2.RSADecrypt(rw, keyHandle, "", padded, &tpm2.AsymScheme{Alg: tpm2.AlgNull}, "")
-		// if err != nil {
-		// 	return nil, err
-		// }
-	
 		sig, err := tpmv2Signer.signHelper(rw, keyHandle, tpmv2Signer.password, shadigest, &tpm2.SigScheme{Alg: tpm2.AlgRSASSA, Hash: algo})
 		if err != nil {
 			return nil, err
@@ -244,15 +201,15 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 
 func (tpmv2Signer *TPMv2Signer) signHelper(rw io.ReadWriter, keyHandle tpmutil.Handle, password string, digest tpmutil.U16Bytes, sigScheme *tpm2.SigScheme) (*tpm2.Signature, error) {
 	var (
-		err error
-		ttyReadPath string
+		err          error
+		ttyReadPath  string
 		ttyWritePath string
-		ttyReadFile *os.File
+		ttyReadFile  *os.File
 		ttyWriteFile *os.File
-		parseErrMsg string
-		prompt string
-		reprompt string
-		sig *tpm2.Signature
+		parseErrMsg  string
+		prompt       string
+		reprompt     string
+		sig          *tpm2.Signature
 	)
 
 	parseErrMsg = "unable to read your TPM key password"

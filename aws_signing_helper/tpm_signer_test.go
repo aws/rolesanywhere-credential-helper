@@ -20,7 +20,6 @@ func TestTPMSigner(t *testing.T) {
 	if strings.HasPrefix(tpmdev, "/dev/") {
 		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
 	} else {
-		// TODO: Add "sw-rsa" back in
 		tpm_keys = []string{"sw-rsa-81000001-sign", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
 	}
 
@@ -35,8 +34,8 @@ func TestTPMSigner(t *testing.T) {
 			})
 			keyWithPw := fmt.Sprintf("../tst/certs/tpm-%s-key-with-pw.pem", keyname)
 			testTable = append(testTable, CredentialsOpts{
-				CertificateId: cert, 
-				PrivateKeyId: keyWithPw, 
+				CertificateId:  cert,
+				PrivateKeyId:   keyWithPw,
 				TpmKeyPassword: "1234",
 			})
 
@@ -51,7 +50,7 @@ func TestTPMSigner(t *testing.T) {
 	RunSignTestWithTestTable(t, testTable)
 }
 
-func createRsaTpmPemKeyWithSignCapability(suffix string, emptyAuth bool) (error) {
+func createRsaTpmPemKeyWithSignCapability(suffix string, emptyAuth bool) error {
 	privKeyFileName := fmt.Sprintf("../tst/certs/tpm-sw-rsa-81000001-sign%s.key", suffix)
 	privKeyBytes, err := os.ReadFile(privKeyFileName)
 	if err != nil {
@@ -64,11 +63,11 @@ func createRsaTpmPemKeyWithSignCapability(suffix string, emptyAuth bool) (error)
 	}
 
 	tpmData := tpm2_TPMKey{
-		Oid: oidLoadableKey, 
+		Oid:       oidLoadableKey,
 		EmptyAuth: emptyAuth,
-		Parent: 0x81000001, 
-		Pubkey: pubKeyBytes, 
-		Privkey: privKeyBytes, 
+		Parent:    0x81000001,
+		Pubkey:    pubKeyBytes,
+		Privkey:   privKeyBytes,
 	}
 
 	asn1Bytes, err := asn1.Marshal(tpmData)
@@ -77,8 +76,8 @@ func createRsaTpmPemKeyWithSignCapability(suffix string, emptyAuth bool) (error)
 	}
 
 	pemBlock := &pem.Block{
-		Type: "TSS2 PRIVATE KEY", 
-		Bytes: asn1Bytes, 
+		Type:  "TSS2 PRIVATE KEY",
+		Bytes: asn1Bytes,
 	}
 
 	pemFileName := fmt.Sprintf("../tst/certs/tpm-sw-rsa-81000001-sign-key%s.pem", suffix)
@@ -96,10 +95,10 @@ func createRsaTpmPemKeyWithSignCapability(suffix string, emptyAuth bool) (error)
 	return nil
 }
 
-// The RSA key with the Sign capability will have already been created 
-// as a part of the owner hierarchy (as a part of the Makefile testing 
-// target). This method will marshal the resulting data into the PEM 
-// TPM key format. 
+// The RSA key with the Sign capability will have already been created
+// as a part of the owner hierarchy (as a part of the Makefile testing
+// target). This method will marshal the resulting data into the PEM
+// TPM key format.
 func TestCreateRsaTpmPemKeyWithSignCapability(t *testing.T) {
 	err := createRsaTpmPemKeyWithSignCapability("", true)
 	if err != nil {
@@ -126,22 +125,31 @@ func TestTPMSignerFails(t *testing.T) {
 	if strings.HasPrefix(tpmdev, "/dev/") {
 		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
 	} else {
-		// Note that the "sw-rsa" key will fail to sign since it doesn't have the 
-		// Sign capability. 
-		tpm_keys = []string{"sw-rsa", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
+		tpm_keys = []string{"sw-rsa", "sw-rsa-81000001-sign", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
 	}
 
+	// Test that signing fails when an incorrect password is provided
 	for _, digest := range tpm_digests {
 		for _, keyname := range tpm_keys {
 			cert := fmt.Sprintf("../tst/certs/tpm-%s-%s-cert.pem",
 				keyname, digest)
 			keyWithPw := fmt.Sprintf("../tst/certs/tpm-%s-key-with-pw.pem", keyname)
 			testTable = append(testTable, CredentialsOpts{
-				CertificateId: cert, 
-				PrivateKeyId: keyWithPw, 
+				CertificateId:  cert,
+				PrivateKeyId:   keyWithPw,
 				TpmKeyPassword: "incorrect-password",
 			})
 		}
+	}
+
+	// Test that RSA keys that don't have the Sign capability aren't able to
+	// sign (even in the case that they have the raw Decrypt capability)
+	for _, digest := range tpm_digests {
+		cert := fmt.Sprintf("../tst/certs/tpm-sw-rsa-%s-cert.pem", digest)
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: cert,
+			PrivateKeyId:  "../tst/certs/tpm-sw-rsa-key.pem",
+		})
 	}
 
 	RunNegativeSignTestWithTestTable(t, testTable)

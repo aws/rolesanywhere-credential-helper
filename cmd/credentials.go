@@ -247,7 +247,7 @@ func PopulateCredentialsOptions() error {
 		Version:             Version,
 		LibPkcs11:           libPkcs11,
 		ReusePin:            reusePin,
-		TpmKeyPassword: tpmKeyPassword,
+		TpmKeyPassword:      tpmKeyPassword,
 	}
 
 	return nil

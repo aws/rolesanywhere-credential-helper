@@ -10,13 +10,6 @@ build/bin/aws_signing_helper:
 clean:
 	rm -rf build
 
-# TODO: Remove the below
-# Define variables to store information about 
-# AWS_SIGNING_HELPER_DIR_PATH := aws_signing_helper
-# ALL_FILES := $(wildcard $(AWS_SIGNING_HELPER_DIR_PATH)/*)
-# TEST_FILES := $(filter %test.go, $(ALL_FILES))
-# SRC_FILES := $(filter-out $(TEST_FILES), $(ALL_FILES)) # Includes testing utility source file
-
 # Setting up SoftHSM for PKCS#11 tests. 
 # This portion is largely copied from https://gitlab.com/openconnect/openconnect/-/blob/v9.12/tests/Makefile.am#L363. 
 SHM2_UTIL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp softhsm2-util
@@ -208,11 +201,6 @@ TPMCOMBOS := $(patsubst %-cert.pem, %-combo.pem, $(TPMCERTS))
 
 .PHONY: test-tpm-signer
 test-tpm-signer: $(TPMKEYS) $(TPMCERTS) $(TPMCOMBOS)
-	# @echo "All files: $(ALL_FILES)"
-	# @echo "Test files: $(TEST_FILES)"
-	# @echo "Source files: $(SRC_FILES)"
-	# go test $(AWS_SIGNING_HELPER_DIR_PATH)/tpm_signer_test.go $(SRC_FILES)
-	# go test ./... -tags=$(TPM_TEST_TAG)
 	$(STOP_SWTPM_TCP) || :
 	$(START_SWTPM)
 	go test ./... -run "TPM"
@@ -314,5 +302,5 @@ test-clean:
 	rm -rf tst/softhsm/*
 	$(STOP_SWTPM_TCP) || :
 	$(STOP_SWTPM_UNIX) || :
-	rm -rf $(SWTPMKEYS) $(SWTPMCERTS) $(SWTPM_TPMFILES) tst/swtpm
+	rm -rf $(SWTPMKEYS) $(SWTPMCERTS) $(SWTPM_TMPKEYS) tst/swtpm
 
