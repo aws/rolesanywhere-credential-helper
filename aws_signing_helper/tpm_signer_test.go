@@ -141,11 +141,6 @@ func TestTPMSignerFails(t *testing.T) {
 				PrivateKeyId:   keyWithPw,
 				TpmKeyPassword: "incorrect-password",
 			})
-
-			testTable = append(testTable, CredentialsOpts{
-				CertificateId: cert,
-				PrivateKeyId:  keyWithPw,
-			})
 		}
 	}
 

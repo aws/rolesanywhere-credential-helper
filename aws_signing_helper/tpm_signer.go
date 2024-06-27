@@ -10,6 +10,7 @@ import (
 	"encoding/asn1"
 	"encoding/pem"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"os"
@@ -85,6 +86,21 @@ func (tpmv2Signer *TPMv2Signer) Public() crypto.PublicKey {
 
 // Closes this TPMv2Signer
 func (tpmv2Signer *TPMv2Signer) Close() {
+	tpmv2Signer.password = ""
+}
+
+func checkCapability(rw io.ReadWriter, algo tpm2.Algorithm) error {
+	descs, _, err := tpm2.GetCapability(rw, tpm2.CapabilityAlgs, 1, uint32(algo))
+	if err != nil {
+		errMsg := fmt.Sprintf("error trying to get capability from TPM for the algorithm (%s)", algo)
+		return errors.New(errMsg)
+	}
+	if tpm2.Algorithm(descs[0].(tpm2.AlgorithmDescription).ID) != algo {
+		errMsg := fmt.Sprintf("unsupported algorithm (%s) for TPM", algo)
+		return errors.New(errMsg)
+	}
+
+	return nil
 }
 
 // Implements the crypto.Signer interface and signs the passed in digest
@@ -117,27 +133,29 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 
 	var algo tpm2.Algorithm
 	var shadigest []byte
-	// var asn1Prefix []byte
 
 	switch opts.HashFunc() {
 	case crypto.SHA256:
 		sha256digest := sha256.Sum256(digest)
 		shadigest = sha256digest[:]
 		algo = tpm2.AlgSHA256
-		// asn1Prefix = []byte{0x30, 0x31, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x01, 0x05, 0x00, 0x04, 0x20}
 	case crypto.SHA384:
 		sha384digest := sha512.Sum384(digest)
 		shadigest = sha384digest[:]
 		algo = tpm2.AlgSHA384
-		// asn1Prefix = []byte{0x30, 0x41, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x02, 0x05, 0x00, 0x04, 0x30}
 	case crypto.SHA512:
 		sha512digest := sha512.Sum512(digest)
 		shadigest = sha512digest[:]
 		algo = tpm2.AlgSHA512
-		// asn1Prefix = []byte{0x30, 0x51, 0x30, 0x0d, 0x06, 0x09, 0x60, 0x86, 0x48, 0x01, 0x65, 0x03, 0x04, 0x02, 0x03, 0x05, 0x00, 0x04, 0x40}
 	}
 
 	if tpmv2Signer.public.Type == tpm2.AlgECC {
+		// Check to see that ECDSA is supported for signing
+		err = checkCapability(rw, tpm2.AlgECC)
+		if err != nil {
+			return nil, err
+		}
+
 		// For an EC key we lie to the TPM about what the hash is.
 		// It doesn't actually matter what the original digest was;
 		// the algo we feed to the TPM is *purely* based on the
@@ -190,7 +208,20 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 			return nil, err
 		}
 	} else {
-		sig, err := tpmv2Signer.signHelper(rw, keyHandle, tpmv2Signer.password, shadigest, &tpm2.SigScheme{Alg: tpm2.AlgRSASSA, Hash: algo})
+		// Check to see that the requested hash function is supported
+		err = checkCapability(rw, algo)
+		if err != nil {
+			return nil, err
+		}
+
+		// Check to see that RSASSA is supported for signing
+		err = checkCapability(rw, tpm2.AlgRSASSA)
+		if err != nil {
+			return nil, err
+		}
+
+		sig, err := tpmv2Signer.signHelper(rw, keyHandle, tpmv2Signer.password, shadigest,
+			&tpm2.SigScheme{Alg: tpm2.AlgRSASSA, Hash: algo})
 		if err != nil {
 			return nil, err
 		}

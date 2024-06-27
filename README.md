@@ -219,17 +219,20 @@ appropriate `Makefile` targets). Afterwards, right before the unit tests are run
 `swtpm` over to run in UNIX socket mode. 
 
 ##### Guidance
-Once you have initialized the TPM appropriately, you can create a primary key in the owner hierarchy. 
-Using one of the utility programs that comes with the IBM TSS (you can find more 
-information about it in the previous section), create this primary key: 
+If you haven't already initialized your TPM's owner hierarchy yet, it is recommended that you configure 
+it with a password that has high entropy, as there are no dictionary attack protections for it. 
+
+Once you have initialized the TPM's owner hierarchy, you can create a primary key in it. Using one of 
+the utility programs that comes with the IBM TSS (you can find more information about it in the 
+previous section), create this primary key: 
 
 ```
-tsscreateprimary -hi o -ho 80000000 -hp 81000001 -ecc nistp256 -pwdk ${TPM_PRIMARY_KEY_PASSWORD}
+tsscreateprimary -hi o -ecc nistp256 -pwdk ${TPM_PRIMARY_KEY_PASSWORD}
 ```
 
 This will create a primary key in the TPM owner hierarchy, with a key password of 
-`${TPM_PRIMARY_KEY_PASSWORD}`. If the owner hierarchy in your TPM has a password, you can specify it 
-through the `-pwdk` option. 
+`${TPM_PRIMARY_KEY_PASSWORD}`. If the owner hierarchy in your TPM has a password (as noted before, it is 
+recommended to use a high entropy password for it), you can specify it through the `-pwdk` option. 
 
 Next, you can make that primary key persistent (it was created as transient above): 
 ```
@@ -243,9 +246,18 @@ create_tpm2_key -e prime256v1 -p 81000001 client-tpm-key.pem --auth --password $
 
 Note that the above uses a utility program provided by the IBM OpenSSL engine. 
 
-Lastly, you can create a certificate using the client key that was just created. Make sure to provide 
-the client key password and the engine identifier when using the OpenSSL CLI, in addition to the 
-necessary information about the issuing CA. 
+Afterwards, you can create and sign a CSR using your TPM key. The IBM OpenSSL engine can be used. In 
+order to specify that you'd like to use the engine through the OpenSSL CLI, you'll have to provide 
+the flags: `--engine tpm2 --keyform engine`. As an example, you could use a command line like the 
+below: 
+```
+openssl req -new --engine tpm2 --keyform engine -key client-tpm-key.pem -out client-csr.pem
+```
+
+Note that the above will prompt you for your password (`TPM_CLIENT_KEY_PASSWORD`). 
+
+Lastly, once you have your CSR, you can provide it to a CA so that it can issue a client certificate 
+for you. The client certificate ane TPM key can then be used with the credential helper application. 
 
 #### Other Notes
 
