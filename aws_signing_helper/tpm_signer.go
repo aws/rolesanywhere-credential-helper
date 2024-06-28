@@ -14,8 +14,6 @@ import (
 	"io"
 	"math/big"
 	"os"
-	"runtime"
-	"strings"
 
 	tpm2 "github.com/google/go-tpm/tpm2"
 	tpmutil "github.com/google/go-tpm/tpmutil"
@@ -52,6 +50,7 @@ type TPMv2Signer struct {
 	public    tpm2.Public
 	private   []byte
 	password  string
+	parentPassword string
 }
 
 func handleIsPersistent(h int) bool {
@@ -118,14 +117,14 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 
 	parentHandle := tpmutil.Handle(tpmv2Signer.tpmData.Parent)
 	if !handleIsPersistent(tpmv2Signer.tpmData.Parent) {
-		parentHandle, _, err = tpm2.CreatePrimary(rw, tpmutil.Handle(tpmv2Signer.tpmData.Parent), tpm2.PCRSelection{}, "", "", primaryParams)
+		parentHandle, _, err = tpm2.CreatePrimary(rw, tpmutil.Handle(tpmv2Signer.tpmData.Parent), tpm2.PCRSelection{}, tpmv2Signer.parentPassword, "", primaryParams)
 		if err != nil {
 			return nil, err
 		}
 		defer tpm2.FlushContext(rw, parentHandle)
 	}
 
-	keyHandle, _, err := tpm2.Load(rw, parentHandle, "", tpmv2Signer.tpmData.Pubkey[2:], tpmv2Signer.tpmData.Privkey[2:])
+	keyHandle, err := tpmv2Signer.loadHelper(rw, parentHandle)
 	if err != nil {
 		return nil, err
 	}
@@ -195,7 +194,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 			shadigest = append([]byte{0}, shadigest...)
 		}
 
-		sig, err := tpmv2Signer.signHelper(rw, keyHandle, tpmv2Signer.password, shadigest,
+		sig, err := tpmv2Signer.signHelper(rw, keyHandle, shadigest,
 			&tpm2.SigScheme{Alg: tpm2.AlgECDSA, Hash: algo})
 		if err != nil {
 			return nil, err
@@ -220,7 +219,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 			return nil, err
 		}
 
-		sig, err := tpmv2Signer.signHelper(rw, keyHandle, tpmv2Signer.password, shadigest,
+		sig, err := tpmv2Signer.signHelper(rw, keyHandle, shadigest,
 			&tpm2.SigScheme{Alg: tpm2.AlgRSASSA, Hash: algo})
 		if err != nil {
 			return nil, err
@@ -230,85 +229,49 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 	return signature, nil
 }
 
-func (tpmv2Signer *TPMv2Signer) signHelper(rw io.ReadWriter, keyHandle tpmutil.Handle, password string, digest tpmutil.U16Bytes, sigScheme *tpm2.SigScheme) (*tpm2.Signature, error) {
-	var (
-		err          error
-		ttyReadPath  string
-		ttyWritePath string
-		ttyReadFile  *os.File
-		ttyWriteFile *os.File
-		parseErrMsg  string
-		prompt       string
-		reprompt     string
-		sig          *tpm2.Signature
-	)
-
-	parseErrMsg = "unable to read your TPM key password"
-	prompt = "Please enter your TPM key password:"
-	reprompt = "Incorrect TPM key password. Please try again:"
-
-	ttyReadPath = "/dev/tty"
-	ttyWritePath = ttyReadPath
-	if runtime.GOOS == "windows" {
-		ttyReadPath = "CONIN$"
-		ttyWritePath = "CONOUT$"
+func (tpmv2Signer *TPMv2Signer) loadHelper(rw io.ReadWriter, parentHandle tpmutil.Handle) (tpmutil.Handle, error) {
+	passwordPromptInput := PasswordPromptProps{
+		InitialPassword: tpmv2Signer.parentPassword, 
+		CheckPassword: func(password string) (interface{}, error) {
+			keyHandle, _, err := tpm2.Load(rw, parentHandle, password, tpmv2Signer.tpmData.Pubkey[2:], tpmv2Signer.tpmData.Privkey[2:])
+			return keyHandle, err
+		}, 
+		IncorrectPasswordMsg: "incorrect TPM parent key password", 
+		Prompt: "Please enter your TPM parent key password:", 
+		Reprompt: "Incorrect TPM parent key password. Please try again:", 
+		ParseErrMsg: "unable to read your TPM parent key password", 
+		CheckPasswordAuthorizationErrorMsg: TPM_RC_AUTH_FAIL, 
 	}
 
-	ttyReadFile, err = os.OpenFile(ttyReadPath, os.O_RDWR, 0)
+	password, keyHandle, err := PasswordPrompt(passwordPromptInput)
 	if err != nil {
-		return nil, errors.New(parseErrMsg)
+		return 0, err
 	}
-	defer ttyReadFile.Close()
 
-	ttyWriteFile, err = os.OpenFile(ttyWritePath, os.O_WRONLY, 0)
+	tpmv2Signer.parentPassword = password
+	return keyHandle.(tpmutil.Handle), err
+}
+
+func (tpmv2Signer *TPMv2Signer) signHelper(rw io.ReadWriter, keyHandle tpmutil.Handle, digest tpmutil.U16Bytes, sigScheme *tpm2.SigScheme) (*tpm2.Signature, error) {
+	passwordPromptInput := PasswordPromptProps{
+		InitialPassword: tpmv2Signer.password, 
+		CheckPassword: func(password string) (interface{}, error) {
+			return tpm2.Sign(rw, keyHandle, password, digest, nil, sigScheme)
+		}, 
+		IncorrectPasswordMsg: "incorrect TPM key password", 
+		Prompt: "Please enter your TPM key password:", 
+		Reprompt: "Incorrect TPM key password. Please try again:", 
+		ParseErrMsg: "unable to read your TPM key password", 
+		CheckPasswordAuthorizationErrorMsg: TPM_RC_AUTH_FAIL, 
+	}
+
+	password, sig, err := PasswordPrompt(passwordPromptInput)
 	if err != nil {
-		return nil, errors.New(parseErrMsg)
-	}
-	defer ttyWriteFile.Close()
-
-	// If the password was provided explicitly, beforehand
-	if password != "" {
-		sig, err = tpm2.Sign(rw, keyHandle, password, digest, nil, sigScheme)
-		if err != nil {
-			return nil, errors.New("incorrect TPM key password")
-		}
-		return sig, nil
+		return nil, err
 	}
 
-	// Otherwise, first try to perform the sign operation without a password
-	sig, err = tpm2.Sign(rw, keyHandle, "", digest, nil, sigScheme)
-	if err == nil {
-		return sig, err
-	}
-
-	// The TPM key has a password, so prompt for it
-	if strings.Contains(err.Error(), TPM_RC_AUTH_FAIL) {
-		// Otherwise, prompt for the password
-		password, err = GetPassword(ttyReadFile, ttyWriteFile, prompt, parseErrMsg)
-		if err != nil {
-			return nil, err
-		}
-		sig, err = tpm2.Sign(rw, keyHandle, password, digest, nil, sigScheme)
-		for true {
-			// If we've found the right password, save it and return the signature
-			if err == nil {
-				tpmv2Signer.password = password
-				return sig, nil
-			}
-			// Otherwise, if the password was incorrect, prompt for it again
-			if strings.Contains(err.Error(), TPM_RC_AUTH_FAIL) {
-				password, err = GetPassword(ttyReadFile, ttyWriteFile, reprompt, parseErrMsg)
-				if err != nil {
-					return nil, err
-				}
-				sig, err = tpm2.Sign(rw, keyHandle, password, digest, nil, sigScheme)
-				continue
-			}
-			return nil, err
-		}
-	}
-
-	return nil, err
+	tpmv2Signer.password = password
+	return sig.(*tpm2.Signature), err
 }
 
 // Gets the x509.Certificate associated with this TPMv2Signer
@@ -372,7 +335,7 @@ func fixupEmptyAuth(tpmData *[]byte) {
 
 // Returns a TPMv2Signer, that can be used to sign a payload through a TPMv2-compatible
 // cryptographic device
-func GetTPMv2Signer(certificate *x509.Certificate, certificateChain []*x509.Certificate, keyPem *pem.Block, password string) (signer Signer, signingAlgorithm string, err error) {
+func GetTPMv2Signer(certificate *x509.Certificate, certificateChain []*x509.Certificate, keyPem *pem.Block, password string, parentPassword string) (signer Signer, signingAlgorithm string, err error) {
 	var tpmData tpm2_TPMKey
 
 	fixupEmptyAuth(&keyPem.Bytes)
@@ -423,5 +386,5 @@ func GetTPMv2Signer(certificate *x509.Certificate, certificateChain []*x509.Cert
 		return nil, "", errors.New("Invalid length for TPMv2 PRIVATE blob")
 	}
 
-	return &TPMv2Signer{certificate, nil, tpmData, public, tpmData.Privkey[2:], password}, signingAlgorithm, nil
+	return &TPMv2Signer{certificate, nil, tpmData, public, tpmData.Privkey[2:], password, parentPassword}, signingAlgorithm, nil
 }

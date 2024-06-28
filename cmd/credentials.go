@@ -32,6 +32,7 @@ var (
 	libPkcs11 string
 
 	tpmKeyPassword string
+	tpmParentKeyPassword string
 
 	credentialsOptions helper.CredentialsOpts
 
@@ -75,6 +76,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
 		"for a given private key object, fall back to prompting the user")
 	subCmd.PersistentFlags().StringVar(&tpmKeyPassword, "tpm-key-password", "", "Password for TPM key, if applicable")
+	subCmd.PersistentFlags().StringVar(&tpmParentKeyPassword, "tpm-parent-key-password", "", "Password for TPM parent key, if applicable")
 
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
@@ -85,6 +87,8 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "reuse-pin")
+	subCmd.MarkFlagsMutuallyExclusive("tpm-parent-key-password", "cert-selector")
+	subCmd.MarkFlagsMutuallyExclusive("tpm-parent-key-password", "reuse-pin")
 }
 
 // Parses a cert selector string to a map
@@ -248,6 +252,7 @@ func PopulateCredentialsOptions() error {
 		LibPkcs11:           libPkcs11,
 		ReusePin:            reusePin,
 		TpmKeyPassword:      tpmKeyPassword,
+		TpmParentKeyPassword: tpmParentKeyPassword,
 	}
 
 	return nil

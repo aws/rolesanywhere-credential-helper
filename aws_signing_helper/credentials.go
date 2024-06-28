@@ -33,8 +33,7 @@ type CredentialsOpts struct {
 	LibPkcs11                 string
 	ReusePin                  bool
 	TpmKeyPassword            string
-	TpmHierarchyOwnerPassword string
-	TpmParentPassword         string
+	TpmParentKeyPassword string
 }
 
 // Function to create session and generate credentials
