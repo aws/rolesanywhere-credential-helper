@@ -22,6 +22,7 @@ var (
 	withProxy         bool
 	debug             bool
 	reusePin          bool
+	roleSessionName   string
 
 	certificateId       string
 	privateKeyId        string
@@ -72,6 +73,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().BoolVar(&reusePin, "reuse-pin", false, "Use the CKU_USER PIN as the CKU_CONTEXT_SPECIFIC PIN for "+
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
 		"for a given private key object, fall back to prompting the user")
+	subCmd.PersistentFlags().StringVar(&roleSessionName, "role-session-name", "", "An identifier of a role session")	
 
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
@@ -242,6 +244,7 @@ func PopulateCredentialsOptions() error {
 		Version:             Version,
 		LibPkcs11:           libPkcs11,
 		ReusePin:            reusePin,
+		RoleSessionName:	 roleSessionName,
 	}
 
 	return nil

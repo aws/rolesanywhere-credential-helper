@@ -110,6 +110,8 @@ type CreateSessionInput struct {
 	SessionName *string `locationName:"sessionName" min:"2" type:"string"`
 
 	TrustAnchorArn *string `location:"querystring" locationName:"trustAnchorArn" type:"string"`
+
+	RoleSessionName *string `locationName:"roleSessionName" min:"2" type:"string"`
 }
 
 // String returns the string representation.
@@ -144,6 +146,10 @@ func (s *CreateSessionInput) Validate() error {
 	}
 	if s.SessionName != nil && len(*s.SessionName) < 2 {
 		invalidParams.Add(request.NewErrParamMinLen("SessionName", 2))
+	}
+
+	if s.RoleSessionName != nil && len(*s.RoleSessionName) < 2 {
+		invalidParams.Add(request.NewErrParamMinLen("RoleSessionName", 2))
 	}
 
 	if invalidParams.Len() > 0 {
@@ -191,6 +197,12 @@ func (s *CreateSessionInput) SetSessionName(v string) *CreateSessionInput {
 // SetTrustAnchorArn sets the TrustAnchorArn field's value.
 func (s *CreateSessionInput) SetTrustAnchorArn(v string) *CreateSessionInput {
 	s.TrustAnchorArn = &v
+	return s
+}
+
+// SetRoleSessionName sets the RoleSessionName field's value.
+func (s *CreateSessionInput) SetRoleSessionName(v string) *CreateSessionInput {
+	s.RoleSessionName = &v
 	return s
 }
 

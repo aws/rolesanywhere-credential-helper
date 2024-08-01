@@ -32,6 +32,7 @@ type CredentialsOpts struct {
 	Version             string
 	LibPkcs11           string
 	ReusePin            bool
+	RoleSessionName     string
 }
 
 // Function to create session and generate credentials
@@ -106,6 +107,9 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 		InstanceProperties: nil,
 		RoleArn:            &opts.RoleArn,
 		SessionName:        nil,
+	}
+	if opts.RoleSessionName != "" {
+		createSessionRequest.RoleSessionName = &opts.RoleSessionName
 	}
 	output, err := rolesAnywhereClient.CreateSession(&createSessionRequest)
 	if err != nil {
