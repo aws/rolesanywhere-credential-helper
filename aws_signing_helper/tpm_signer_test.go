@@ -20,12 +20,13 @@ func TestTPMSigner(t *testing.T) {
 	if strings.HasPrefix(tpmdev, "/dev/") {
 		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
 	} else {
-		tpm_keys = []string{"sw-rsa-81000001-sign", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
+		tpm_keys = []string{"sw-rsa-81000001-sign", "sw-ec-prime256", "sw-ec-secp384r1"}
 	}
 
 	tpm_digests = []string{"sha256"}
 	tpm_keys = []string{"sw-ec-prime256"}
 
+	// For each of these keys, the parent key doesn't have a password
 	for _, digest := range tpm_digests {
 		for _, keyname := range tpm_keys {
 			cert := fmt.Sprintf("../tst/certs/tpm-%s-%s-cert.pem",
@@ -49,6 +50,19 @@ func TestTPMSigner(t *testing.T) {
 			})
 		}
 	}
+
+	// Some positive tests, in which the parent key does have a password
+	key := "../tst/certs/tpm-sw-rsa-81000001-sign-key.pem"
+	testTable = append(testTable, CredentialsOpts{
+		PrivateKeyId:         key,
+		TpmParentKeyPassword: "123",
+	})
+	keyWithPw := "../tst/certs/tpm-sw-rsa-81000001-sign-key-with-pw.pem"
+	testTable = append(testTable, CredentialsOpts{
+		PrivateKeyId:         keyWithPw,
+		TpmParentKeyPassword: "123",
+		TpmKeyPassword:       "1234",
+	})
 
 	RunSignTestWithTestTable(t, testTable)
 }
@@ -111,7 +125,8 @@ func TestCreateRsaTpmPemKeyWithSignCapability(t *testing.T) {
 }
 
 // This function is similar to the above, but creates a TPM key file for a key that
-// is protected by a password.
+// is protected by a password. In both cases, though, the parent key is protected by
+// a password.
 func TestCreateRsaTpmPemKeyWithPasswordWithSignCapability(t *testing.T) {
 	err := createRsaTpmPemKeyWithSignCapability("-with-pw", false)
 	if err != nil {
@@ -120,42 +135,41 @@ func TestCreateRsaTpmPemKeyWithPasswordWithSignCapability(t *testing.T) {
 	}
 }
 
-// func TestTPMSignerFails(t *testing.T) {
-// 	testTable := []CredentialsOpts{}
-//
-// 	tpm_digests := []string{"sha1", "sha256", "sha384", "sha512"}
-// 	var tpm_keys []string
-//
-// 	tpmdev := os.Getenv("TPM_DEVICE")
-// 	if strings.HasPrefix(tpmdev, "/dev/") {
-// 		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
-// 	} else {
-// 		tpm_keys = []string{"sw-rsa", "sw-rsa-81000001-sign", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
-// 	}
-//
-// 	// Test that signing fails when an incorrect password is provided
-// 	for _, digest := range tpm_digests {
-// 		for _, keyname := range tpm_keys {
-// 			cert := fmt.Sprintf("../tst/certs/tpm-%s-%s-cert.pem",
-// 				keyname, digest)
-// 			keyWithPw := fmt.Sprintf("../tst/certs/tpm-%s-key-with-pw.pem", keyname)
-// 			testTable = append(testTable, CredentialsOpts{
-// 				CertificateId:  cert,
-// 				PrivateKeyId:   keyWithPw,
-// 				TpmKeyPassword: "incorrect-password",
-// 			})
-// 		}
-// 	}
-//
-// 	// Test that RSA keys that don't have the Sign capability aren't able to
-// 	// sign (even in the case that they have the raw Decrypt capability)
-// 	for _, digest := range tpm_digests {
-// 		cert := fmt.Sprintf("../tst/certs/tpm-sw-rsa-%s-cert.pem", digest)
-// 		testTable = append(testTable, CredentialsOpts{
-// 			CertificateId: cert,
-// 			PrivateKeyId:  "../tst/certs/tpm-sw-rsa-key.pem",
-// 		})
-// 	}
-//
-// 	RunNegativeSignTestWithTestTable(t, testTable)
-// }
+func TestTPMSignerFails(t *testing.T) {
+	testTable := []CredentialsOpts{}
+
+	var tpm_keys []string
+
+	tpmdev := os.Getenv("TPM_DEVICE")
+	if strings.HasPrefix(tpmdev, "/dev/") {
+		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
+	} else {
+		tpm_keys = []string{"sw-rsa", "sw-rsa-81000001-sign", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
+	}
+
+	// Test that signing fails when an incorrect password is provided
+	for _, keyname := range tpm_keys {
+		keyWithPw := fmt.Sprintf("../tst/certs/tpm-%s-key-with-pw.pem", keyname)
+		// Wrong parent key password
+		testTable = append(testTable, CredentialsOpts{
+			PrivateKeyId:         keyWithPw,
+			TpmKeyPassword:       "1234",
+			TpmParentKeyPassword: "incorrect-password",
+		})
+
+		// Wrong child key password
+		testTable = append(testTable, CredentialsOpts{
+			PrivateKeyId:         keyWithPw,
+			TpmKeyPassword:       "incorrect-password",
+			TpmParentKeyPassword: "123",
+		})
+	}
+
+	// Test that RSA keys that don't have the Sign capability aren't able to
+	// sign (even in the case that they have the raw Decrypt capability)
+	testTable = append(testTable, CredentialsOpts{
+		PrivateKeyId: "../tst/certs/tpm-sw-rsa-key.pem",
+	})
+
+	RunNegativeSignTestWithTestTable(t, testTable)
+}

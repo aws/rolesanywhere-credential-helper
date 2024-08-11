@@ -91,28 +91,28 @@ $(certsdir)/tpm-sw-ec-secp384r1-key-with-pw.pem:
 $(certsdir)/tpm-sw-ec-81000001-key.pem:
 	$(START_SWTPM_TCP)
 	if ! TPM_INTERFACE_TYPE=socsim tssreadpublic -ho 81000001; then \
-		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa && \
+		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa -pwdk 123 && \
 		TPM_INTERFACE_TYPE=socsim tssevictcontrol -hi o -ho 80000000 -hp 81000001; \
 	fi
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 -p 81000001 $@
+	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 -p 81000001 $@ --auth-parent 123
 
 $(certsdir)/tpm-sw-ec-81000001-key-with-pw.pem:
 	$(START_SWTPM_TCP)
 	if ! TPM_INTERFACE_TYPE=socsim tssreadpublic -ho 81000001; then \
-		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa && \
+		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa -pwdk 123 && \
 		TPM_INTERFACE_TYPE=socsim tssevictcontrol -hi o -ho 80000000 -hp 81000001; \
 	fi
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 -p 81000001 $@ --auth --password 1234
+	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 -p 81000001 $@ --auth --password 1234 --auth-parent 123
 
 # Create an RSA key with the Sign capability
 $(certsdir)/tpm-sw-rsa-81000001-sign.key:
 	$(START_SWTPM_TCP)
 	if ! TPM_INTERFACE_TYPE=socsim tssreadpublic -ho 81000001; then \
-		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa && \
-		TPM_INTERFACE_TYPE=socsim tssevictcontrol -hi o -ho 80000000 -hp 81000001; \
+		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa -pwdk 123 && \
+		TPM_INTERFACE_TYPE=socsim tssevictcontrol -hi o -ho 80000000 -hp 81000001 --auth-parent 123; \
 	fi
 	PUB_KEY=$$(echo "$@" | sed 's/.key/.pub/'); \
-	TPM_INTERFACE_TYPE=socsim tsscreate -hp 81000001 -rsa -gp -opr $@ -opu $${PUB_KEY}
+	TPM_INTERFACE_TYPE=socsim tsscreate -hp 81000001 -rsa -gp -opr $@ -opu $${PUB_KEY} -pwdp 123
 
 $(certsdir)/tpm-sw-rsa-81000001-sign-key.pem: $(certsdir)/tpm-sw-rsa-81000001-sign.key
 	# Hacky way to run just a single function
@@ -121,11 +121,11 @@ $(certsdir)/tpm-sw-rsa-81000001-sign-key.pem: $(certsdir)/tpm-sw-rsa-81000001-si
 $(certsdir)/tpm-sw-rsa-81000001-sign-with-pw.key:
 	$(START_SWTPM_TCP)
 	if ! TPM_INTERFACE_TYPE=socsim tssreadpublic -ho 81000001; then \
-		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa && \
+		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa -pwdk 123 && \
 		TPM_INTERFACE_TYPE=socsim tssevictcontrol -hi o -ho 80000000 -hp 81000001; \
 	fi
 	PUB_KEY=$$(echo "$@" | sed 's/.key/.pub/'); \
-	TPM_INTERFACE_TYPE=socsim tsscreate -hp 81000001 -rsa -gp -opr $@ -opu $${PUB_KEY} -pwdk 1234
+	TPM_INTERFACE_TYPE=socsim tsscreate -hp 81000001 -rsa -gp -opr $@ -opu $${PUB_KEY} -pwdk 1234 -pwdp 123
 
 $(certsdir)/tpm-sw-rsa-81000001-sign-key-with-pw.pem: $(certsdir)/tpm-sw-rsa-81000001-sign-with-pw.key
 	go test ./... -run "^TestCreateRsaTpmPemKeyWithPasswordWithSignCapability$$"
@@ -133,8 +133,8 @@ $(certsdir)/tpm-sw-rsa-81000001-sign-key-with-pw.pem: $(certsdir)/tpm-sw-rsa-810
 SWTPM_TMPPRIVKEYS := $(certsdir)/tpm-sw-rsa-81000001-sign.key $(certsdir)/tpm-sw-rsa-81000001-sign-with-pw.key
 SWTPM_TMPPUBKEYS := $(patsubst %.key, %.pub, $(SWTPM_TMPPRIVKEYS))
 SWTPM_TMPKEYS := $(SWTPM_TMPPRIVKEYS) $(SWTPM_TMPPUBKEYS)
-SWTPMKEYS_WO_PW := $(certsdir)/tpm-sw-rsa-key.pem $(certsdir)/tpm-sw-ec-secp384r1-key.pem $(certsdir)/tpm-sw-ec-prime256-key.pem $(certsdir)/tpm-sw-ec-81000001-key.pem $(certsdir)/tpm-sw-rsa-81000001-sign-key.pem
-SWTPMKEYS_W_PW := $(patsubst %.pem, %-with-pw.pem, $(SWTPMKEYS_WO_PW))
+SWTPMKEYS_WO_PW := $(certsdir)/tpm-sw-rsa-key.pem $(certsdir)/tpm-sw-ec-secp384r1-key.pem $(certsdir)/tpm-sw-ec-prime256-key.pem
+SWTPMKEYS_W_PW := $(patsubst %.pem, %-with-pw.pem, $(SWTPMKEYS_WO_PW)) $(certsdir)/tpm-sw-ec-81000001-key.pem $(certsdir)/tpm-sw-rsa-81000001-sign-key.pem $(certsdir)/tpm-sw-ec-81000001-key-with-pw.pem $(certsdir)/tpm-sw-rsa-81000001-sign-key-with-pw.pem
 SWTPMKEYS := $(SWTPMKEYS_WO_PW) $(SWTPMKEYS_W_PW)
 SWTPMCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(SWTPMKEYS_WO_PW)))
 
