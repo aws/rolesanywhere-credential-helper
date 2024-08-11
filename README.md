@@ -184,6 +184,81 @@ The searching methodology used to find objects within PKCS#11 tokens can largely
 that there are some slight differences in how objects are found in the credential helper 
 application. 
 
+#### TPMv2 Integration
+
+Private key files containing a TPM wrapped key in the `-----BEGIN TSS2 PRIVATE KEY-----`
+form as described [here](https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html)
+are transparently supported. You can just use such a file as you would any plain key
+file and expect it to work, just as you should expect with any well-behaved application.
+
+These files are supported, and can be created by, both TPMv2 OpenSSL engines/providers, and GnuTLS.
+
+Note that some features of the TSS private key format are not yet supported. Some or all
+of these may be implemented in future versions. In some semblance of the order in which
+they're likely to be added:
+ * Password authentication on parent keys (and hierarchies), when needing to create persistent handles
+ * Importable keys
+ * TPM Policy / AuthPolicy
+ * Sealed keys
+
+##### Testing
+Currently, unit tests for testing TPM support are written in such a way that TPM keys that are used 
+for testing are either bound to a hardware TPM, or are bound to a software TPM. For software TPM 
+testing, `swtpm` is used. You can find the repository [here](https://github.com/stefanberger/swtpm). 
+Also, to create the keys and certificates that are required for unit testing, you will need to install 
+the [IBM TSS](https://github.com/kgoldman/ibmtss), in addition to the 
+[IBM OpenSSL TPM engine](https://git.kernel.org/pub/scm/linux/kernel/git/jejb/openssl_tpm2_engine.git/). 
+The OpenSSL TPM engine comes with utility programs that can be used to create TPM keys that are in 
+the appropriate format to be used by the credential helper application. 
+
+Once you've installed all the dependencies, you can run just the unit tests related to TPM support 
+through `make test-tpm-signer`. Note that `swtpm` will have to be run in UNIX socket mode (it can't 
+be run in TCP socket mode) for the tests since that is all `go-tpm` can cope with. But key and 
+certificate fixtures will be created when `swtpm` is running in TCP socket mode (as a part of the 
+appropriate `Makefile` targets). Afterwards, right before the unit tests are run, `swtpm` we switch 
+`swtpm` over to run in UNIX socket mode. 
+
+##### Guidance
+If you haven't already initialized your TPM's owner hierarchy yet, it is recommended that you configure 
+it with a password that has high entropy, as there are no dictionary attack protections for it. 
+
+Once you have initialized the TPM's owner hierarchy, you can create a primary key in it. Using one of 
+the utility programs that comes with the IBM TSS (you can find more information about it in the 
+previous section), create this primary key: 
+
+```
+tsscreateprimary -hi o -ecc nistp256 -pwdk ${TPM_PRIMARY_KEY_PASSWORD}
+```
+
+This will create a primary key in the TPM owner hierarchy, with a key password of 
+`${TPM_PRIMARY_KEY_PASSWORD}`. If the owner hierarchy in your TPM has a password (as noted before, it is 
+recommended to use a high entropy password for it), you can specify it through the `-pwdk` option. 
+
+Next, you can make that primary key persistent (it was created as transient above): 
+```
+tssevictcontrol -hi o -ho 80000000 -hp 81000001 -pwda ${TPM_PRIMARY_KEY_PASSWORD}
+```
+
+Next, you can create a child key, which has the previously created primary as its parent: 
+```
+create_tpm2_key -e prime256v1 -p 81000001 client-tpm-key.pem --auth --password ${TPM_CLIENT_KEY_PASSWORD}
+```
+
+Note that the above uses a utility program provided by the IBM OpenSSL engine. 
+
+Afterwards, you can create and sign a CSR using your TPM key. The IBM OpenSSL engine can be used. In 
+order to specify that you'd like to use the engine through the OpenSSL CLI, you'll have to provide 
+the flags: `--engine tpm2 --keyform engine`. As an example, you could use a command line like the 
+below: 
+```
+openssl req -new --engine tpm2 --keyform engine -key client-tpm-key.pem -out client-csr.pem
+```
+
+Note that the above will prompt you for your password (`TPM_CLIENT_KEY_PASSWORD`). 
+
+Lastly, once you have your CSR, you can provide it to a CA so that it can issue a client certificate 
+for you. The client certificate ane TPM key can then be used with the credential helper application. 
+
 #### Other Notes
 
 ##### YubiKey Attestation Certificates
