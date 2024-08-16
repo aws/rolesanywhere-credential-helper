@@ -9,12 +9,14 @@ import (
 )
 
 var (
-	port int
+	port     int
+	hopLimit int
 )
 
 func init() {
 	initCredentialsSubCommand(serveCmd)
 	serveCmd.PersistentFlags().IntVar(&port, "port", helper.DefaultPort, "The port used to run the local server")
+	serveCmd.PersistentFlags().IntVar(&hopLimit, "hop-limit", helper.DefaultHopLimit, "The IP TTL to set on responses")
 }
 
 var serveCmd = &cobra.Command{
@@ -29,6 +31,7 @@ var serveCmd = &cobra.Command{
 		}
 
 		helper.Debug = credentialsOptions.Debug
+		credentialsOptions.ServerTTL = hopLimit
 
 		helper.Serve(port, credentialsOptions)
 	},

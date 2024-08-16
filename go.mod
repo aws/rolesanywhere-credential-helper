@@ -8,6 +8,7 @@ require (
 	github.com/spf13/cobra v1.8.0
 	github.com/stefanberger/go-pkcs11uri v0.0.0-20230803200340-78284954bff6
 	golang.org/x/crypto v0.20.0
+	golang.org/x/net v0.21.0
 	golang.org/x/sys v0.17.0
 	golang.org/x/term v0.17.0
 )
