@@ -32,6 +32,7 @@ type CredentialsOpts struct {
 	Version             string
 	LibPkcs11           string
 	ReusePin            bool
+	ServerTTL           int
 	RoleSessionName     string
 }
 

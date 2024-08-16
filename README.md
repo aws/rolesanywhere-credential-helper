@@ -222,6 +222,8 @@ When you use `serve` AWS SDKs will be able to discover the credentials from the 
 
 When using `serve` it is important to understand that processes running on a system that can reach 127.0.0.1 will be able to retrieve AWS credentials from the credential helper. 
 
+The `serve` command also supports a `--hop-limit` flag to limit the IP TTL on response packets. This defaults to a value of 64 but can be set to a value of 1 to maintain parity with EC2's IMDSv2 hop count behavior.
+
 ### Scripts
 
 The project also comes with two bash scripts at its root, called `generate-certs.sh` and `generate-credential-process-data.sh`. Note that these scripts currently only work on Unix-based systems and require `openssl` to be installed.
