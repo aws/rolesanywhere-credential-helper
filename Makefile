@@ -4,9 +4,15 @@ VERSION=1.2.0
 release: build/bin/aws_signing_helper
 
 curdir=$(shell pwd)
+uname=$(shell uname -s)
+ifeq ($(uname),Darwin)
+	extra_ld_flags=-extldflags '-sectcreate __TEXT __info_plist $(curdir)/Info.plist'
+else
+	extra_ld_flags=
+endif
 
 build/bin/aws_signing_helper:
-	go build -buildmode=pie -ldflags "-X 'github.com/aws/rolesanywhere-credential-helper/cmd.Version=${VERSION}' -extldflags '-sectcreate __TEXT __info_plist $(curdir)/Info.plist' -linkmode=external -w -s" -trimpath -o build/bin/aws_signing_helper main.go
+	go build -buildmode=pie -ldflags "-X 'github.com/aws/rolesanywhere-credential-helper/cmd.Version=${VERSION}' $(extra_ld_flags) -linkmode=external -w -s" -trimpath -o build/bin/aws_signing_helper main.go
 
 .PHONY: clean
 clean:
