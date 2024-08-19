@@ -20,6 +20,7 @@ import (
 )
 
 const DefaultPort = 9911
+const DefaultHopLimit = 64
 const LocalHostAddress = "127.0.0.1"
 
 var RefreshTime = time.Minute * time.Duration(5)
@@ -325,6 +326,7 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 		log.Println("failed to create listener")
 		os.Exit(1)
 	}
+	listener = NewListenerWithTTL(listener, credentialsOptions.ServerTTL)
 	endpoint.PortNum = listener.Addr().(*net.TCPAddr).Port
 	log.Println("Local server started on port:", endpoint.PortNum)
 	log.Println("Make it available to the sdk by running:")
