@@ -1,10 +1,12 @@
-VERSION=1.1.1
+VERSION=1.2.0
 
 .PHONY: release
 release: build/bin/aws_signing_helper
 
+curdir=$(shell pwd)
+
 build/bin/aws_signing_helper:
-	go build -buildmode=pie -ldflags "-X 'github.com/aws/rolesanywhere-credential-helper/cmd.Version=${VERSION}' -linkmode=external -w -s" -trimpath -o build/bin/aws_signing_helper main.go
+	go build -buildmode=pie -ldflags "-X 'github.com/aws/rolesanywhere-credential-helper/cmd.Version=${VERSION}' -extldflags '-sectcreate __TEXT __info_plist $(curdir)/Info.plist' -linkmode=external -w -s" -trimpath -o build/bin/aws_signing_helper main.go
 
 .PHONY: clean
 clean:
@@ -16,7 +18,6 @@ SHM2_UTIL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp softhsm2-util
 P11TOOL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp p11tool
 
 certsdir=tst/certs
-curdir=$(shell pwd)
 
 RSAKEYS := $(foreach keylen, 1024 2048 4096, $(certsdir)/rsa-$(keylen)-key.pem)
 ECKEYS := $(foreach curve, prime256v1 secp384r1, $(certsdir)/ec-$(curve)-key.pem)
