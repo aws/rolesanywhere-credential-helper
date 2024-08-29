@@ -36,7 +36,8 @@ func Update(credentialsOptions CredentialsOpts, profile string, once bool) {
 	for {
 		credentialProcessOutput, err := GenerateCredentials(&credentialsOptions, signer, signatureAlgorithm)
 		if err != nil {
-			log.Fatal(err)
+			log.Println(err)
+			os.Exit(1)
 		}
 
 		// Assign credential values
