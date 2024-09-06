@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"math/big"
-	"os"
 
 	tpm2 "github.com/google/go-tpm/tpm2"
 	tpmutil "github.com/google/go-tpm/tpmutil"
@@ -104,12 +103,7 @@ func checkCapability(rw io.ReadWriter, algo tpm2.Algorithm) error {
 
 // Implements the crypto.Signer interface and signs the passed in digest
 func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
-	var paths []string
-	tpmdev := os.Getenv("TPM_DEVICE")
-	if tpmdev != "" {
-		paths = append(paths, tpmdev)
-	}
-	rw, err := tpm2.OpenTPM(paths...)
+	rw, err := openTPM()
 	if err != nil {
 		return nil, err
 	}
