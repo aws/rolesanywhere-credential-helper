@@ -200,7 +200,7 @@ test: test-certs tst/softhsm2.conf
 TPMCOMBOS := $(patsubst %-cert.pem, %-combo.pem, $(TPMCERTS))
 
 .PHONY: test-tpm-signer
-test-tpm-signer: $(TPMKEYS) $(TPMCERTS) $(TPMCOMBOS)
+test-tpm-signer: $(certsdir)/cert-bundle.pem $(TPMKEYS) $(TPMCERTS) $(TPMCOMBOS)
 	$(STOP_SWTPM_TCP) || :
 	$(START_SWTPM)
 	go test ./... -run "TPM"
