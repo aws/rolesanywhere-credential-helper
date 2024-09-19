@@ -43,13 +43,15 @@ var oidLoadableKey = asn1.ObjectIdentifier{2, 23, 133, 10, 1, 3}
 var TPM_RC_AUTH_FAIL = "0x22"
 
 type TPMv2Signer struct {
-	cert      *x509.Certificate
-	certChain []*x509.Certificate
-	tpmData   tpm2_TPMKey
-	public    tpm2.Public
-	private   []byte
-	password  string
-	parentPassword string
+	cert             *x509.Certificate
+	certChain        []*x509.Certificate
+	tpmData          tpm2_TPMKey
+	public           tpm2.Public
+	private          []byte
+	password         string
+	parentPassword   string
+	NoPassword       bool
+	NoParentPassword bool
 }
 
 func handleIsPersistent(h int) bool {
@@ -225,16 +227,16 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 
 func (tpmv2Signer *TPMv2Signer) loadHelper(rw io.ReadWriter, parentHandle tpmutil.Handle) (tpmutil.Handle, error) {
 	passwordPromptInput := PasswordPromptProps{
-		InitialPassword: tpmv2Signer.parentPassword, 
+		InitialPassword: tpmv2Signer.parentPassword,
 		CheckPassword: func(password string) (interface{}, error) {
 			keyHandle, _, err := tpm2.Load(rw, parentHandle, password, tpmv2Signer.tpmData.Pubkey[2:], tpmv2Signer.tpmData.Privkey[2:])
 			return keyHandle, err
-		}, 
-		IncorrectPasswordMsg: "incorrect TPM parent key password", 
-		Prompt: "Please enter your TPM parent key password:", 
-		Reprompt: "Incorrect TPM parent key password. Please try again:", 
-		ParseErrMsg: "unable to read your TPM parent key password", 
-		CheckPasswordAuthorizationErrorMsg: TPM_RC_AUTH_FAIL, 
+		},
+		IncorrectPasswordMsg:               "incorrect TPM parent key password",
+		Prompt:                             "Please enter your TPM parent key password:",
+		Reprompt:                           "Incorrect TPM parent key password. Please try again:",
+		ParseErrMsg:                        "unable to read your TPM parent key password",
+		CheckPasswordAuthorizationErrorMsg: TPM_RC_AUTH_FAIL,
 	}
 
 	password, keyHandle, err := PasswordPrompt(passwordPromptInput)
@@ -248,15 +250,15 @@ func (tpmv2Signer *TPMv2Signer) loadHelper(rw io.ReadWriter, parentHandle tpmuti
 
 func (tpmv2Signer *TPMv2Signer) signHelper(rw io.ReadWriter, keyHandle tpmutil.Handle, digest tpmutil.U16Bytes, sigScheme *tpm2.SigScheme) (*tpm2.Signature, error) {
 	passwordPromptInput := PasswordPromptProps{
-		InitialPassword: tpmv2Signer.password, 
+		InitialPassword: tpmv2Signer.password,
 		CheckPassword: func(password string) (interface{}, error) {
 			return tpm2.Sign(rw, keyHandle, password, digest, nil, sigScheme)
-		}, 
-		IncorrectPasswordMsg: "incorrect TPM key password", 
-		Prompt: "Please enter your TPM key password:", 
-		Reprompt: "Incorrect TPM key password. Please try again:", 
-		ParseErrMsg: "unable to read your TPM key password", 
-		CheckPasswordAuthorizationErrorMsg: TPM_RC_AUTH_FAIL, 
+		},
+		IncorrectPasswordMsg:               "incorrect TPM key password",
+		Prompt:                             "Please enter your TPM key password:",
+		Reprompt:                           "Incorrect TPM key password. Please try again:",
+		ParseErrMsg:                        "unable to read your TPM key password",
+		CheckPasswordAuthorizationErrorMsg: TPM_RC_AUTH_FAIL,
 	}
 
 	password, sig, err := PasswordPrompt(passwordPromptInput)
@@ -327,10 +329,45 @@ func fixupEmptyAuth(tpmData *[]byte) {
 	}
 }
 
+type GetTPMv2SignerOpts struct {
+	certificate      *x509.Certificate
+	certificateChain []*x509.Certificate
+	keyPem           *pem.Block
+	password         string
+	parentPassword   string
+	noPassword       bool
+	noParentPassword bool
+}
+
 // Returns a TPMv2Signer, that can be used to sign a payload through a TPMv2-compatible
 // cryptographic device
-func GetTPMv2Signer(certificate *x509.Certificate, certificateChain []*x509.Certificate, keyPem *pem.Block, password string, parentPassword string) (signer Signer, signingAlgorithm string, err error) {
-	var tpmData tpm2_TPMKey
+func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm string, err error) {
+	var (
+		certificate      *x509.Certificate
+		certificateChain []*x509.Certificate
+		keyPem           *pem.Block
+		password         string
+		parentPassword   string
+		noPassword       bool
+		noParentPassword bool
+		tpmData          tpm2_TPMKey
+	)
+
+	certificate = opts.certificate
+	certificateChain = opts.certificateChain
+	keyPem = opts.keyPem
+	password = opts.password
+	parentPassword = opts.parentPassword
+	noPassword = opts.noPassword
+	noParentPassword = opts.noParentPassword
+
+	if !noPassword && password == "" {
+		return nil, "", errors.New("No TPM key password specified")
+	}
+
+	if !noParentPassword && parentPassword == "" {
+		return nil, "", errors.New("No TPM parent key password specified")
+	}
 
 	fixupEmptyAuth(&keyPem.Bytes)
 	_, err = asn1.Unmarshal(keyPem.Bytes, &tpmData)
@@ -380,5 +417,16 @@ func GetTPMv2Signer(certificate *x509.Certificate, certificateChain []*x509.Cert
 		return nil, "", errors.New("Invalid length for TPMv2 PRIVATE blob")
 	}
 
-	return &TPMv2Signer{certificate, nil, tpmData, public, tpmData.Privkey[2:], password, parentPassword}, signingAlgorithm, nil
+	return &TPMv2Signer{
+			certificate,
+			certificateChain,
+			tpmData,
+			public,
+			tpmData.Privkey[2:],
+			password,
+			parentPassword,
+			noPassword,
+			noParentPassword,
+		},
+		signingAlgorithm, nil
 }

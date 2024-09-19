@@ -143,30 +143,30 @@ func GetPassword(ttyReadFile *os.File, ttyWriteFile *os.File, prompt string, par
 }
 
 type PasswordPromptProps struct {
-	InitialPassword string
-	CheckPassword func(string) (interface{}, error)
-	IncorrectPasswordMsg string
-	Prompt string
-	Reprompt string
-	ParseErrMsg string
+	InitialPassword                    string
+	CheckPassword                      func(string) (interface{}, error)
+	IncorrectPasswordMsg               string
+	Prompt                             string
+	Reprompt                           string
+	ParseErrMsg                        string
 	CheckPasswordAuthorizationErrorMsg string
 }
 
 func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, interface{}, error) {
 	var (
-		err          error
-		ttyReadPath  string
-		ttyWritePath string
-		ttyReadFile  *os.File
-		ttyWriteFile *os.File
-		parseErrMsg  string
-		prompt       string
-		reprompt     string
-		password string
-		incorrectPasswordMsg string
+		err                                error
+		ttyReadPath                        string
+		ttyWritePath                       string
+		ttyReadFile                        *os.File
+		ttyWriteFile                       *os.File
+		parseErrMsg                        string
+		prompt                             string
+		reprompt                           string
+		password                           string
+		incorrectPasswordMsg               string
 		checkPasswordAuthorizationErrorMsg string
-		checkPassword func(string) (interface{}, error)
-		checkPasswordResult interface{}
+		checkPassword                      func(string) (interface{}, error)
+		checkPasswordResult                interface{}
 	)
 
 	password = passwordPromptInput.InitialPassword
@@ -337,7 +337,17 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 	} else {
 		tpmkey, err := parseDERFromPEM(privateKeyId, "TSS2 PRIVATE KEY")
 		if err == nil {
-			return GetTPMv2Signer(certificate, certificateChain, tpmkey, opts.TpmKeyPassword, opts.TpmParentKeyPassword)
+			return GetTPMv2Signer(
+				GetTPMv2SignerOpts{
+					certificate,
+					certificateChain,
+					tpmkey,
+					opts.TpmKeyPassword,
+					opts.TpmParentKeyPassword,
+					opts.NoTpmKeyPassword,
+					opts.NoTpmParentKeyPassword,
+				},
+			)
 		}
 
 		_, err = ReadPrivateKeyData(privateKeyId)

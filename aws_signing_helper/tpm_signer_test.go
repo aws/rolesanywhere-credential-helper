@@ -33,20 +33,25 @@ func TestTPMSigner(t *testing.T) {
 				keyname, digest)
 			key := fmt.Sprintf("../tst/certs/tpm-%s-key.pem", keyname)
 			testTable = append(testTable, CredentialsOpts{
-				CertificateId: cert,
-				PrivateKeyId:  key,
+				CertificateId:          cert,
+				PrivateKeyId:           key,
+				NoTpmKeyPassword:       true,
+				NoTpmParentKeyPassword: true,
 			})
 			keyWithPw := fmt.Sprintf("../tst/certs/tpm-%s-key-with-pw.pem", keyname)
 			testTable = append(testTable, CredentialsOpts{
-				CertificateId:  cert,
-				PrivateKeyId:   keyWithPw,
-				TpmKeyPassword: "1234",
+				CertificateId:          cert,
+				PrivateKeyId:           keyWithPw,
+				TpmKeyPassword:         "1234",
+				NoTpmParentKeyPassword: true,
 			})
 
 			cert = fmt.Sprintf("../tst/certs/tpm-%s-%s-combo.pem",
 				keyname, digest)
 			testTable = append(testTable, CredentialsOpts{
-				CertificateId: cert,
+				CertificateId:          cert,
+				NoTpmKeyPassword:       true,
+				NoTpmParentKeyPassword: true,
 			})
 		}
 	}
@@ -56,6 +61,7 @@ func TestTPMSigner(t *testing.T) {
 	testTable = append(testTable, CredentialsOpts{
 		PrivateKeyId:         key,
 		TpmParentKeyPassword: "123",
+		NoTpmKeyPassword:     true,
 	})
 	keyWithPw := "../tst/certs/tpm-sw-rsa-81000001-sign-key-with-pw.pem"
 	testTable = append(testTable, CredentialsOpts{
@@ -168,7 +174,9 @@ func TestTPMSignerFails(t *testing.T) {
 	// Test that RSA keys that don't have the Sign capability aren't able to
 	// sign (even in the case that they have the raw Decrypt capability)
 	testTable = append(testTable, CredentialsOpts{
-		PrivateKeyId: "../tst/certs/tpm-sw-rsa-key.pem",
+		PrivateKeyId:           "../tst/certs/tpm-sw-rsa-key.pem",
+		NoTpmKeyPassword:       true,
+		NoTpmParentKeyPassword: true,
 	})
 
 	RunNegativeSignTestWithTestTable(t, testTable)
