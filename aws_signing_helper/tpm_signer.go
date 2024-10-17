@@ -13,6 +13,8 @@ import (
 	"fmt"
 	"io"
 	"math/big"
+	"strconv"
+	"strings"
 
 	tpm2 "github.com/google/go-tpm/tpm2"
 	tpmutil "github.com/google/go-tpm/tpmutil"
@@ -43,15 +45,14 @@ var oidLoadableKey = asn1.ObjectIdentifier{2, 23, 133, 10, 1, 3}
 var TPM_RC_AUTH_FAIL = "0x22"
 
 type TPMv2Signer struct {
-	cert             *x509.Certificate
-	certChain        []*x509.Certificate
-	tpmData          tpm2_TPMKey
-	public           tpm2.Public
-	private          []byte
-	password         string
-	parentPassword   string
-	NoPassword       bool
-	NoParentPassword bool
+	cert       *x509.Certificate
+	certChain  []*x509.Certificate
+	tpmData    tpm2_TPMKey
+	public     tpm2.Public
+	private    []byte
+	password   string
+	noPassword bool
+	handle     tpmutil.Handle
 }
 
 func handleIsPersistent(h int) bool {
@@ -105,26 +106,35 @@ func checkCapability(rw io.ReadWriter, algo tpm2.Algorithm) error {
 
 // Implements the crypto.Signer interface and signs the passed in digest
 func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
+	var (
+		keyHandle tpmutil.Handle
+	)
+
 	rw, err := openTPM()
 	if err != nil {
 		return nil, err
 	}
 	defer rw.Close()
 
-	parentHandle := tpmutil.Handle(tpmv2Signer.tpmData.Parent)
-	if !handleIsPersistent(tpmv2Signer.tpmData.Parent) {
-		parentHandle, _, err = tpm2.CreatePrimary(rw, tpmutil.Handle(tpmv2Signer.tpmData.Parent), tpm2.PCRSelection{}, tpmv2Signer.parentPassword, "", primaryParams)
+	if tpmv2Signer.handle != 0 {
+		keyHandle = tpmv2Signer.handle
+	} else {
+		parentHandle := tpmutil.Handle(tpmv2Signer.tpmData.Parent)
+		if !handleIsPersistent(tpmv2Signer.tpmData.Parent) {
+			// Parent and owner passwords aren't supported currently when creating a primary given a persistent handle
+			parentHandle, _, err = tpm2.CreatePrimary(rw, tpmutil.Handle(tpmv2Signer.tpmData.Parent), tpm2.PCRSelection{}, "", "", primaryParams)
+			if err != nil {
+				return nil, err
+			}
+			defer tpm2.FlushContext(rw, parentHandle)
+		}
+
+		keyHandle, _, err = tpm2.Load(rw, parentHandle, "", tpmv2Signer.tpmData.Pubkey[2:], tpmv2Signer.tpmData.Privkey[2:])
 		if err != nil {
 			return nil, err
 		}
-		defer tpm2.FlushContext(rw, parentHandle)
+		defer tpm2.FlushContext(rw, keyHandle)
 	}
-
-	keyHandle, err := tpmv2Signer.loadHelper(rw, parentHandle)
-	if err != nil {
-		return nil, err
-	}
-	defer tpm2.FlushContext(rw, keyHandle)
 
 	var algo tpm2.Algorithm
 	var shadigest []byte
@@ -225,29 +235,6 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 	return signature, nil
 }
 
-func (tpmv2Signer *TPMv2Signer) loadHelper(rw io.ReadWriter, parentHandle tpmutil.Handle) (tpmutil.Handle, error) {
-	passwordPromptInput := PasswordPromptProps{
-		InitialPassword: tpmv2Signer.parentPassword,
-		CheckPassword: func(password string) (interface{}, error) {
-			keyHandle, _, err := tpm2.Load(rw, parentHandle, password, tpmv2Signer.tpmData.Pubkey[2:], tpmv2Signer.tpmData.Privkey[2:])
-			return keyHandle, err
-		},
-		IncorrectPasswordMsg:               "incorrect TPM parent key password",
-		Prompt:                             "Please enter your TPM parent key password:",
-		Reprompt:                           "Incorrect TPM parent key password. Please try again:",
-		ParseErrMsg:                        "unable to read your TPM parent key password",
-		CheckPasswordAuthorizationErrorMsg: TPM_RC_AUTH_FAIL,
-	}
-
-	password, keyHandle, err := PasswordPrompt(passwordPromptInput)
-	if err != nil {
-		return 0, err
-	}
-
-	tpmv2Signer.parentPassword = password
-	return keyHandle.(tpmutil.Handle), err
-}
-
 func (tpmv2Signer *TPMv2Signer) signHelper(rw io.ReadWriter, keyHandle tpmutil.Handle, digest tpmutil.U16Bytes, sigScheme *tpm2.SigScheme) (*tpm2.Signature, error) {
 	passwordPromptInput := PasswordPromptProps{
 		InitialPassword: tpmv2Signer.password,
@@ -334,9 +321,8 @@ type GetTPMv2SignerOpts struct {
 	certificateChain []*x509.Certificate
 	keyPem           *pem.Block
 	password         string
-	parentPassword   string
 	noPassword       bool
-	noParentPassword bool
+	handle           string
 }
 
 // Returns a TPMv2Signer, that can be used to sign a payload through a TPMv2-compatible
@@ -347,60 +333,90 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 		certificateChain []*x509.Certificate
 		keyPem           *pem.Block
 		password         string
-		parentPassword   string
 		noPassword       bool
-		noParentPassword bool
 		tpmData          tpm2_TPMKey
+		handle           tpmutil.Handle
+		public           tpm2.Public
+		private          []byte
 	)
 
 	certificate = opts.certificate
 	certificateChain = opts.certificateChain
 	keyPem = opts.keyPem
 	password = opts.password
-	parentPassword = opts.parentPassword
 	noPassword = opts.noPassword
-	noParentPassword = opts.noParentPassword
 
 	if !noPassword && password == "" {
-		return nil, "", errors.New("No TPM key password specified")
+		return nil, "", errors.New("no TPM key password specified")
 	}
 
-	if !noParentPassword && parentPassword == "" {
-		return nil, "", errors.New("No TPM parent key password specified")
-	}
+	// If a handle is provided instead of a TPM key file
+	if opts.handle != "" {
+		handleParts := strings.Split(opts.handle, ":")
+		if len(handleParts) != 2 {
+			return nil, "", errors.New("invalid TPM handle format")
+		}
+		hexHandleStr := handleParts[1]
+		if strings.HasPrefix(hexHandleStr, "0x") {
+			hexHandleStr = hexHandleStr[2:]
+		}
+		handleValue, err := strconv.ParseUint(hexHandleStr, 16, 32)
+		if err != nil {
+			return nil, "", errors.New("invalid hex TPM handle value")
+		}
+		handle = tpmutil.Handle(handleValue)
 
-	fixupEmptyAuth(&keyPem.Bytes)
-	_, err = asn1.Unmarshal(keyPem.Bytes, &tpmData)
-	if err != nil {
-		return nil, "", err
-	}
+		// Read the public key from the loaded key within the TPM
+		rw, err := openTPM()
+		if err != nil {
+			return nil, "", err
+		}
+		defer rw.Close()
 
-	if !tpmData.Oid.Equal(oidLoadableKey) {
-		return nil, "", errors.New("Invalid OID for TPMv2 key:" + tpmData.Oid.String())
-	}
+		public, _, _, err = tpm2.ReadPublic(rw, handle)
+		if err != nil {
+			return nil, "", err
+		}
+	} else {
+		fixupEmptyAuth(&keyPem.Bytes)
+		_, err = asn1.Unmarshal(keyPem.Bytes, &tpmData)
+		if err != nil {
+			return nil, "", err
+		}
 
-	if tpmData.Policy != nil || tpmData.AuthPolicy != nil {
-		return nil, "", errors.New("TPMv2 policy not implemented yet")
-	}
-	if tpmData.Secret != nil {
-		return nil, "", errors.New("TPMv2 key has 'secret' field which should not be set")
-	}
+		if !tpmData.Oid.Equal(oidLoadableKey) {
+			return nil, "", errors.New("invalid OID for TPMv2 key:" + tpmData.Oid.String())
+		}
 
-	if !handleIsPersistent(tpmData.Parent) &&
-		tpmData.Parent != int(tpm2.HandleOwner) &&
-		tpmData.Parent != int(tpm2.HandleNull) &&
-		tpmData.Parent != int(tpm2.HandleEndorsement) &&
-		tpmData.Parent != int(tpm2.HandlePlatform) {
-		return nil, "", errors.New("Invalid parent for TPMv2 key")
-	}
-	if len(tpmData.Pubkey) < 2 ||
-		len(tpmData.Pubkey)-2 != (int(tpmData.Pubkey[0])<<8)+int(tpmData.Pubkey[1]) {
-		return nil, "", errors.New("Invalid length for TPMv2 PUBLIC blob")
-	}
+		if tpmData.Policy != nil || tpmData.AuthPolicy != nil {
+			return nil, "", errors.New("TPMv2 policy not implemented yet")
+		}
+		if tpmData.Secret != nil {
+			return nil, "", errors.New("TPMv2 key has 'secret' field which should not be set")
+		}
 
-	public, err := tpm2.DecodePublic(tpmData.Pubkey[2:])
-	if err != nil {
-		return nil, "", err
+		if !handleIsPersistent(tpmData.Parent) &&
+			tpmData.Parent != int(tpm2.HandleOwner) &&
+			tpmData.Parent != int(tpm2.HandleNull) &&
+			tpmData.Parent != int(tpm2.HandleEndorsement) &&
+			tpmData.Parent != int(tpm2.HandlePlatform) {
+			return nil, "", errors.New("invalid parent for TPMv2 key")
+		}
+		if len(tpmData.Pubkey) < 2 ||
+			len(tpmData.Pubkey)-2 != (int(tpmData.Pubkey[0])<<8)+int(tpmData.Pubkey[1]) {
+			return nil, "", errors.New("invalid length for TPMv2 PUBLIC blob")
+		}
+
+		public, err = tpm2.DecodePublic(tpmData.Pubkey[2:])
+		if err != nil {
+			return nil, "", err
+		}
+
+		if len(tpmData.Privkey) < 2 ||
+			len(tpmData.Privkey)-2 != (int(tpmData.Privkey[0])<<8)+int(tpmData.Privkey[1]) {
+			return nil, "", errors.New("invalid length for TPMv2 PRIVATE blob")
+		}
+		private = tpmData.Privkey[2:]
 	}
 
 	switch public.Type {
@@ -409,12 +425,7 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 	case tpm2.AlgECC:
 		signingAlgorithm = aws4_x509_ecdsa_sha256
 	default:
-		return nil, "", errors.New("Unsupported TPMv2 key type")
-	}
-
-	if len(tpmData.Privkey) < 2 ||
-		len(tpmData.Privkey)-2 != (int(tpmData.Privkey[0])<<8)+int(tpmData.Privkey[1]) {
-		return nil, "", errors.New("Invalid length for TPMv2 PRIVATE blob")
+		return nil, "", errors.New("unsupported TPMv2 key type")
 	}
 
 	return &TPMv2Signer{
@@ -422,11 +433,10 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 			certificateChain,
 			tpmData,
 			public,
-			tpmData.Privkey[2:],
+			private,
 			password,
-			parentPassword,
 			noPassword,
-			noParentPassword,
+			handle,
 		},
 		signingAlgorithm, nil
 }

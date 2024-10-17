@@ -85,7 +85,7 @@ func init() {
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
 		"for a given private key object, fall back to prompting the user")
 	signStringCmd.PersistentFlags().StringVar(&tpmKeyPassword, "tpm-key-password", "", "Password for TPM key, if applicable")
-	signStringCmd.PersistentFlags().StringVar(&tpmParentKeyPassword, "tpm-parent-key-password", "", "Password for TPM parent key, if applicable")
+	signStringCmd.PersistentFlags().BoolVar(&noTpmKeyPassword, "no-tpm-key-password", false, "Required if the TPM key has no password")
 	signStringCmd.PersistentFlags().Var(format, "format", "Output format. One of json, text, and bin")
 	signStringCmd.PersistentFlags().Var(digestArg, "digest", "One of SHA256, SHA384, and SHA512")
 
@@ -97,8 +97,8 @@ func init() {
 	signStringCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
 	signStringCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "cert-selector")
 	signStringCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "reuse-pin")
-	signStringCmd.MarkFlagsMutuallyExclusive("tpm-parent-key-password", "cert-selector")
-	signStringCmd.MarkFlagsMutuallyExclusive("tpm-parent-key-password", "reuse-pin")
+	signStringCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "cert-selector")
+	signStringCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "reuse-pin")
 }
 
 func getFixedStringToSign(publicKey crypto.PublicKey) string {

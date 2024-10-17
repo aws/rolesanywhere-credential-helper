@@ -14,6 +14,7 @@ func TestTPMSigner(t *testing.T) {
 	testTable := []CredentialsOpts{}
 
 	tpm_digests := []string{"sha1", "sha256", "sha384", "sha512"}
+	tpm_key_handles := []string{"0x81000101", "81000101"}
 	var tpm_keys []string
 
 	tpmdev := os.Getenv("TPM_DEVICE")
@@ -23,9 +24,6 @@ func TestTPMSigner(t *testing.T) {
 		tpm_keys = []string{"sw-rsa-81000001-sign", "sw-ec-prime256", "sw-ec-secp384r1"}
 	}
 
-	tpm_digests = []string{"sha256"}
-	tpm_keys = []string{"sw-ec-prime256"}
-
 	// For each of these keys, the parent key doesn't have a password
 	for _, digest := range tpm_digests {
 		for _, keyname := range tpm_keys {
@@ -33,41 +31,47 @@ func TestTPMSigner(t *testing.T) {
 				keyname, digest)
 			key := fmt.Sprintf("../tst/certs/tpm-%s-key.pem", keyname)
 			testTable = append(testTable, CredentialsOpts{
-				CertificateId:          cert,
-				PrivateKeyId:           key,
-				NoTpmKeyPassword:       true,
-				NoTpmParentKeyPassword: true,
+				CertificateId:    cert,
+				PrivateKeyId:     key,
+				NoTpmKeyPassword: true,
 			})
 			keyWithPw := fmt.Sprintf("../tst/certs/tpm-%s-key-with-pw.pem", keyname)
 			testTable = append(testTable, CredentialsOpts{
-				CertificateId:          cert,
-				PrivateKeyId:           keyWithPw,
-				TpmKeyPassword:         "1234",
-				NoTpmParentKeyPassword: true,
+				CertificateId:  cert,
+				PrivateKeyId:   keyWithPw,
+				TpmKeyPassword: "1234",
 			})
 
 			cert = fmt.Sprintf("../tst/certs/tpm-%s-%s-combo.pem",
 				keyname, digest)
 			testTable = append(testTable, CredentialsOpts{
-				CertificateId:          cert,
-				NoTpmKeyPassword:       true,
-				NoTpmParentKeyPassword: true,
+				CertificateId:    cert,
+				NoTpmKeyPassword: true,
+			})
+		}
+
+		// Using a loaded key
+		for _, handle := range tpm_key_handles {
+			keyHandle := fmt.Sprintf("handle:%s", handle)
+			cert := fmt.Sprintf("../tst/certs/tpm-sw-loaded-ec-secp384r1-%s-cert.pem", digest)
+			testTable = append(testTable, CredentialsOpts{
+				PrivateKeyId:     keyHandle,
+				NoTpmKeyPassword: true,
+				CertificateId:    cert,
 			})
 		}
 	}
 
-	// Some positive tests, in which the parent key does have a password
+	// Some positive tests, without a certificate
 	key := "../tst/certs/tpm-sw-rsa-81000001-sign-key.pem"
 	testTable = append(testTable, CredentialsOpts{
-		PrivateKeyId:         key,
-		TpmParentKeyPassword: "123",
-		NoTpmKeyPassword:     true,
+		PrivateKeyId:     key,
+		NoTpmKeyPassword: true,
 	})
 	keyWithPw := "../tst/certs/tpm-sw-rsa-81000001-sign-key-with-pw.pem"
 	testTable = append(testTable, CredentialsOpts{
-		PrivateKeyId:         keyWithPw,
-		TpmParentKeyPassword: "123",
-		TpmKeyPassword:       "1234",
+		PrivateKeyId:   keyWithPw,
+		TpmKeyPassword: "1234",
 	})
 
 	RunSignTestWithTestTable(t, testTable)
@@ -77,10 +81,9 @@ func TestTPMSignerWithCertificateBundle(t *testing.T) {
 	keyWithPw := "../tst/certs/tpm-sw-rsa-81000001-sign-key-with-pw.pem"
 	certBundle := "../tst/certs/cert-bundle.pem"
 	credOpts := CredentialsOpts{
-		PrivateKeyId:         keyWithPw,
-		TpmParentKeyPassword: "123",
-		TpmKeyPassword:       "1234",
-		CertificateBundleId:  certBundle,
+		PrivateKeyId:        keyWithPw,
+		TpmKeyPassword:      "1234",
+		CertificateBundleId: certBundle,
 	}
 
 	signer, _, err := GetSigner(&credOpts)
@@ -161,7 +164,7 @@ func createRsaTpmPemKeyWithSignCapability(suffix string, emptyAuth bool) error {
 func TestCreateRsaTpmPemKeyWithSignCapability(t *testing.T) {
 	err := createRsaTpmPemKeyWithSignCapability("", true)
 	if err != nil {
-		fmt.Println(err.Error())
+		t.Log(err)
 		t.Fail()
 	}
 }
@@ -172,7 +175,7 @@ func TestCreateRsaTpmPemKeyWithSignCapability(t *testing.T) {
 func TestCreateRsaTpmPemKeyWithPasswordWithSignCapability(t *testing.T) {
 	err := createRsaTpmPemKeyWithSignCapability("-with-pw", false)
 	if err != nil {
-		fmt.Println(err.Error())
+		t.Log(err)
 		t.Fail()
 	}
 }
@@ -192,38 +195,28 @@ func TestTPMSignerFails(t *testing.T) {
 	// Test that signing fails when an incorrect password is provided
 	for _, keyname := range tpm_keys {
 		keyWithPw := fmt.Sprintf("../tst/certs/tpm-%s-key-with-pw.pem", keyname)
-		// Wrong parent key password
-		testTable = append(testTable, CredentialsOpts{
-			PrivateKeyId:         keyWithPw,
-			TpmKeyPassword:       "1234",
-			TpmParentKeyPassword: "incorrect-password",
-		})
-
 		// Wrong child key password
 		testTable = append(testTable, CredentialsOpts{
-			PrivateKeyId:         keyWithPw,
-			TpmKeyPassword:       "incorrect-password",
-			TpmParentKeyPassword: "123",
+			PrivateKeyId:   keyWithPw,
+			TpmKeyPassword: "incorrect-password",
 		})
 	}
 
 	// Test that RSA keys that don't have the Sign capability aren't able to
 	// sign (even in the case that they have the raw Decrypt capability)
 	testTable = append(testTable, CredentialsOpts{
-		PrivateKeyId:           "../tst/certs/tpm-sw-rsa-key.pem",
-		NoTpmKeyPassword:       true,
-		NoTpmParentKeyPassword: true,
+		PrivateKeyId:     "../tst/certs/tpm-sw-rsa-key.pem",
+		NoTpmKeyPassword: true,
 	})
 
 	RunNegativeSignTestWithTestTable(t, testTable)
 }
 
 // Negative tests, in which a TPM signer is attempted to be instantiated with keys
-// that either don't have passwords or parent passwords (or both). In the cases of these
-// tests, intent to use the key without a specific type of password (using the
-// `NoTpmKeyPassword` or `NoTpmParentKeyPassword`) isn't provided, and so instantiation
-// should fail.
-func TestTPMSignerWithNoPasswordAndIntent(t *testing.T) {
+// that either don't have passwords. In the cases of these tests, intent to use the
+// key without a specific type of password (using `NoTpmKeyPassword`) isn't
+// provided, and so instantiation should fail.
+func TestTPMSignerFailsWithNoPasswordAndIntent(t *testing.T) {
 	testTable := []CredentialsOpts{}
 
 	tpm_digests := []string{"sha1", "sha256", "sha384", "sha512"}
@@ -239,28 +232,14 @@ func TestTPMSignerWithNoPasswordAndIntent(t *testing.T) {
 	tpm_digests = []string{"sha256"}
 	tpm_keys = []string{"sw-ec-prime256"}
 
-	// For each of these keys, the parent key doesn't have a password, and in some cases
-	// the child key doesn't have one either.
 	for _, digest := range tpm_digests {
 		for _, keyname := range tpm_keys {
 			cert := fmt.Sprintf("../tst/certs/tpm-%s-%s-cert.pem",
 				keyname, digest)
 			key := fmt.Sprintf("../tst/certs/tpm-%s-key.pem", keyname)
 			testTable = append(testTable, CredentialsOpts{
-				CertificateId:    cert,
-				PrivateKeyId:     key,
-				NoTpmKeyPassword: true,
-			})
-			testTable = append(testTable, CredentialsOpts{
-				CertificateId:          cert,
-				PrivateKeyId:           key,
-				NoTpmParentKeyPassword: true,
-			})
-			keyWithPw := fmt.Sprintf("../tst/certs/tpm-%s-key-with-pw.pem", keyname)
-			testTable = append(testTable, CredentialsOpts{
-				CertificateId:  cert,
-				PrivateKeyId:   keyWithPw,
-				TpmKeyPassword: "1234",
+				CertificateId: cert,
+				PrivateKeyId:  key,
 			})
 
 			cert = fmt.Sprintf("../tst/certs/tpm-%s-%s-combo.pem",
@@ -273,8 +252,7 @@ func TestTPMSignerWithNoPasswordAndIntent(t *testing.T) {
 
 	key := "../tst/certs/tpm-sw-rsa-81000001-sign-key.pem"
 	testTable = append(testTable, CredentialsOpts{
-		PrivateKeyId:         key,
-		TpmParentKeyPassword: "123",
+		PrivateKeyId: key,
 	})
 
 	RunNegativeSignerInstantiationTestWithTestTable(t, testTable)

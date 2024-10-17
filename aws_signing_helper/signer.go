@@ -334,18 +334,34 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			opts.CertificateId = ""
 		}
 		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId, opts.ReusePin)
+	} else if strings.HasPrefix(privateKeyId, "handle:") {
+		if Debug {
+			log.Println("attempting to use TPMv2Signer")
+		}
+		return GetTPMv2Signer(
+			GetTPMv2SignerOpts{
+				certificate,
+				certificateChain,
+				nil,
+				opts.TpmKeyPassword,
+				opts.NoTpmKeyPassword,
+				opts.PrivateKeyId,
+			},
+		)
 	} else {
-		tpmkey, err := parseDERFromPEM(privateKeyId, "TSS2 PRIVATE KEY")
+		tpmKey, err := parseDERFromPEM(privateKeyId, "TSS2 PRIVATE KEY")
 		if err == nil {
+			if Debug {
+				log.Println("attempting to use TPMv2Signer")
+			}
 			return GetTPMv2Signer(
 				GetTPMv2SignerOpts{
 					certificate,
 					certificateChain,
-					tpmkey,
+					tpmKey,
 					opts.TpmKeyPassword,
-					opts.TpmParentKeyPassword,
 					opts.NoTpmKeyPassword,
-					opts.NoTpmParentKeyPassword,
+					"",
 				},
 			)
 		}

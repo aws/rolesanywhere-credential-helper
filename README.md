@@ -196,7 +196,7 @@ These files are supported, and can be created by, both TPMv2 OpenSSL engines/pro
 Note that some features of the TSS private key format are not yet supported. Some or all
 of these may be implemented in future versions. In some semblance of the order in which
 they're likely to be added:
- * Password authentication on parent keys (and hierarchies), when needing to create persistent handles
+ * Password authentication on parent keys (and hierarchies), when the application is given a permanent handle
  * Importable keys
  * TPM Policy / AuthPolicy
  * Sealed keys
@@ -215,49 +215,59 @@ Once you've installed all the dependencies, you can run just the unit tests rela
 through `make test-tpm-signer`. Note that `swtpm` will have to be run in UNIX socket mode (it can't 
 be run in TCP socket mode) for the tests since that is all `go-tpm` can cope with. But key and 
 certificate fixtures will be created when `swtpm` is running in TCP socket mode (as a part of the 
-appropriate `Makefile` targets). Afterwards, right before the unit tests are run, `swtpm` we switch 
-`swtpm` over to run in UNIX socket mode. 
+appropriate `Makefile` targets). Afterwards, right before the unit tests are run, we switch `swtpm` 
+over to run in UNIX socket mode. 
 
 ##### Guidance
 If you haven't already initialized your TPM's owner hierarchy yet, it is recommended that you configure 
 it with a password that has high entropy, as there are no dictionary attack protections for it. 
 
-Once you have initialized the TPM's owner hierarchy, you can create a primary key in it. Using one of 
-the utility programs that comes with the IBM TSS (you can find more information about it in the 
-previous section), create this primary key: 
+Once you have initialized the TPM's owner hierarchy, you can create a primary key in it. You can do so 
+using one of the utility programs that comes with [`tpm2-tools`](https://github.com/tpm2-software/tpm2-tools): 
 
 ```
-tsscreateprimary -hi o -ecc nistp256 -pwdk ${TPM_PRIMARY_KEY_PASSWORD}
+tpm2_createprimary -G rsa -g sha256 -p ${TPM_PRIMARY_KEY_PASSWORD} -c parent.ctx -P ${OWNER_HIERARCHY_PASSWORD}
 ```
 
 This will create a primary key in the TPM owner hierarchy, with a key password of 
-`${TPM_PRIMARY_KEY_PASSWORD}`. If the owner hierarchy in your TPM has a password (as noted before, it is 
-recommended to use a high entropy password for it), you can specify it through the `-pwdk` option. 
+`${TPM_PRIMARY_KEY_PASSWORD}`. If the owner hierarchy in your TPM doesn't have a password (not recommended) 
+you can omit the `-P` option in the above command. 
 
-Next, you can make that primary key persistent (it was created as transient above): 
+Next, you can create a child key with the primary you just created as its parent: 
 ```
-tssevictcontrol -hi o -ho 80000000 -hp 81000001 -pwda ${TPM_PRIMARY_KEY_PASSWORD}
-```
-
-Next, you can create a child key, which has the previously created primary as its parent: 
-```
-create_tpm2_key -e prime256v1 -p 81000001 client-tpm-key.pem --auth --password ${TPM_CLIENT_KEY_PASSWORD}
+tpm2_create -C parent.ctx -u child.pub -r child.priv -P ${TPM_PRIMARY_KEY_PASSWORD} -p ${TPM_CHILD_KEY_PASSWORD}
 ```
 
-Note that the above uses a utility program provided by the IBM OpenSSL engine. 
-
-Afterwards, you can create and sign a CSR using your TPM key. The IBM OpenSSL engine can be used. In 
-order to specify that you'd like to use the engine through the OpenSSL CLI, you'll have to provide 
-the flags: `--engine tpm2 --keyform engine`. As an example, you could use a command line like the 
-below: 
+Next, load the child key that was just created into the TPM as a transient object: 
 ```
-openssl req -new --engine tpm2 --keyform engine -key client-tpm-key.pem -out client-csr.pem
+tpm2_load -C parent.ctx -u child.pub -r child.priv -c child.ctx -P ${TPM_PRIMARY_KEY_PASSWORD} 
 ```
 
-Note that the above will prompt you for your password (`TPM_CLIENT_KEY_PASSWORD`). 
+Afterwards, make the transient object that is the child key into a persistent one and save its handle: 
+```
+CHILD_HANDLE=$(tpm2_evictcontrol -c child.ctx | cut -d ' ' -f 2 | head -n 1)
+```
 
-Lastly, once you have your CSR, you can provide it to a CA so that it can issue a client certificate 
-for you. The client certificate ane TPM key can then be used with the credential helper application. 
+Then, you can create a CSR, using the [`tpm2-openssl`](https://github.com/tpm2-software/tpm2-openssl) OpenSSL 
+provider. 
+```
+openssl req -provider tpm2 -provider default -propquery '?provider=tpm2' \
+            -new -key handle:${CHILD_HANDLE} \
+            -out client-csr.pem
+```
+
+Note that the above will prompt you for your password (`TPM_CHILD_KEY_PASSWORD`). 
+
+Lastly, once you have your CSR, you can provide it to a CA so that it can issue a client certificate for 
+you. The client certificate and TPM key can then be used with the credential helper application as follows: 
+```
+/path/to/aws_signing_helper credential-process \
+    --certificate ${CERTIFICATE_FILE_PATH} \
+    --private-key handle:${CHILD_HANDLE} \
+    --role-arn ${ROLE_ARN} \
+    --trust-anchor-arn ${TA_ARN} \
+    --profile-arn ${PROFILE_ARN}
+```
 
 #### Other Notes
 
