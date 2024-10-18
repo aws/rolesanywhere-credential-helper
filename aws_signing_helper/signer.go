@@ -144,6 +144,7 @@ func GetPassword(ttyReadFile *os.File, ttyWriteFile *os.File, prompt string, par
 
 type PasswordPromptProps struct {
 	InitialPassword                    string
+	NoPassword                         bool
 	CheckPassword                      func(string) (interface{}, error)
 	IncorrectPasswordMsg               string
 	Prompt                             string
@@ -167,9 +168,11 @@ func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, interface{
 		checkPasswordAuthorizationErrorMsg string
 		checkPassword                      func(string) (interface{}, error)
 		checkPasswordResult                interface{}
+		noPassword                         bool
 	)
 
 	password = passwordPromptInput.InitialPassword
+	noPassword = passwordPromptInput.NoPassword
 	incorrectPasswordMsg = passwordPromptInput.IncorrectPasswordMsg
 	prompt = passwordPromptInput.Prompt
 	reprompt = passwordPromptInput.Reprompt
@@ -205,10 +208,14 @@ func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, interface{
 		return password, checkPasswordResult, nil
 	}
 
-	// Otherwise, first try to perform the operation without a password
+	// Otherwise, try not to use a password
 	checkPasswordResult, err = checkPassword("")
 	if err == nil {
-		return "", checkPasswordResult, err
+		if noPassword {
+			return "", checkPasswordResult, err
+		} else {
+			return "", checkPasswordResult, errors.New("missing intent for no password")
+		}
 	}
 
 	// The key has a password, so prompt for it

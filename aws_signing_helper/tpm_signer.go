@@ -121,7 +121,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 	} else {
 		parentHandle := tpmutil.Handle(tpmv2Signer.tpmData.Parent)
 		if !handleIsPersistent(tpmv2Signer.tpmData.Parent) {
-			// Parent and owner passwords aren't supported currently when creating a primary given a persistent handle
+			// Parent and owner passwords aren't supported currently when creating a primary given a persistent handle for the parent
 			parentHandle, _, err = tpm2.CreatePrimary(rw, tpmutil.Handle(tpmv2Signer.tpmData.Parent), tpm2.PCRSelection{}, "", "", primaryParams)
 			if err != nil {
 				return nil, err
@@ -238,6 +238,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 func (tpmv2Signer *TPMv2Signer) signHelper(rw io.ReadWriter, keyHandle tpmutil.Handle, digest tpmutil.U16Bytes, sigScheme *tpm2.SigScheme) (*tpm2.Signature, error) {
 	passwordPromptInput := PasswordPromptProps{
 		InitialPassword: tpmv2Signer.password,
+		NoPassword:      tpmv2Signer.noPassword,
 		CheckPassword: func(password string) (interface{}, error) {
 			return tpm2.Sign(rw, keyHandle, password, digest, nil, sigScheme)
 		},
@@ -345,10 +346,6 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 	keyPem = opts.keyPem
 	password = opts.password
 	noPassword = opts.noPassword
-
-	if !noPassword && password == "" {
-		return nil, "", errors.New("no TPM key password specified")
-	}
 
 	// If a handle is provided instead of a TPM key file
 	if opts.handle != "" {

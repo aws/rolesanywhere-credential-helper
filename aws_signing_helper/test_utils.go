@@ -118,26 +118,6 @@ func RunNegativeSignTestWithTestTable(t *testing.T, testTable []CredentialsOpts)
 	}
 }
 
-func RunNegativeSignerInstantiationTestWithTestTable(t *testing.T, testTable []CredentialsOpts) {
-	for _, credOpts := range testTable {
-		signer, _, err := GetSigner(&credOpts)
-		if err == nil {
-			signer.Close()
-			var logMsg string
-			if credOpts.CertificateId != "" || credOpts.PrivateKeyId != "" {
-				logMsg = fmt.Sprintf("Got signer for '%s'/'%s' even though it was expected to fail",
-					credOpts.CertificateId, credOpts.PrivateKeyId)
-			} else {
-				logMsg = fmt.Sprintf("Got signer for '%s' even though it was expected to fail",
-					credOpts.CertIdentifier.Subject)
-			}
-			t.Log(logMsg)
-			t.Fail()
-			return
-		}
-	}
-}
-
 // Verify that the provided payload was signed correctly with the provided options.
 // This function is specifically used for unit testing.
 func Verify(payload []byte, publicKey crypto.PublicKey, digest crypto.Hash, sig []byte) (bool, error) {

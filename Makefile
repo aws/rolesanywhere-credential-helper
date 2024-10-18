@@ -40,10 +40,14 @@ SWTPM_STATEDIR := $(curdir)/tst/swtpm
 SWTPM_CTRLSOCK := $(curdir)/tst/swtpm-ctrl
 SWTPM_SERVSOCK := $(curdir)/tst/swtpm-serv
 SWTPM := swtpm socket --tpm2 --tpmstate dir=$(SWTPM_STATEDIR)
+TABRMD_NAME := com.intel.tss2.Tabrmd2321
 
 # Annoyingly, while we only support UNIX socket, the ENGINE only supports TCP.
 SWTPM_UNIX := --server type=unixio,path=$(SWTPM_SERVSOCK) --ctrl type=unixio,path=$(SWTPM_CTRLSOCK)
 SWTPM_NET := --server type=tcp,port=2321 --ctrl type=tcp,port=2322
+
+SWTPM_PREFIX := TPM2TOOLS_TCTI=tabrmd:bus_name="$(TABRMD_NAME)",bus_type=session \
+		TPM2OPENSSL_TCTI=tabrmd:bus_name="$(TABRMD_NAME)",bus_type=session
 
 # Check that the swtpm is running for TCP connections. This isn't a normal
 # phony rule because we don't want it running unless there's actually some
@@ -52,8 +56,10 @@ START_SWTPM_TCP := \
 	if ! swtpm_ioctl --tcp 127.0.0.1:2322 -g >/dev/null 2>/dev/null; then \
 		mkdir -p $(SWTPM_STATEDIR); \
 		$(SWTPM) $(SWTPM_NET) --flags not-need-init,startup-clear -d; \
+		( tpm2-abrmd --session --dbus-name="$(TABRMD_NAME)" --tcti "swtpm:host=localhost,port=2321" & ); \
+		$(SWTPM_PREFIX) tpm2_dictionarylockout -s -t 0; \
 	fi
-STOP_SWTPM_TCP := swtpm_ioctl --tcp 127.0.0.1:2322 -s
+STOP_SWTPM_TCP := swtpm_ioctl --tcp 127.0.0.1:2322 -s && kill $$(pgrep tpm2-abrmd)
 
 # This one is used for the actual test run
 START_SWTPM_UNIX := \
@@ -64,88 +70,84 @@ STOP_SWTPM_UNIX := swtpm_ioctl --unix $(SWTPM_CTRLSOCK) -s
 
 $(certsdir)/tpm-sw-rsa-key.pem:
 	$(START_SWTPM_TCP)
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -r $@
+	$(SWTPM_PREFIX) ./create_tpm2_key.sh -r $@
 
 $(certsdir)/tpm-sw-rsa-key-with-pw.pem:
 	$(START_SWTPM_TCP)
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -r $@ --auth --password 1234
+	$(SWTPM_PREFIX) ./create_tpm2_key.sh -r -k 1234 $@
 
 $(certsdir)/tpm-sw-ec-prime256-key.pem:
 	$(START_SWTPM_TCP)
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 $@
+	$(SWTPM_PREFIX) ./create_tpm2_key.sh -e prime256v1 $@
 
 $(certsdir)/tpm-sw-ec-prime256-key-with-pw.pem:
 	$(START_SWTPM_TCP)
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 $@ --auth --password 1234
+	$(SWTPM_PREFIX) ./create_tpm2_key.sh -e prime256v1 -k 1234 $@
 
 $(certsdir)/tpm-sw-ec-secp384r1-key.pem:
 	$(START_SWTPM_TCP)
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e secp384r1 $@
+	$(SWTPM_PREFIX) ./create_tpm2_key.sh -e secp384r1 $@
 
 $(certsdir)/tpm-sw-ec-secp384r1-key-with-pw.pem:
 	$(START_SWTPM_TCP)
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e secp384r1 $@ --auth --password 1234
+	$(SWTPM_PREFIX) ./create_tpm2_key.sh -e secp384r1 -k 1234 $@
 
-$(certsdir)/tpm-sw-loaded-ec-secp384r1-key.pem:
+$(certsdir)/tpm-sw-loaded-81000101-ec-secp384r1-key.pem:
 	$(START_SWTPM_TCP)
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e secp384r1 $@
-	TPM_INTERFACE_TYPE=socsim load_tpm2_key $@ 81000101
+	$(SWTPM_PREFIX) tpm2_createprimary -c parent.ctx
+	$(SWTPM_PREFIX) tpm2_create -C parent.ctx -u child.pub -r child.priv
+	$(SWTPM_PREFIX) tpm2_load -C parent.ctx -u child.pub -r child.priv -c child.ctx
+	$(SWTPM_PREFIX) tpm2_evictcontrol -c child.ctx 0x81000101
+	rm parent.ctx child.pub child.priv child.ctx
 
-$(certsdir)/tpm-sw-loaded-ec-secp384r1-key-with-pw.pem:
+$(certsdir)/tpm-sw-loaded-81000102-ec-secp384r1-key-with-pw.pem:
 	$(START_SWTPM_TCP)
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e secp384r1 $@
-	TPM_INTERFACE_TYPE=socsim load_tpm2_key $@ 81000102
+	$(SWTPM_PREFIX) tpm2_createprimary -c parent.ctx
+	$(SWTPM_PREFIX) tpm2_create -C parent.ctx -u child.pub -r child.priv -p 1234
+	$(SWTPM_PREFIX) tpm2_load -C parent.ctx -u child.pub -r child.priv -c child.ctx
+	$(SWTPM_PREFIX) tpm2_evictcontrol -c child.ctx 0x81000102
+	rm parent.ctx child.pub child.priv child.ctx
 
 # Create a persistent key at 0x81000001 in the owner hierarchy, if it
 # doesn't already exist. And a PEM key with that as its parent.
 $(certsdir)/tpm-sw-ec-81000001-key.pem:
 	$(START_SWTPM_TCP)
-	if ! TPM_INTERFACE_TYPE=socsim tssreadpublic -ho 81000001; then \
-		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa && \
-		TPM_INTERFACE_TYPE=socsim tssevictcontrol -hi o -ho 80000000 -hp 81000001; \
+	if ! $(SWTPM_PREFIX) tpm2_readpublic -c 0x81000001; then \
+		$(SWTPM_PREFIX) tpm2_createprimary -G rsa -c parent.ctx && \
+		$(SWTPM_PREFIX) tpm2_evictcontrol -c parent.ctx 0x81000001; \
 	fi
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 -p 81000001 $@
+	$(SWTPM_PREFIX) openssl genpkey -provider tpm2 -algorithm EC -pkeyopt group:prime256v1 -pkeyopt parent:0x81000001 -out $@
 
 $(certsdir)/tpm-sw-ec-81000001-key-with-pw.pem:
 	$(START_SWTPM_TCP)
-	if ! TPM_INTERFACE_TYPE=socsim tssreadpublic -ho 81000001; then \
-		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa && \
-		TPM_INTERFACE_TYPE=socsim tssevictcontrol -hi o -ho 80000000 -hp 81000001; \
+	if ! $(SWTPM_PREFIX) tpm2_readpublic -c 0x81000001; then \
+		$(SWTPM_PREFIX) tpm2_createprimary -G rsa -c parent.ctx && \
+		$(SWTPM_PREFIX) tpm2_evictcontrol -c parent.ctx 0x81000001; \
 	fi
-	TPM_INTERFACE_TYPE=socsim create_tpm2_key -e prime256v1 -p 81000001 $@ --auth --password 1234
+	$(SWTPM_PREFIX) openssl genpkey -provider tpm2 -algorithm EC -pkeyopt group:prime256v1 -pkeyopt parent:0x81000001 -pkeyopt user-auth:1234 -out $@
 
-# Create an RSA key with the Sign capability
-$(certsdir)/tpm-sw-rsa-81000001-sign.key:
-	$(START_SWTPM_TCP)
-	if ! TPM_INTERFACE_TYPE=socsim tssreadpublic -ho 81000001; then \
-		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa && \
-		TPM_INTERFACE_TYPE=socsim tssevictcontrol -hi o -ho 80000000 -hp 81000001; \
+# Create RSA keys with the Sign capability
+$(certsdir)/tpm-sw-rsa-81000001-sign-key.pem:
+	if ! $(SWTPM_PREFIX) tpm2_readpublic -c 0x81000001; then \
+		$(SWTPM_PREFIX) tpm2_createprimary -G rsa -c parent.ctx && \
+		$(SWTPM_PREFIX) tpm2_evictcontrol -c parent.ctx 0x81000001; \
 	fi
-	PUB_KEY=$$(echo "$@" | sed 's/.key/.pub/'); \
-	TPM_INTERFACE_TYPE=socsim tsscreate -hp 81000001 -rsa -gp -opr $@ -opu $${PUB_KEY}
+	$(SWTPM_PREFIX) openssl genpkey -provider tpm2 -algorithm RSA -pkeyopt parent:0x81000001 -out $@
 
-$(certsdir)/tpm-sw-rsa-81000001-sign-key.pem: $(certsdir)/tpm-sw-rsa-81000001-sign.key
-	# Hacky way to run just a single function
-	go test ./... -run "^TestCreateRsaTpmPemKeyWithSignCapability$$"
-
-$(certsdir)/tpm-sw-rsa-81000001-sign-with-pw.key:
-	$(START_SWTPM_TCP)
-	if ! TPM_INTERFACE_TYPE=socsim tssreadpublic -ho 81000001; then \
-		TPM_INTERFACE_TYPE=socsim tsscreateprimary -hi o -rsa && \
-		TPM_INTERFACE_TYPE=socsim tssevictcontrol -hi o -ho 80000000 -hp 81000001; \
+$(certsdir)/tpm-sw-rsa-81000001-sign-key-with-pw.pem: 
+	if ! $(SWTPM_PREFIX) tpm2_readpublic -c 0x81000001; then \
+		$(SWTPM_PREFIX) tpm2_createprimary -G rsa -c parent.ctx && \
+		$(SWTPM_PREFIX) tpm2_evictcontrol -c parent.ctx 0x81000001; \
 	fi
-	PUB_KEY=$$(echo "$@" | sed 's/.key/.pub/'); \
-	TPM_INTERFACE_TYPE=socsim tsscreate -hp 81000001 -rsa -gp -opr $@ -opu $${PUB_KEY} -pwdk 1234
+	$(SWTPM_PREFIX) openssl genpkey -provider tpm2 -algorithm RSA -pkeyopt parent:0x81000001 -pkeyopt user-auth:1234 -out $@
 
-$(certsdir)/tpm-sw-rsa-81000001-sign-key-with-pw.pem: $(certsdir)/tpm-sw-rsa-81000001-sign-with-pw.key
-	go test ./... -run "^TestCreateRsaTpmPemKeyWithPasswordWithSignCapability$$"
-
-SWTPM_TMPPRIVKEYS := $(certsdir)/tpm-sw-rsa-81000001-sign.key $(certsdir)/tpm-sw-rsa-81000001-sign-with-pw.key
-SWTPM_TMPPUBKEYS := $(patsubst %.key, %.pub, $(SWTPM_TMPPRIVKEYS))
-SWTPM_TMPKEYS := $(SWTPM_TMPPRIVKEYS) $(SWTPM_TMPPUBKEYS)
-SWTPMKEYS_WO_PW := $(certsdir)/tpm-sw-rsa-key.pem $(certsdir)/tpm-sw-ec-secp384r1-key.pem $(certsdir)/tpm-sw-ec-prime256-key.pem $(certsdir)/tpm-sw-loaded-ec-secp384r1-key.pem $(certsdir)/tpm-sw-rsa-81000001-sign-key.pem 
+SWTPM_LOADED_KEYS_WO_PW := $(certsdir)/tpm-sw-loaded-81000101-ec-secp384r1-key.pem
+SWTPM_LOADED_KEYS_W_PW := $(certsdir)/tpm-sw-loaded-81000102-ec-secp384r1-key-with-pw.pem 
+SWTPMKEYS_WO_PW_WO_SIGN_CAP := $(certsdir)/tpm-sw-rsa-key.pem
+SWTPMKEYS_WO_PW := $(certsdir)/tpm-sw-ec-secp384r1-key.pem $(certsdir)/tpm-sw-ec-prime256-key.pem $(certsdir)/tpm-sw-rsa-81000001-sign-key.pem
 SWTPMKEYS_W_PW := $(patsubst %.pem, %-with-pw.pem, $(SWTPMKEYS_WO_PW)) $(certsdir)/tpm-sw-ec-81000001-key.pem $(certsdir)/tpm-sw-ec-81000001-key-with-pw.pem $(certsdir)/tpm-sw-rsa-81000001-sign-key-with-pw.pem
-SWTPMKEYS := $(SWTPMKEYS_WO_PW) $(SWTPMKEYS_W_PW)
+SWTPMKEYS := $(SWTPMKEYS_WO_PW) $(SWTPMKEYS_W_PW) $(SWTPMKEYS_WO_PW_WO_SIGN_CAP)
+SWTPM_LOADED_KEY_CERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(SWTPM_LOADED_KEYS_WO_PW)))
 SWTPMCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(SWTPMKEYS_WO_PW)))
 
 HWTPMKEYS_WO_PW := $(certsdir)/tpm-hw-rsa-key.pem $(certsdir)/tpm-hw-ec-key.pem  $(certsdir)/tpm-hw-ec-81000001-key.pem
@@ -158,6 +160,7 @@ ifeq ($(TPM_DEVICE),)
 TPM_DEVICE := $(SWTPM_SERVSOCK)
 TPMKEYS := $(SWTPMKEYS)
 TPMCERTS := $(SWTPMCERTS)
+TPMLOADEDKEY_CERTS := $(SWTPM_LOADED_KEY_CERTS)
 START_SWTPM := $(START_SWTPM_UNIX)
 STOP_SWTPM := $(STOP_SWTPM_UNIX)
 else
@@ -210,7 +213,7 @@ test: test-certs tst/softhsm2.conf
 TPMCOMBOS := $(patsubst %-cert.pem, %-combo.pem, $(TPMCERTS))
 
 .PHONY: test-tpm-signer
-test-tpm-signer: $(certsdir)/cert-bundle.pem $(TPMKEYS) $(TPMCERTS) $(TPMCOMBOS)
+test-tpm-signer: $(certsdir)/cert-bundle.pem $(TPMKEYS) $(TPMCERTS) $(TPMLOADEDKEY_CERTS) $(TPMCOMBOS)
 	$(STOP_SWTPM_TCP) || :
 	$(START_SWTPM)
 	go test ./... -run "TPM"
@@ -218,10 +221,11 @@ test-tpm-signer: $(certsdir)/cert-bundle.pem $(TPMKEYS) $(TPMCERTS) $(TPMCOMBOS)
 
 define CERT_RECIPE
 	@SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
-	[ "$${SUBJ#tpm-}" != "$${SUBJ}" ] && ENG="--engine tpm2 --keyform engine";  \
-	if [ "$${SUBJ#tpm-sw-}" != "$${SUBJ}" ]; then $(START_SWTPM_TCP); export TPM_INTERFACE_TYPE=socsim; fi; \
-	echo 	openssl req -x509 -new $${ENG} -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-}; \
-	openssl req -x509 -new $${ENG} -key $< -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-};
+	[ "$${SUBJ#tpm-}" != "$${SUBJ}" ] && ENG="-provider tpm2 -provider default -propquery '?provider=tpm2'";  \
+	if [ "$${SUBJ#tpm-sw-}" != "$${SUBJ}" ]; then $(START_SWTPM_TCP); fi; \
+	if echo $< | grep -q "loaded"; then KEY=handle:0x$(word 4, $(subst -, , $<)); else KEY=$<; fi; \
+	echo 	$(SWTPM_PREFIX) openssl req -x509 -new $${ENG} -key $${KEY} -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-}; \
+	$(SWTPM_PREFIX) openssl req -x509 -new $${ENG} -key $${KEY} -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-};
 endef
 
 %-md5-cert.pem: %-key.pem; $(CERT_RECIPE)
@@ -258,22 +262,30 @@ endef
 	openssl pkcs8 -topk8 -inform PEM -outform PEM -in $< -out $@ -nocrypt
 
 $(certsdir)/tpm-hw-rsa-key.pem:
-	create_tpm2_key -r $@
+	./create_tpm2_key.sh -r $@
 
 $(certsdir)/tpm-hw-rsa-key-with-pw.pem:
-	create_tpm2_key -r $@ --auth --password 1234
+	./create_tpm2_key.sh -r -k 1234 $@
 
 $(certsdir)/tpm-hw-ec-key.pem:
-	create_tpm2_key -e prime256v1 $@
+	./create_tpm2_key.sh -e prime256v1 $@
 
 $(certsdir)/tpm-hw-ec-key-with-pw.pem:
-	create_tpm2_key -e prime256v1 $@ --auth --password 1234
+	./create_tpm2_key.sh -e prime256v1 -k 1234 $@
 
 $(certsdir)/tpm-hw-ec-81000001-key.pem:
-	create_tpm2_key -e prime256v1 -p 81000001 $@
+	if ! tpm2_readpublic -c 0x81000001; then \
+		tpm2_createprimary -G rsa -c parent.ctx && \
+		tpm2_evictcontrol -c parent.ctx 0x81000001; \
+	fi
+	openssl genpkey -provider tpm2 -algorithm EC -pkeyopt group:prime256v1 -pkeyopt parent:0x81000001 -out $@
 
 $(certsdir)/tpm-hw-ec-81000001-key.pem:
-	create_tpm2_key -e prime256v1 -p 81000001 $@ --auth --password 1234
+	if ! tpm2_readpublic -c 0x81000001; then \
+		tpm2_createprimary -G rsa -c parent.ctx && \
+		tpm2_evictcontrol -c parent.ctx 0x81000001; \
+	fi
+	openssl genpkey -provider tpm2 -algorithm EC -pkeyopt group:prime256v1 -pkeyopt parent:0x81000001 -pkeyopt user-auth:1234 -out $@
 
 $(RSAKEYS):
 	KEYLEN=$$(echo "$@" | sed 's/.*rsa-\([0-9]*\)-key.pem/\1/'); \

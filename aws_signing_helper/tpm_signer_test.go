@@ -1,9 +1,6 @@
 package aws_signing_helper
 
 import (
-	"encoding/asn1"
-	"encoding/pem"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -37,7 +34,6 @@ func TestTPMSigner(t *testing.T) {
 			})
 			keyWithPw := fmt.Sprintf("../tst/certs/tpm-%s-key-with-pw.pem", keyname)
 			testTable = append(testTable, CredentialsOpts{
-				CertificateId:  cert,
 				PrivateKeyId:   keyWithPw,
 				TpmKeyPassword: "1234",
 			})
@@ -53,7 +49,7 @@ func TestTPMSigner(t *testing.T) {
 		// Using a loaded key
 		for _, handle := range tpm_key_handles {
 			keyHandle := fmt.Sprintf("handle:%s", handle)
-			cert := fmt.Sprintf("../tst/certs/tpm-sw-loaded-ec-secp384r1-%s-cert.pem", digest)
+			cert := fmt.Sprintf("../tst/certs/tpm-sw-loaded-81000101-ec-secp384r1-%s-cert.pem", digest)
 			testTable = append(testTable, CredentialsOpts{
 				PrivateKeyId:     keyHandle,
 				NoTpmKeyPassword: true,
@@ -112,74 +108,6 @@ func TestTPMSignerWithCertificateBundle(t *testing.T) {
 	}
 }
 
-func createRsaTpmPemKeyWithSignCapability(suffix string, emptyAuth bool) error {
-	privKeyFileName := fmt.Sprintf("../tst/certs/tpm-sw-rsa-81000001-sign%s.key", suffix)
-	privKeyBytes, err := os.ReadFile(privKeyFileName)
-	if err != nil {
-		return errors.New("unable to read RSA private key file")
-	}
-	pubKeyFileName := fmt.Sprintf("../tst/certs/tpm-sw-rsa-81000001-sign%s.pub", suffix)
-	pubKeyBytes, err := os.ReadFile(pubKeyFileName)
-	if err != nil {
-		return errors.New("unable to read RSA public key file")
-	}
-
-	tpmData := tpm2_TPMKey{
-		Oid:       oidLoadableKey,
-		EmptyAuth: emptyAuth,
-		Parent:    0x81000001,
-		Pubkey:    pubKeyBytes,
-		Privkey:   privKeyBytes,
-	}
-
-	asn1Bytes, err := asn1.Marshal(tpmData)
-	if err != nil {
-		return errors.New("unable to marshal TPM key ASN.1 module")
-	}
-
-	pemBlock := &pem.Block{
-		Type:  "TSS2 PRIVATE KEY",
-		Bytes: asn1Bytes,
-	}
-
-	pemFileName := fmt.Sprintf("../tst/certs/tpm-sw-rsa-81000001-sign-key%s.pem", suffix)
-	pemFile, err := os.Create(pemFileName)
-	if err != nil {
-		return errors.New("unable to create TPM key PEM file")
-	}
-	defer pemFile.Close()
-
-	err = pem.Encode(pemFile, pemBlock)
-	if err != nil {
-		return errors.New("unable to write TPM key to file")
-	}
-
-	return nil
-}
-
-// An RSA key with the Sign capability will have already been created by a Makefile
-// target. Another target will be responsible for calling this testing function, which will
-// then create a TPM key file that adheres to Bottomley's ASN.1 specification, so that it
-// can be used for testing RSA signing.
-func TestCreateRsaTpmPemKeyWithSignCapability(t *testing.T) {
-	err := createRsaTpmPemKeyWithSignCapability("", true)
-	if err != nil {
-		t.Log(err)
-		t.Fail()
-	}
-}
-
-// This function is similar to the above, but creates a TPM key file for a key that
-// is protected by a password. In both cases, though, the parent key is protected by
-// a password.
-func TestCreateRsaTpmPemKeyWithPasswordWithSignCapability(t *testing.T) {
-	err := createRsaTpmPemKeyWithSignCapability("-with-pw", false)
-	if err != nil {
-		t.Log(err)
-		t.Fail()
-	}
-}
-
 func TestTPMSignerFails(t *testing.T) {
 	testTable := []CredentialsOpts{}
 
@@ -192,6 +120,13 @@ func TestTPMSignerFails(t *testing.T) {
 		tpm_keys = []string{"sw-rsa", "sw-rsa-81000001-sign", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
 	}
 
+	// Test that RSA keys that don't have the Sign capability aren't able to
+	// sign (even in the case that they have the raw Decrypt capability)
+	testTable = append(testTable, CredentialsOpts{
+		PrivateKeyId:     "../tst/certs/tpm-sw-rsa-key.pem",
+		NoTpmKeyPassword: true,
+	})
+
 	// Test that signing fails when an incorrect password is provided
 	for _, keyname := range tpm_keys {
 		keyWithPw := fmt.Sprintf("../tst/certs/tpm-%s-key-with-pw.pem", keyname)
@@ -202,20 +137,13 @@ func TestTPMSignerFails(t *testing.T) {
 		})
 	}
 
-	// Test that RSA keys that don't have the Sign capability aren't able to
-	// sign (even in the case that they have the raw Decrypt capability)
-	testTable = append(testTable, CredentialsOpts{
-		PrivateKeyId:     "../tst/certs/tpm-sw-rsa-key.pem",
-		NoTpmKeyPassword: true,
-	})
-
 	RunNegativeSignTestWithTestTable(t, testTable)
 }
 
-// Negative tests, in which a TPM signer is attempted to be instantiated with keys
-// that either don't have passwords. In the cases of these tests, intent to use the
+// Negative tests, in which a TPM signer is attempted to be used with keys
+// that don't have passwords. In the cases of these tests, intent to use the
 // key without a specific type of password (using `NoTpmKeyPassword`) isn't
-// provided, and so instantiation should fail.
+// provided, and so signing should fail.
 func TestTPMSignerFailsWithNoPasswordAndIntent(t *testing.T) {
 	testTable := []CredentialsOpts{}
 
@@ -255,5 +183,5 @@ func TestTPMSignerFailsWithNoPasswordAndIntent(t *testing.T) {
 		PrivateKeyId: key,
 	})
 
-	RunNegativeSignerInstantiationTestWithTestTable(t, testTable)
+	RunNegativeSignTestWithTestTable(t, testTable)
 }

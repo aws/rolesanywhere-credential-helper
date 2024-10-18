@@ -196,7 +196,8 @@ These files are supported, and can be created by, both TPMv2 OpenSSL engines/pro
 Note that some features of the TSS private key format are not yet supported. Some or all
 of these may be implemented in future versions. In some semblance of the order in which
 they're likely to be added:
- * Password authentication on parent keys (and hierarchies), when the application is given a permanent handle
+ * Password authentication on parent keys (and hierarchies), when the application is given a permanent handle 
+ as a parent
  * Importable keys
  * TPM Policy / AuthPolicy
  * Sealed keys
@@ -206,24 +207,29 @@ Currently, unit tests for testing TPM support are written in such a way that TPM
 for testing are either bound to a hardware TPM, or are bound to a software TPM. For software TPM 
 testing, `swtpm` is used. You can find the repository [here](https://github.com/stefanberger/swtpm). 
 Also, to create the keys and certificates that are required for unit testing, you will need to install 
-the [IBM TSS](https://github.com/kgoldman/ibmtss), in addition to the 
-[IBM OpenSSL TPM engine](https://git.kernel.org/pub/scm/linux/kernel/git/jejb/openssl_tpm2_engine.git/). 
-The OpenSSL TPM engine comes with utility programs that can be used to create TPM keys that are in 
-the appropriate format to be used by the credential helper application. 
+the [Intel TSS](https://github.com/tpm2-software/tpm2-tss), 
+[Intel OpenSSL provider](https://github.com/tpm2-software/tpm2-openssl), [`tpm2-tools`](https://github.com/tpm2-software/tpm2-tools), 
+ and the [`tpm2-tabrmd`](https://github.com/tpm2-software/tpm2-abrmd) (resource manager). 
 
-Once you've installed all the dependencies, you can run just the unit tests related to TPM support 
+Once you've installed all the dependencies (which should be available on many Linux distributions 
+through standard package managers), you can run just the unit tests related to TPM support 
 through `make test-tpm-signer`. Note that `swtpm` will have to be run in UNIX socket mode (it can't 
 be run in TCP socket mode) for the tests since that is all `go-tpm` can cope with. But key and 
 certificate fixtures will be created when `swtpm` is running in TCP socket mode (as a part of the 
 appropriate `Makefile` targets). Afterwards, right before the unit tests are run, we switch `swtpm` 
 over to run in UNIX socket mode. 
 
+Also, for the sake of testing, a small script is included that emulates a subset of the functionality 
+that can be achieved with `create_tpm2_key`, a utility program that comes with the 
+[IBM OpenSSL engine](https://git.kernel.org/pub/scm/linux/kernel/git/jejb/openssl_tpm2_engine.git/). It 
+is used to test TPM key files that include a permanent handle as their parent. 
+
 ##### Guidance
 If you haven't already initialized your TPM's owner hierarchy yet, it is recommended that you configure 
 it with a password that has high entropy, as there are no dictionary attack protections for it. 
 
 Once you have initialized the TPM's owner hierarchy, you can create a primary key in it. You can do so 
-using one of the utility programs that comes with [`tpm2-tools`](https://github.com/tpm2-software/tpm2-tools): 
+using one of the utility programs that comes with `tpm2-tools`: 
 
 ```
 tpm2_createprimary -G rsa -g sha256 -p ${TPM_PRIMARY_KEY_PASSWORD} -c parent.ctx -P ${OWNER_HIERARCHY_PASSWORD}
