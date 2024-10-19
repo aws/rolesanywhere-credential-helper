@@ -45,14 +45,14 @@ var oidLoadableKey = asn1.ObjectIdentifier{2, 23, 133, 10, 1, 3}
 var TPM_RC_AUTH_FAIL = "0x22"
 
 type TPMv2Signer struct {
-	cert       *x509.Certificate
-	certChain  []*x509.Certificate
-	tpmData    tpm2_TPMKey
-	public     tpm2.Public
-	private    []byte
-	password   string
-	noPassword bool
-	handle     tpmutil.Handle
+	cert      *x509.Certificate
+	certChain []*x509.Certificate
+	tpmData   tpm2_TPMKey
+	public    tpm2.Public
+	private   []byte
+	password  string
+	emptyAuth bool
+	handle    tpmutil.Handle
 }
 
 func handleIsPersistent(h int) bool {
@@ -238,7 +238,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 func (tpmv2Signer *TPMv2Signer) signHelper(rw io.ReadWriter, keyHandle tpmutil.Handle, digest tpmutil.U16Bytes, sigScheme *tpm2.SigScheme) (*tpm2.Signature, error) {
 	passwordPromptInput := PasswordPromptProps{
 		InitialPassword: tpmv2Signer.password,
-		NoPassword:      tpmv2Signer.noPassword,
+		NoPassword:      tpmv2Signer.emptyAuth,
 		CheckPassword: func(password string) (interface{}, error) {
 			return tpm2.Sign(rw, keyHandle, password, digest, nil, sigScheme)
 		},
@@ -322,7 +322,7 @@ type GetTPMv2SignerOpts struct {
 	certificateChain []*x509.Certificate
 	keyPem           *pem.Block
 	password         string
-	noPassword       bool
+	emptyAuth        bool
 	handle           string
 }
 
@@ -334,7 +334,7 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 		certificateChain []*x509.Certificate
 		keyPem           *pem.Block
 		password         string
-		noPassword       bool
+		emptyAuth        bool
 		tpmData          tpm2_TPMKey
 		handle           tpmutil.Handle
 		public           tpm2.Public
@@ -345,7 +345,7 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 	certificateChain = opts.certificateChain
 	keyPem = opts.keyPem
 	password = opts.password
-	noPassword = opts.noPassword
+	emptyAuth = opts.emptyAuth
 
 	// If a handle is provided instead of a TPM key file
 	if opts.handle != "" {
@@ -380,6 +380,8 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 		if err != nil {
 			return nil, "", err
 		}
+
+		emptyAuth = tpmData.EmptyAuth
 
 		if !tpmData.Oid.Equal(oidLoadableKey) {
 			return nil, "", errors.New("invalid OID for TPMv2 key:" + tpmData.Oid.String())
@@ -432,7 +434,7 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 			public,
 			private,
 			password,
-			noPassword,
+			emptyAuth,
 			handle,
 		},
 		signingAlgorithm, nil

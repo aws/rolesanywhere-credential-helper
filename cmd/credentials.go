@@ -76,7 +76,8 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
 		"for a given private key object, fall back to prompting the user")
 	subCmd.PersistentFlags().StringVar(&tpmKeyPassword, "tpm-key-password", "", "Password for TPM key, if applicable")
-	subCmd.PersistentFlags().BoolVar(&noTpmKeyPassword, "no-tpm-key-password", false, "Required if the TPM key has no password")
+	subCmd.PersistentFlags().BoolVar(&noTpmKeyPassword, "no-tpm-key-password", false, "Required if the TPM key has no password and"+
+		"a handle is used to refer to the key")
 
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
@@ -88,6 +89,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "cert-selector")
+	subCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "tpm-key-password")
 }
 
 // Parses a cert selector string to a map

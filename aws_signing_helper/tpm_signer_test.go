@@ -44,6 +44,20 @@ func TestTPMSigner(t *testing.T) {
 				CertificateId:    cert,
 				NoTpmKeyPassword: true,
 			})
+
+			cert = fmt.Sprintf("../tst/certs/tpm-%s-%s-cert.pem",
+				keyname, digest)
+			key = fmt.Sprintf("../tst/certs/tpm-%s-key.pem", keyname)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+			})
+
+			cert = fmt.Sprintf("../tst/certs/tpm-%s-%s-combo.pem",
+				keyname, digest)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+			})
 		}
 
 		// Using a loaded key
@@ -63,6 +77,9 @@ func TestTPMSigner(t *testing.T) {
 	testTable = append(testTable, CredentialsOpts{
 		PrivateKeyId:     key,
 		NoTpmKeyPassword: true,
+	})
+	testTable = append(testTable, CredentialsOpts{
+		PrivateKeyId: key,
 	})
 	keyWithPw := "../tst/certs/tpm-sw-rsa-81000001-sign-key-with-pw.pem"
 	testTable = append(testTable, CredentialsOpts{
@@ -115,7 +132,7 @@ func TestTPMSignerFails(t *testing.T) {
 
 	tpmdev := os.Getenv("TPM_DEVICE")
 	if strings.HasPrefix(tpmdev, "/dev/") {
-		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
+		return // Skip this test in the case of hardware TPM, so as to not cause DA lockout
 	} else {
 		tpm_keys = []string{"sw-rsa", "sw-rsa-81000001-sign", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
 	}
@@ -136,52 +153,6 @@ func TestTPMSignerFails(t *testing.T) {
 			TpmKeyPassword: "incorrect-password",
 		})
 	}
-
-	RunNegativeSignTestWithTestTable(t, testTable)
-}
-
-// Negative tests, in which a TPM signer is attempted to be used with keys
-// that don't have passwords. In the cases of these tests, intent to use the
-// key without a specific type of password (using `NoTpmKeyPassword`) isn't
-// provided, and so signing should fail.
-func TestTPMSignerFailsWithNoPasswordAndIntent(t *testing.T) {
-	testTable := []CredentialsOpts{}
-
-	tpm_digests := []string{"sha1", "sha256", "sha384", "sha512"}
-	var tpm_keys []string
-
-	tpmdev := os.Getenv("TPM_DEVICE")
-	if strings.HasPrefix(tpmdev, "/dev/") {
-		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
-	} else {
-		tpm_keys = []string{"sw-rsa-81000001-sign", "sw-ec-prime256", "sw-ec-secp384r1"}
-	}
-
-	tpm_digests = []string{"sha256"}
-	tpm_keys = []string{"sw-ec-prime256"}
-
-	for _, digest := range tpm_digests {
-		for _, keyname := range tpm_keys {
-			cert := fmt.Sprintf("../tst/certs/tpm-%s-%s-cert.pem",
-				keyname, digest)
-			key := fmt.Sprintf("../tst/certs/tpm-%s-key.pem", keyname)
-			testTable = append(testTable, CredentialsOpts{
-				CertificateId: cert,
-				PrivateKeyId:  key,
-			})
-
-			cert = fmt.Sprintf("../tst/certs/tpm-%s-%s-combo.pem",
-				keyname, digest)
-			testTable = append(testTable, CredentialsOpts{
-				CertificateId: cert,
-			})
-		}
-	}
-
-	key := "../tst/certs/tpm-sw-rsa-81000001-sign-key.pem"
-	testTable = append(testTable, CredentialsOpts{
-		PrivateKeyId: key,
-	})
 
 	RunNegativeSignTestWithTestTable(t, testTable)
 }

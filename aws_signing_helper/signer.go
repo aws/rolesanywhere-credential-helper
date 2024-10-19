@@ -199,6 +199,15 @@ func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, interface{
 	}
 	defer ttyWriteFile.Close()
 
+	// If no password is required
+	if noPassword {
+		checkPasswordResult, err = checkPassword("")
+		if err != nil {
+			return "", nil, err
+		}
+		return "", checkPasswordResult, nil
+	}
+
 	// If the password was provided explicitly, beforehand
 	if password != "" {
 		checkPasswordResult, err = checkPassword(password)
@@ -208,39 +217,27 @@ func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, interface{
 		return password, checkPasswordResult, nil
 	}
 
-	// Otherwise, try not to use a password
-	checkPasswordResult, err = checkPassword("")
-	if err == nil {
-		if noPassword {
-			return "", checkPasswordResult, err
-		} else {
-			return "", checkPasswordResult, errors.New("missing intent for no password")
-		}
-	}
-
 	// The key has a password, so prompt for it
-	if strings.Contains(err.Error(), checkPasswordAuthorizationErrorMsg) {
-		password, err = GetPassword(ttyReadFile, ttyWriteFile, prompt, parseErrMsg)
-		if err != nil {
-			return "", nil, err
+	password, err = GetPassword(ttyReadFile, ttyWriteFile, prompt, parseErrMsg)
+	if err != nil {
+		return "", nil, err
+	}
+	checkPasswordResult, err = checkPassword(password)
+	for true {
+		// If we've found the right password, return both it and the result of `checkPassword`
+		if err == nil {
+			return password, checkPasswordResult, nil
 		}
-		checkPasswordResult, err = checkPassword(password)
-		for true {
-			// If we've found the right password, return both it and the result of `checkPassword`
-			if err == nil {
-				return password, checkPasswordResult, nil
+		// Otherwise, if the password was incorrect, prompt for it again
+		if strings.Contains(err.Error(), checkPasswordAuthorizationErrorMsg) {
+			password, err = GetPassword(ttyReadFile, ttyWriteFile, reprompt, parseErrMsg)
+			if err != nil {
+				return "", nil, err
 			}
-			// Otherwise, if the password was incorrect, prompt for it again
-			if strings.Contains(err.Error(), checkPasswordAuthorizationErrorMsg) {
-				password, err = GetPassword(ttyReadFile, ttyWriteFile, reprompt, parseErrMsg)
-				if err != nil {
-					return "", nil, err
-				}
-				checkPasswordResult, err = checkPassword(password)
-				continue
-			}
-			return "", nil, err
+			checkPasswordResult, err = checkPassword(password)
+			continue
 		}
+		return "", nil, err
 	}
 
 	return "", nil, err
