@@ -189,18 +189,23 @@ application.
 Private key files containing a TPM wrapped key in the `-----BEGIN TSS2 PRIVATE KEY-----`
 form as described [here](https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html)
 are transparently supported. You can just use such a file as you would any plain key
-file and expect it to work, just as you should expect with any well-behaved application.
+file and expect it to work, just as you should expect with any well-behaved application. 
 
 These files are supported, and can be created by, both TPMv2 OpenSSL engines/providers, and GnuTLS.
 
 Note that some features of the TSS private key format are not yet supported. Some or all
 of these may be implemented in future versions. In some semblance of the order in which
 they're likely to be added:
- * Password authentication on parent keys (and hierarchies), when the application is given a permanent handle 
+ * Password authentication on parent keys (and hierarchies)
  as a parent
  * Importable keys
  * TPM Policy / AuthPolicy
  * Sealed keys
+
+Note that it is possible to get around the parent key password authentication limit by loading 
+the signing key (the loading process will have to be done with other tools and will require 
+you to provivde your parent key password) into the TPM and referencing its handle in the command 
+you want to call with the credential helper. 
 
 ##### Testing
 Currently, unit tests for testing TPM support are written in such a way that TPM keys that are used 
@@ -221,8 +226,17 @@ over to run in UNIX socket mode.
 
 Also, for the sake of testing, a small script is included that emulates a subset of the functionality 
 that can be achieved with `create_tpm2_key`, a utility program that comes with the 
-[IBM OpenSSL engine](https://git.kernel.org/pub/scm/linux/kernel/git/jejb/openssl_tpm2_engine.git/). It 
+[IBM OpenSSL ENGINE](https://git.kernel.org/pub/scm/linux/kernel/git/jejb/openssl_tpm2_engine.git/). It 
 is used to test TPM key files that include a permanent handle as their parent. 
+
+##### Notes on Tooling Used
+
+`tpm2-tools` and `tpm2-openssl` will by default create RSA keys that have the sign attribute, but that may 
+not be the case for other tools that you may find. As an example, the tools that come with the IBM OpenSSL 
+ENGINE will create RSA keys with the decrypt attribute but not the sign attribute by default. In order to 
+be able to use an RSA key with the credential helper it must have the sign attribute set. The credential 
+helper will delegate the signing operation to the TPM as opposed to using a raw RSA decrypt and deriving 
+the signature by implementing PKCS#1 v1.5 padding. 
 
 ##### Guidance
 If you haven't already initialized your TPM's owner hierarchy yet, it is recommended that you configure 
@@ -268,8 +282,30 @@ Lastly, once you have your CSR, you can provide it to a CA so that it can issue 
 you. The client certificate and TPM key can then be used with the credential helper application as follows: 
 ```
 /path/to/aws_signing_helper credential-process \
-    --certificate ${CERTIFICATE_FILE_PATH} \
+    --certificate /path/to/certificate/file \
     --private-key handle:${CHILD_HANDLE} \
+    --role-arn ${ROLE_ARN} \
+    --trust-anchor-arn ${TA_ARN} \
+    --profile-arn ${PROFILE_ARN}
+```
+
+Please note that with this approach, it is your responsibility for clearing out the persistent and 
+temporary objects from the TPM after you no longer need them, so that they can't be used by others 
+on the same machine to escalate their privilege. 
+
+The alternative is to use a TPM key PEM file in the format described 
+[here](https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html), for use with the credential 
+helper. If a TPM key file is used, the wrapped private key within the key file will be loaded into the 
+TPM as a transient object and automatically flushed from the TPM after use by the credential helper (so 
+after signing). If signing needs to occur multiple times, the key will be loaded into the TPM each 
+time. The limitation with this approach is that the parent of the signing key can't be password-protected, 
+as there is no way currently for you to pass this password to the credential helper. 
+
+Below is an example of how you can use the credential helper with a TPM key file: 
+```
+/path/to/aws_signing_helper credential-process \
+    --certificate /path/to/certificate/file \
+    --private-key /path/to/tpm/key/file \
     --role-arn ${ROLE_ARN} \
     --trust-anchor-arn ${TA_ARN} \
     --profile-arn ${PROFILE_ARN}
