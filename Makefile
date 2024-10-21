@@ -1,4 +1,4 @@
-VERSION=1.2.0
+VERSION=1.2.1
 
 .PHONY: release
 release: build/bin/aws_signing_helper
