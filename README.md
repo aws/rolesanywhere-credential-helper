@@ -28,10 +28,6 @@ make release
 
 After building, you should see the `aws_signing_helper` binary built for your system at `build/bin/aws_signing_helper`. Usage can be found in [AWS's documentation](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html). A later section also goes into how you can use the scripts provided in this repository to test out the credential helper binary.
 
-### Scripts
-
-The project also comes with two bash scripts at its root, called `generate-certs.sh` and `generate-credential-process-data.sh`. The former script is used strictly for unit testing, and it generates certificate and private key data with different parameters that are supported by IAM Roles Anywhere. You can run the bash script using `/bin/bash generate-certs.sh`, and you will see the generated certificates and keys under the `tst/certs` directory. The latter script is used both for unit testing and can also be used for testing the `credential-process` command after having built the binary. It will create a CA certificate/private key as well as a leaf certificate/private key. When testing IAM Roles Anywhere, you will have to upload the CA certificate a trust anchor and create a profile within Roles Anywhere before using the binary along with the leaf certificate/private key to call `credential-process` (more instructions can be found in the next section). You can run the bash script using `/bin/bash generate-credential-process-data.sh`, and you will see the generated certificate hierarchy (and corresponding keys) under the `credential-process-data` directory. Note that the unit tests that require these fixtures to exist will run the bash script themselves, before executing those tests that depend on the fixtures existing. Please note that these scripts currently only work on Unix-based systems and require `openssl` to be installed.
-
 ## Diagnostic Command Tools
 
 ### read-certificate-data
@@ -351,11 +347,7 @@ When using `serve` it is important to understand that processes running on a sys
 
 ### Scripts
 
-The project also comes with two bash scripts at its root, called `generate-certs.sh` and `generate-credential-process-data.sh`. Note that these scripts currently only work on Unix-based systems and require `openssl` to be installed.
-
-#### generate-certs.sh
-
-Used by unit tests to generate test certificates and private keys supported by IAM Roles Anywhere. The test data is stored in the tst/certs directory.
+The project also comes with two bash scripts at its root, called `generate-credential-process-data.sh` and `create_tpm2_key.sh`. Please note that these scripts currently only work on Unix-based systems and require additional dependencies to be installed (further documented below). 
 
 #### generate-credential-process-data.sh
 
@@ -384,6 +376,10 @@ PROFILE_ARN=$(aws rolesanywhere create-profile \
 ```
 
 In the above example, you will have to create a role with a trust policy as documented [here](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/trust-model.html). After having done so, record the role ARN and use it both when creating a profile and when obtaining temporary security credentials through `credential-process`.
+
+#### create_tpm2_key.sh
+
+Used in the Makefile to emulate the `create_tpm2_key` utility that comes with the IBM OpenSSL TPM 2.0 ENGINE. Note that this script only supports a limited subset of the functionality that's available with the utility that comes with the OpenSSL ENGINE. The purpose is so that keys can be created with the appropriate attributes for the sake of testing, and error handling may not bbe very good. It is not recommended to use this script for other purposes. If you have a need to use the script, it is recommended that you install the OpenSSL ENGINE and use the utility that comes with it instead. 
 
 ## Security
 
