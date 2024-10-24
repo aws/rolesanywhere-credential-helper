@@ -156,3 +156,23 @@ func TestTPMSignerFails(t *testing.T) {
 
 	RunNegativeSignTestWithTestTable(t, testTable)
 }
+
+func TestTPMSignerInstantiationFails(t *testing.T) {
+	var key string
+
+	tpmdev := os.Getenv("TPM_DEVICE")
+	if strings.HasPrefix(tpmdev, "/dev/") {
+		key = "../tst/certs/tpm-hw-ec-key.pem"
+	} else {
+		key = "../tst/certs/tpm-sw-ec-prime256-key.pem"
+	}
+
+	_, _, err := GetSigner(&CredentialsOpts{
+		PrivateKeyId:   key,
+		TpmKeyPassword: "unneeded-password",
+	})
+	if err == nil {
+		t.Log("expected error when instantiating signer but received none")
+		t.Fail()
+	}
+}

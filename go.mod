@@ -2,8 +2,6 @@ module github.com/aws/rolesanywhere-credential-helper
 
 go 1.22
 
-toolchain go1.22.4
-
 require (
 	github.com/aws/aws-sdk-go v1.50.30
 	github.com/google/go-tpm v0.3.3

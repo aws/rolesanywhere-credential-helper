@@ -382,6 +382,9 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 		}
 
 		emptyAuth = tpmData.EmptyAuth
+		if emptyAuth && password != "" {
+			return nil, "", errors.New("password is provided but TPM key file indicates that one isn't required")
+		}
 
 		if !tpmData.Oid.Equal(oidLoadableKey) {
 			return nil, "", errors.New("invalid OID for TPMv2 key:" + tpmData.Oid.String())
