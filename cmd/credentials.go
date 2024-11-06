@@ -22,6 +22,7 @@ var (
 	withProxy         bool
 	debug             bool
 	reusePin          bool
+	roleSessionName   string
 
 	certificateId       string
 	privateKeyId        string
@@ -78,6 +79,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&tpmKeyPassword, "tpm-key-password", "", "Password for TPM key, if applicable")
 	subCmd.PersistentFlags().BoolVar(&noTpmKeyPassword, "no-tpm-key-password", false, "Required if the TPM key has no password and"+
 		"a handle is used to refer to the key")
+	subCmd.PersistentFlags().StringVar(&roleSessionName, "role-session-name", "", "An identifier of a role session")	
 
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
@@ -254,6 +256,7 @@ func PopulateCredentialsOptions() error {
 		ReusePin:            reusePin,
 		TpmKeyPassword:      tpmKeyPassword,
 		NoTpmKeyPassword:    noTpmKeyPassword,
+		RoleSessionName:     roleSessionName,
 	}
 
 	return nil
