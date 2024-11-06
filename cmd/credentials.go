@@ -5,6 +5,7 @@ import (
 	"errors"
 	"io/ioutil"
 	"math/big"
+	"regexp"
 	"strings"
 
 	helper "github.com/aws/rolesanywhere-credential-helper/aws_signing_helper"
@@ -21,16 +22,18 @@ var (
 	noVerifySSL       bool
 	withProxy         bool
 	debug             bool
-	reusePin          bool
 	roleSessionName   string
 
 	certificateId       string
 	privateKeyId        string
 	certificateBundleId string
-	certSelector        string
-	systemStoreName     string
+
+	certSelector                 string
+	systemStoreName              string
+	useLatestExpiringCertificate bool
 
 	libPkcs11 string
+	reusePin  bool
 
 	credentialsOptions helper.CredentialsOpts
 
@@ -43,6 +46,8 @@ var (
 		X509_ISSUER_KEY,
 		X509_SERIAL_KEY,
 	}
+
+	CERT_SELECTOR_KEY_VALUE_REGEX = `^\s*Key=(.+?),Value=(.+?)\s*(?:Key=|$)`
 )
 
 type MapEntry struct {
@@ -56,7 +61,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&roleArnStr, "role-arn", "", "Target role to assume")
 	subCmd.PersistentFlags().StringVar(&profileArnStr, "profile-arn", "", "Profile to pull policies from")
 	subCmd.PersistentFlags().StringVar(&trustAnchorArnStr, "trust-anchor-arn", "", "Trust anchor to use for authentication")
-	subCmd.PersistentFlags().IntVar(&sessionDuration, "session-duration", 3600, "Duration, in seconds, for the resulting session")
+	subCmd.PersistentFlags().IntVar(&sessionDuration, "session-duration", -1, "Duration, in seconds, for the resulting session")
 	subCmd.PersistentFlags().StringVar(&region, "region", "", "Signing region")
 	subCmd.PersistentFlags().StringVar(&endpoint, "endpoint", "", "Endpoint used to call CreateSession")
 	subCmd.PersistentFlags().BoolVar(&noVerifySSL, "no-verify-ssl", false, "To disable SSL verification")
@@ -69,16 +74,22 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
 	subCmd.PersistentFlags().StringVar(&systemStoreName, "system-store-name", "MY", "Name of the system store to search for within the "+
 		"CERT_SYSTEM_STORE_CURRENT_USER context. Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
+	subCmd.PersistentFlags().BoolVar(&useLatestExpiringCertificate, "use-latest-expiring-certificate", false, "If multiple certificates match "+
+		"a given certificate selector, the one that expires the latest will be chosen (if more than one still fits this criteria, an arbitrary "+
+		"one is chosen from those that meet the criteria)")
 	subCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
 	subCmd.PersistentFlags().BoolVar(&reusePin, "reuse-pin", false, "Use the CKU_USER PIN as the CKU_CONTEXT_SPECIFIC PIN for "+
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
 		"for a given private key object, fall back to prompting the user")
-	subCmd.PersistentFlags().StringVar(&roleSessionName, "role-session-name", "", "An identifier of a role session")	
+	subCmd.PersistentFlags().StringVar(&roleSessionName, "role-session-name", "", "An identifier of a role session")
 
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "system-store-name")
+	subCmd.MarkFlagsMutuallyExclusive("private-key", "use-latest-expiring-certificate")
+	subCmd.MarkFlagsMutuallyExclusive("use-latest-expiring-certificate", "intermediates")
+	subCmd.MarkFlagsMutuallyExclusive("use-latest-expiring-certificate", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "intermediates")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
@@ -86,34 +97,49 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 
 // Parses a cert selector string to a map
 func getStringMap(s string) (map[string]string, error) {
-	entries := strings.Split(s, " ")
+	regex := regexp.MustCompile(CERT_SELECTOR_KEY_VALUE_REGEX)
 
 	m := make(map[string]string)
-	for _, e := range entries {
-		tokens := strings.SplitN(e, ",", 2)
-		keyTokens := strings.Split(tokens[0], "=")
-		if keyTokens[0] != "Key" {
-			return nil, errors.New("invalid cert selector map key")
-		}
-		key := strings.TrimSpace(strings.Join(keyTokens[1:], "="))
-
-		isValidKey := false
-		for _, validKey := range validCertSelectorKeys {
-			if validKey == key {
-				isValidKey = true
-				break
+	for {
+		match := regex.FindStringSubmatch(s)
+		if match == nil || len(match) == 0 {
+			break
+		} else {
+			if len(match) < 3 {
+				return nil, errors.New("unable to parse cert selector string")
 			}
-		}
-		if !isValidKey {
-			return nil, errors.New("cert selector contained invalid key")
-		}
 
-		valueTokens := strings.Split(tokens[1], "=")
-		if valueTokens[0] != "Value" {
-			return nil, errors.New("invalid cert selector map value")
+			key := match[1]
+			isValidKey := false
+			for _, validKey := range validCertSelectorKeys {
+				if validKey == key {
+					isValidKey = true
+					break
+				}
+			}
+			if !isValidKey {
+				return nil, errors.New("cert selector contained invalid key")
+			}
+			value := match[2]
+
+			if _, ok := m[key]; ok {
+				return nil, errors.New("cert selector contained duplicate key")
+			}
+			m[key] = value
+
+			// Remove the matching prefix from the input cert selector string
+			matchEnd := len(match[0])
+			if matchEnd != len(s) {
+				// Since the `Key=` part of the next key-value pair will have been matched, don't include it in the prefix to remove
+				matchEnd -= 4
+			}
+			s = s[matchEnd:]
 		}
-		value := strings.TrimSpace(strings.Join(valueTokens[1:], "="))
-		m[key] = value
+	}
+
+	// There is some part of the cert selector string that couldn't be parsed by the above loop
+	if len(s) != 0 {
+		return nil, errors.New("unable to parse cert selector string")
 	}
 
 	return m, nil
@@ -137,6 +163,9 @@ func getMapFromJsonEntries(jsonStr string) (map[string]string, error) {
 		}
 		if !isValidKey {
 			return nil, errors.New("cert selector contained invalid key")
+		}
+		if _, ok := m[mapEntry.Key]; ok {
+			return nil, errors.New("cert selector contained duplicate key")
 		}
 		m[mapEntry.Key] = mapEntry.Value
 	}
@@ -228,23 +257,24 @@ func PopulateCredentialsOptions() error {
 	}
 
 	credentialsOptions = helper.CredentialsOpts{
-		PrivateKeyId:        privateKeyId,
-		CertificateId:       certificateId,
-		CertificateBundleId: certificateBundleId,
-		CertIdentifier:      certIdentifier,
-		RoleArn:             roleArnStr,
-		ProfileArnStr:       profileArnStr,
-		TrustAnchorArnStr:   trustAnchorArnStr,
-		SessionDuration:     sessionDuration,
-		Region:              region,
-		Endpoint:            endpoint,
-		NoVerifySSL:         noVerifySSL,
-		WithProxy:           withProxy,
-		Debug:               debug,
-		Version:             Version,
-		LibPkcs11:           libPkcs11,
-		ReusePin:            reusePin,
-		RoleSessionName:     roleSessionName,
+		PrivateKeyId:                 privateKeyId,
+		CertificateId:                certificateId,
+		CertificateBundleId:          certificateBundleId,
+		CertIdentifier:               certIdentifier,
+		UseLatestExpiringCertificate: useLatestExpiringCertificate,
+		RoleArn:                      roleArnStr,
+		ProfileArnStr:                profileArnStr,
+		TrustAnchorArnStr:            trustAnchorArnStr,
+		SessionDuration:              sessionDuration,
+		Region:                       region,
+		Endpoint:                     endpoint,
+		NoVerifySSL:                  noVerifySSL,
+		WithProxy:                    withProxy,
+		Debug:                        debug,
+		Version:                      Version,
+		LibPkcs11:                    libPkcs11,
+		ReusePin:                     reusePin,
+		RoleSessionName:              roleSessionName,
 	}
 
 	return nil

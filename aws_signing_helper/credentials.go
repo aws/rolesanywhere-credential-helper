@@ -16,24 +16,25 @@ import (
 )
 
 type CredentialsOpts struct {
-	PrivateKeyId        string
-	CertificateId       string
-	CertificateBundleId string
-	CertIdentifier      CertIdentifier
-	RoleArn             string
-	ProfileArnStr       string
-	TrustAnchorArnStr   string
-	SessionDuration     int
-	Region              string
-	Endpoint            string
-	NoVerifySSL         bool
-	WithProxy           bool
-	Debug               bool
-	Version             string
-	LibPkcs11           string
-	ReusePin            bool
-	ServerTTL           int
-	RoleSessionName     string
+	PrivateKeyId                 string
+	CertificateId                string
+	CertificateBundleId          string
+	CertIdentifier               CertIdentifier
+	UseLatestExpiringCertificate bool
+	RoleArn                      string
+	ProfileArnStr                string
+	TrustAnchorArnStr            string
+	SessionDuration              int
+	Region                       string
+	Endpoint                     string
+	NoVerifySSL                  bool
+	WithProxy                    bool
+	Debug                        bool
+	Version                      string
+	LibPkcs11                    string
+	ReusePin                     bool
+	ServerTTL                    int
+	RoleSessionName              string
 }
 
 // Function to create session and generate credentials
@@ -99,12 +100,16 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 	rolesAnywhereClient.Handlers.Sign.PushBackNamed(request.NamedHandler{Name: "v4x509.SignRequestHandler", Fn: CreateRequestSignFunction(signer, signatureAlgorithm, certificate, certificateChain)})
 
 	certificateStr := base64.StdEncoding.EncodeToString(certificate.Raw)
-	durationSeconds := int64(opts.SessionDuration)
+	var durationSecondsPtr *int64 = nil
+	if opts.SessionDuration != -1 {
+		durationSeconds := int64(opts.SessionDuration)
+		durationSecondsPtr = &durationSeconds
+	}
 	createSessionRequest := rolesanywhere.CreateSessionInput{
 		Cert:               &certificateStr,
 		ProfileArn:         &opts.ProfileArnStr,
 		TrustAnchorArn:     &opts.TrustAnchorArnStr,
-		DurationSeconds:    &(durationSeconds),
+		DurationSeconds:    durationSecondsPtr,
 		InstanceProperties: nil,
 		RoleArn:            &opts.RoleArn,
 		SessionName:        nil,

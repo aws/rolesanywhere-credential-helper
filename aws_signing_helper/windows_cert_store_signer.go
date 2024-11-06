@@ -260,14 +260,10 @@ func GetMatchingCerts(certIdentifier CertIdentifier) ([]CertificateContainer, er
 }
 
 // Gets a WindowsCertStoreSigner based on the CertIdentifier
-func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAlgorithm string, err error) {
+func GetCertStoreSigner(certIdentifier CertIdentifier, useLatestExpiringCert bool) (signer Signer, signingAlgorithm string, err error) {
 	var privateKey *winPrivateKey
 	store, certCtx, certChain, certContainers, err := GetMatchingCertsAndChain(certIdentifier)
 	if err != nil {
-		goto fail
-	}
-	if len(certContainers) > 1 {
-		err = errors.New("more than one matching cert found in cert store")
 		goto fail
 	}
 	if len(certContainers) == 0 {
@@ -275,7 +271,16 @@ func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAl
 		goto fail
 	}
 
-	signer = &WindowsCertStoreSigner{store: store, cert: certContainers[0].Cert, certCtx: certCtx, certChain: certChain}
+	if useLatestExpiringCert {
+		sort.Sort(CertificateContainerList(certContainers))
+	} else {
+		if len(certContainers) > 1 {
+			err = errors.New("multiple matching identities")
+			goto fail
+		}
+	}
+
+	signer = &WindowsCertStoreSigner{store: store, cert: certContainers[len(certContainers)-1].Cert, certCtx: certCtx, certChain: certChain}
 
 	privateKey, err = signer.(*WindowsCertStoreSigner).getPrivateKey()
 	if err != nil {
