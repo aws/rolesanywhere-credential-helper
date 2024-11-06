@@ -287,7 +287,8 @@ you. The client certificate and TPM key can then be used with the credential hel
 
 Please note that with this approach, it is your responsibility for clearing out the persistent and 
 temporary objects from the TPM after you no longer need them, so that they can't be used by others 
-on the same machine to escalate their privilege. 
+on the same machine to escalate their privilege. Beware that if you load a key into the TPM that 
+isn't password-protected, anyone that has access to the machine will be able to use that key. 
 
 The alternative is to use a TPM key PEM file in the format described 
 [here](https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html), for use with the credential 

@@ -457,7 +457,7 @@ func CreateRequestSignFunction(signer crypto.Signer, signingAlgorithm string, ce
 		stringToSign := CreateStringToSign(canonicalRequest, signerParams)
 		signatureBytes, err := signer.Sign(rand.Reader, []byte(stringToSign), crypto.SHA256)
 		if err != nil {
-			log.Println(err.Error())
+			log.Println("could not sign", err)
 			os.Exit(1)
 		}
 		signature := hex.EncodeToString(signatureBytes)
@@ -636,7 +636,6 @@ func encodeDer(der []byte) (string, error) {
 func parseDERFromPEM(pemDataId string, blockType string) (*pem.Block, error) {
 	bytes, err := os.ReadFile(pemDataId)
 	if err != nil {
-		log.Println(err)
 		return nil, err
 	}
 
@@ -657,7 +656,6 @@ func parseDERFromPEM(pemDataId string, blockType string) (*pem.Block, error) {
 func ReadCertificateBundleData(certificateBundleId string) ([]*x509.Certificate, error) {
 	bytes, err := os.ReadFile(certificateBundleId)
 	if err != nil {
-		log.Println(err)
 		return nil, err
 	}
 
@@ -749,7 +747,7 @@ func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privat
 
 	bytes, err = os.ReadFile(certificateId)
 	if err != nil {
-		return nil, nil, nil
+		return nil, nil, err
 	}
 
 	pemBlocks, err = pkcs12.ToPEM(bytes, "")
@@ -847,7 +845,6 @@ func ReadCertificateData(certificateId string) (CertificateData, *x509.Certifica
 
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		log.Println("could not parse certificate", err)
 		return CertificateData{}, nil, errors.New("could not parse certificate")
 	}
 
