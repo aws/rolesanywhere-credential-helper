@@ -128,7 +128,7 @@ func GetMatchingCerts(certIdentifier CertIdentifier) ([]CertificateContainer, er
 }
 
 // Creates a DarwinCertStoreSigner based on the identifying certificate
-func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAlgorithm string, err error) {
+func GetCertStoreSigner(certIdentifier CertIdentifier, useLatestExpiringCert bool) (signer Signer, signingAlgorithm string, err error) {
 	identRef, certRef, certContainers, err := GetMatchingCertsAndIdentity(certIdentifier)
 	if err != nil {
 		return nil, "", err
@@ -136,10 +136,14 @@ func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAl
 	if len(certContainers) == 0 {
 		return nil, "", errors.New("no matching identities")
 	}
-	if len(certContainers) > 1 {
-		return nil, "", errors.New("multiple matching identities")
+	if useLatestExpiringCert {
+		sort.Sort(CertificateContainerList(certContainers))
+	} else {
+		if len(certContainers) > 1 {
+			return nil, "", errors.New("multiple matching identities")
+		}
 	}
-	cert := certContainers[0].Cert
+	cert := certContainers[len(certContainers)-1].Cert
 
 	// Find the signing algorithm
 	switch cert.PublicKey.(type) {

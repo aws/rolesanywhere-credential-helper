@@ -22,16 +22,18 @@ var (
 	noVerifySSL       bool
 	withProxy         bool
 	debug             bool
-	reusePin          bool
 	roleSessionName   string
 
 	certificateId       string
 	privateKeyId        string
 	certificateBundleId string
-	certSelector        string
-	systemStoreName     string
+
+	certSelector                 string
+	systemStoreName              string
+	useLatestExpiringCertificate bool
 
 	libPkcs11 string
+	reusePin  bool
 
 	credentialsOptions helper.CredentialsOpts
 
@@ -72,16 +74,22 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
 	subCmd.PersistentFlags().StringVar(&systemStoreName, "system-store-name", "MY", "Name of the system store to search for within the "+
 		"CERT_SYSTEM_STORE_CURRENT_USER context. Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
+	subCmd.PersistentFlags().BoolVar(&useLatestExpiringCertificate, "use-latest-expiring-certificate", false, "If multiple certificates match "+
+		"a given certificate selector, the one that expires the latest will be chosen (if more than one still fits this criteria, an arbitrary "+
+		"one is chosen from those that meet the criteria)")
 	subCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (OpenSC or vendor specific)")
 	subCmd.PersistentFlags().BoolVar(&reusePin, "reuse-pin", false, "Use the CKU_USER PIN as the CKU_CONTEXT_SPECIFIC PIN for "+
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
 		"for a given private key object, fall back to prompting the user")
-	subCmd.PersistentFlags().StringVar(&roleSessionName, "role-session-name", "", "An identifier of a role session")	
+	subCmd.PersistentFlags().StringVar(&roleSessionName, "role-session-name", "", "An identifier of a role session")
 
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "system-store-name")
+	subCmd.MarkFlagsMutuallyExclusive("private-key", "use-latest-expiring-certificate")
+	subCmd.MarkFlagsMutuallyExclusive("use-latest-expiring-certificate", "intermediates")
+	subCmd.MarkFlagsMutuallyExclusive("use-latest-expiring-certificate", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "intermediates")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
@@ -249,23 +257,24 @@ func PopulateCredentialsOptions() error {
 	}
 
 	credentialsOptions = helper.CredentialsOpts{
-		PrivateKeyId:        privateKeyId,
-		CertificateId:       certificateId,
-		CertificateBundleId: certificateBundleId,
-		CertIdentifier:      certIdentifier,
-		RoleArn:             roleArnStr,
-		ProfileArnStr:       profileArnStr,
-		TrustAnchorArnStr:   trustAnchorArnStr,
-		SessionDuration:     sessionDuration,
-		Region:              region,
-		Endpoint:            endpoint,
-		NoVerifySSL:         noVerifySSL,
-		WithProxy:           withProxy,
-		Debug:               debug,
-		Version:             Version,
-		LibPkcs11:           libPkcs11,
-		ReusePin:            reusePin,
-		RoleSessionName:     roleSessionName,
+		PrivateKeyId:                 privateKeyId,
+		CertificateId:                certificateId,
+		CertificateBundleId:          certificateBundleId,
+		CertIdentifier:               certIdentifier,
+		UseLatestExpiringCertificate: useLatestExpiringCertificate,
+		RoleArn:                      roleArnStr,
+		ProfileArnStr:                profileArnStr,
+		TrustAnchorArnStr:            trustAnchorArnStr,
+		SessionDuration:              sessionDuration,
+		Region:                       region,
+		Endpoint:                     endpoint,
+		NoVerifySSL:                  noVerifySSL,
+		WithProxy:                    withProxy,
+		Debug:                        debug,
+		Version:                      Version,
+		LibPkcs11:                    libPkcs11,
+		ReusePin:                     reusePin,
+		RoleSessionName:              roleSessionName,
 	}
 
 	return nil

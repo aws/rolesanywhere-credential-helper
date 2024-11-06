@@ -80,6 +80,9 @@ func init() {
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
 	signStringCmd.PersistentFlags().StringVar(&systemStoreName, "system-store-name", "MY", "Name of the system store to search for within the "+
 		"CERT_SYSTEM_STORE_CURRENT_USER context. Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
+	signStringCmd.PersistentFlags().BoolVar(&useLatestExpiringCertificate, "use-latest-expiring-certificate", false, "If multiple certificates match "+
+		"a given certificate selector, the one that expires the latest will be chosen (if more than one still fits this criteria, an arbitrary "+
+		"one is chosen from those that meet the criteria)")
 	signStringCmd.PersistentFlags().StringVar(&libPkcs11, "pkcs11-lib", "", "Library for smart card / cryptographic device (default: p11-kit-proxy.{so, dll, dylib})")
 	signStringCmd.PersistentFlags().BoolVar(&reusePin, "reuse-pin", false, "Use the CKU_USER PIN as the CKU_CONTEXT_SPECIFIC PIN for "+
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
@@ -91,6 +94,8 @@ func init() {
 	signStringCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
 	signStringCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 	signStringCmd.MarkFlagsMutuallyExclusive("private-key", "system-store-name")
+	signStringCmd.MarkFlagsMutuallyExclusive("private-key", "use-latest-expiring-certificate")
+	signStringCmd.MarkFlagsMutuallyExclusive("use-latest-expiring-certificate", "reuse-pin")
 	signStringCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
 	signStringCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
 }

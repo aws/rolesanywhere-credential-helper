@@ -127,6 +127,21 @@ var ignoredHeaderKeys = map[string]bool{
 
 var Debug bool = false
 
+// CertificateContainerList implements the sort.Interface interface
+type CertificateContainerList []CertificateContainer
+
+func (certificateContainerList CertificateContainerList) Less(i, j int) bool {
+	return certificateContainerList[i].Cert.NotAfter.Before(certificateContainerList[j].Cert.NotAfter)
+}
+
+func (certificateContainerList CertificateContainerList) Swap(i, j int) {
+	certificateContainerList[i], certificateContainerList[j] = certificateContainerList[j], certificateContainerList[i]
+}
+
+func (certificateContainerList CertificateContainerList) Len() int {
+	return len(certificateContainerList)
+}
+
 // Find whether the current certificate matches the CertIdentifier
 func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
 	if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
