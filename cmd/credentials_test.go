@@ -19,6 +19,8 @@ func TestValidSelectorParsing(t *testing.T) {
 		"Key=x509Subject,Value=CN=CN With Spaces,O=O With Spaces Key=x509Issuer,Value=CN=Issuer",
 		" \n  Key=x509Subject,Value=CN=CN With Spaces,O=O With Spaces   \t   Key=x509Issuer,Value=CN=Issuer  \n",
 		"Key=x509Issuer,Value=CN=Issuer",
+		"Key=x509Issuer,Value=CN=Issuer,With,Commas,And Some Spaces",
+		" \n  Key=x509Subject,Value=CN=CN With Trailing Spaces  ,O=O With Spaces   \t   Key=x509Issuer,Value=CN=Issuer  \n",
 	}
 	for _, fixture := range fixtures {
 		_, err := PopulateCertIdentifier(fixture, "MY")
@@ -38,6 +40,7 @@ func TestInvalidSelectorParsing(t *testing.T) {
 		"Key=laksdjf,Valalsd",
 		"Key=aljsdf,Value=aljsdfadsf",
 		"asdf Key=x509Subject,Value=Test",
+		"Key=x509Subject,Value=Test Key=x509Subject,Value=Test2",
 	}
 	for _, fixture := range fixtures {
 		_, err := PopulateCertIdentifier(fixture, "MY")

@@ -94,7 +94,7 @@ func getStringMap(s string) (map[string]string, error) {
 	m := make(map[string]string)
 	for {
 		match := regex.FindStringSubmatch(s)
-		if len(match) == 0 {
+		if match == nil || len(match) == 0 {
 			break
 		} else {
 			if len(match) < 3 {
@@ -114,6 +114,9 @@ func getStringMap(s string) (map[string]string, error) {
 			}
 			value := match[2]
 
+			if _, ok := m[key]; ok {
+				return nil, errors.New("cert selector contained duplicate key")
+			}
 			m[key] = value
 
 			// Remove the matching prefix from the input cert selector string
@@ -152,6 +155,9 @@ func getMapFromJsonEntries(jsonStr string) (map[string]string, error) {
 		}
 		if !isValidKey {
 			return nil, errors.New("cert selector contained invalid key")
+		}
+		if _, ok := m[mapEntry.Key]; ok {
+			return nil, errors.New("cert selector contained duplicate key")
 		}
 		m[mapEntry.Key] = mapEntry.Value
 	}
