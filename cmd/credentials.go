@@ -32,6 +32,9 @@ var (
 
 	libPkcs11 string
 
+	tpmKeyPassword   string
+	noTpmKeyPassword bool
+
 	credentialsOptions helper.CredentialsOpts
 
 	X509_SUBJECT_KEY = "x509Subject"
@@ -73,6 +76,9 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().BoolVar(&reusePin, "reuse-pin", false, "Use the CKU_USER PIN as the CKU_CONTEXT_SPECIFIC PIN for "+
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
 		"for a given private key object, fall back to prompting the user")
+	subCmd.PersistentFlags().StringVar(&tpmKeyPassword, "tpm-key-password", "", "Password for TPM key, if applicable")
+	subCmd.PersistentFlags().BoolVar(&noTpmKeyPassword, "no-tpm-key-password", false, "Required if the TPM key has no password and"+
+		"a handle is used to refer to the key")
 	subCmd.PersistentFlags().StringVar(&roleSessionName, "role-session-name", "", "An identifier of a role session")	
 
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
@@ -82,6 +88,10 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "intermediates")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
+	subCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "cert-selector")
+	subCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "reuse-pin")
+	subCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "cert-selector")
+	subCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "tpm-key-password")
 }
 
 // Parses a cert selector string to a map
@@ -244,6 +254,8 @@ func PopulateCredentialsOptions() error {
 		Version:             Version,
 		LibPkcs11:           libPkcs11,
 		ReusePin:            reusePin,
+		TpmKeyPassword:      tpmKeyPassword,
+		NoTpmKeyPassword:    noTpmKeyPassword,
 		RoleSessionName:     roleSessionName,
 	}
 

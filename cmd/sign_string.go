@@ -84,6 +84,9 @@ func init() {
 	signStringCmd.PersistentFlags().BoolVar(&reusePin, "reuse-pin", false, "Use the CKU_USER PIN as the CKU_CONTEXT_SPECIFIC PIN for "+
 		"private key objects, when they are first used to sign. If the CKU_USER PIN doesn't work as the CKU_CONTEXT_SPECIFIC PIN "+
 		"for a given private key object, fall back to prompting the user")
+	signStringCmd.PersistentFlags().StringVar(&tpmKeyPassword, "tpm-key-password", "", "Password for TPM key, if applicable")
+	signStringCmd.PersistentFlags().BoolVar(&noTpmKeyPassword, "no-tpm-key-password", false, "Required if the TPM key has no password and"+
+		"a handle is used to refer to the key")
 	signStringCmd.PersistentFlags().Var(format, "format", "Output format. One of json, text, and bin")
 	signStringCmd.PersistentFlags().Var(digestArg, "digest", "One of SHA256, SHA384, and SHA512")
 
@@ -93,6 +96,11 @@ func init() {
 	signStringCmd.MarkFlagsMutuallyExclusive("private-key", "system-store-name")
 	signStringCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
 	signStringCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
+	signStringCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "cert-selector")
+	signStringCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "reuse-pin")
+	signStringCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "cert-selector")
+	signStringCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "reuse-pin")
+	signStringCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "tpm-key-password")
 }
 
 func getFixedStringToSign(publicKey crypto.PublicKey) string {
@@ -163,7 +171,7 @@ var signStringCmd = &cobra.Command{
 
 		sigBytes, err := signer.Sign(rand.Reader, stringToSignBytes, digest)
 		if err != nil {
-			log.Println("unable to sign the digest")
+			log.Println("unable to sign the digest:", err)
 			os.Exit(1)
 		}
 		sigStr := hex.EncodeToString(sigBytes)

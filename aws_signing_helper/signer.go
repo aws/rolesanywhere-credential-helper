@@ -19,6 +19,7 @@ import (
 	"math/big"
 	"net/http"
 	"os"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -26,6 +27,7 @@ import (
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"golang.org/x/crypto/pkcs12"
+	"golang.org/x/term"
 )
 
 type SignerParams struct {
@@ -127,6 +129,120 @@ var ignoredHeaderKeys = map[string]bool{
 
 var Debug bool = false
 
+// Prompts the user for their password
+func GetPassword(ttyReadFile *os.File, ttyWriteFile *os.File, prompt string, parseErrMsg string) (string, error) {
+	fmt.Fprintln(ttyWriteFile, prompt)
+	passwordBytes, err := term.ReadPassword(int(ttyReadFile.Fd()))
+	if err != nil {
+		return "", errors.New(parseErrMsg)
+	}
+
+	password := string(passwordBytes[:])
+	strings.Replace(password, "\r", "", -1) // Remove CR
+	return password, nil
+}
+
+type PasswordPromptProps struct {
+	InitialPassword                    string
+	NoPassword                         bool
+	CheckPassword                      func(string) (interface{}, error)
+	IncorrectPasswordMsg               string
+	Prompt                             string
+	Reprompt                           string
+	ParseErrMsg                        string
+	CheckPasswordAuthorizationErrorMsg string
+}
+
+func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, interface{}, error) {
+	var (
+		err                                error
+		ttyReadPath                        string
+		ttyWritePath                       string
+		ttyReadFile                        *os.File
+		ttyWriteFile                       *os.File
+		parseErrMsg                        string
+		prompt                             string
+		reprompt                           string
+		password                           string
+		incorrectPasswordMsg               string
+		checkPasswordAuthorizationErrorMsg string
+		checkPassword                      func(string) (interface{}, error)
+		checkPasswordResult                interface{}
+		noPassword                         bool
+	)
+
+	password = passwordPromptInput.InitialPassword
+	noPassword = passwordPromptInput.NoPassword
+	incorrectPasswordMsg = passwordPromptInput.IncorrectPasswordMsg
+	prompt = passwordPromptInput.Prompt
+	reprompt = passwordPromptInput.Reprompt
+	parseErrMsg = passwordPromptInput.ParseErrMsg
+	checkPassword = passwordPromptInput.CheckPassword
+	checkPasswordAuthorizationErrorMsg = passwordPromptInput.CheckPasswordAuthorizationErrorMsg
+
+	ttyReadPath = "/dev/tty"
+	ttyWritePath = ttyReadPath
+	if runtime.GOOS == "windows" {
+		ttyReadPath = "CONIN$"
+		ttyWritePath = "CONOUT$"
+	}
+
+	ttyReadFile, err = os.OpenFile(ttyReadPath, os.O_RDWR, 0)
+	if err != nil {
+		return "", nil, errors.New(parseErrMsg)
+	}
+	defer ttyReadFile.Close()
+
+	ttyWriteFile, err = os.OpenFile(ttyWritePath, os.O_WRONLY, 0)
+	if err != nil {
+		return "", nil, errors.New(parseErrMsg)
+	}
+	defer ttyWriteFile.Close()
+
+	// If no password is required
+	if noPassword {
+		checkPasswordResult, err = checkPassword("")
+		if err != nil {
+			return "", nil, err
+		}
+		return "", checkPasswordResult, nil
+	}
+
+	// If the password was provided explicitly, beforehand
+	if password != "" {
+		checkPasswordResult, err = checkPassword(password)
+		if err != nil {
+			return "", nil, errors.New(incorrectPasswordMsg)
+		}
+		return password, checkPasswordResult, nil
+	}
+
+	// The key has a password, so prompt for it
+	password, err = GetPassword(ttyReadFile, ttyWriteFile, prompt, parseErrMsg)
+	if err != nil {
+		return "", nil, err
+	}
+	checkPasswordResult, err = checkPassword(password)
+	for true {
+		// If we've found the right password, return both it and the result of `checkPassword`
+		if err == nil {
+			return password, checkPasswordResult, nil
+		}
+		// Otherwise, if the password was incorrect, prompt for it again
+		if strings.Contains(err.Error(), checkPasswordAuthorizationErrorMsg) {
+			password, err = GetPassword(ttyReadFile, ttyWriteFile, reprompt, parseErrMsg)
+			if err != nil {
+				return "", nil, err
+			}
+			checkPasswordResult, err = checkPassword(password)
+			continue
+		}
+		return "", nil, err
+	}
+
+	return "", nil, err
+}
+
 // Find whether the current certificate matches the CertIdentifier
 func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
 	if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
@@ -222,7 +338,38 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			opts.CertificateId = ""
 		}
 		return GetPKCS11Signer(opts.LibPkcs11, certificate, certificateChain, opts.PrivateKeyId, opts.CertificateId, opts.ReusePin)
+	} else if strings.HasPrefix(privateKeyId, "handle:") {
+		if Debug {
+			log.Println("attempting to use TPMv2Signer")
+		}
+		return GetTPMv2Signer(
+			GetTPMv2SignerOpts{
+				certificate,
+				certificateChain,
+				nil,
+				opts.TpmKeyPassword,
+				opts.NoTpmKeyPassword,
+				opts.PrivateKeyId,
+			},
+		)
 	} else {
+		tpmKey, err := parseDERFromPEM(privateKeyId, "TSS2 PRIVATE KEY")
+		if err == nil {
+			if Debug {
+				log.Println("attempting to use TPMv2Signer")
+			}
+			return GetTPMv2Signer(
+				GetTPMv2SignerOpts{
+					certificate,
+					certificateChain,
+					tpmKey,
+					opts.TpmKeyPassword,
+					opts.NoTpmKeyPassword,
+					"",
+				},
+			)
+		}
+
 		_, err = ReadPrivateKeyData(privateKeyId)
 		if err != nil {
 			return nil, "", err
@@ -310,7 +457,7 @@ func CreateRequestSignFunction(signer crypto.Signer, signingAlgorithm string, ce
 		stringToSign := CreateStringToSign(canonicalRequest, signerParams)
 		signatureBytes, err := signer.Sign(rand.Reader, []byte(stringToSign), crypto.SHA256)
 		if err != nil {
-			log.Println(err.Error())
+			log.Println("could not sign", err)
 			os.Exit(1)
 		}
 		signature := hex.EncodeToString(signatureBytes)
@@ -489,7 +636,6 @@ func encodeDer(der []byte) (string, error) {
 func parseDERFromPEM(pemDataId string, blockType string) (*pem.Block, error) {
 	bytes, err := os.ReadFile(pemDataId)
 	if err != nil {
-		log.Println(err)
 		return nil, err
 	}
 
@@ -510,7 +656,6 @@ func parseDERFromPEM(pemDataId string, blockType string) (*pem.Block, error) {
 func ReadCertificateBundleData(certificateBundleId string) ([]*x509.Certificate, error) {
 	bytes, err := os.ReadFile(certificateBundleId)
 	if err != nil {
-		log.Println(err)
 		return nil, err
 	}
 
@@ -602,7 +747,7 @@ func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privat
 
 	bytes, err = os.ReadFile(certificateId)
 	if err != nil {
-		return nil, nil, nil
+		return nil, nil, err
 	}
 
 	pemBlocks, err = pkcs12.ToPEM(bytes, "")
@@ -700,7 +845,6 @@ func ReadCertificateData(certificateId string) (CertificateData, *x509.Certifica
 
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		log.Println("could not parse certificate", err)
 		return CertificateData{}, nil, errors.New("could not parse certificate")
 	}
 

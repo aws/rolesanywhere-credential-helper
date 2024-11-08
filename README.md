@@ -28,10 +28,6 @@ make release
 
 After building, you should see the `aws_signing_helper` binary built for your system at `build/bin/aws_signing_helper`. Usage can be found in [AWS's documentation](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html). A later section also goes into how you can use the scripts provided in this repository to test out the credential helper binary.
 
-### Scripts
-
-The project also comes with two bash scripts at its root, called `generate-certs.sh` and `generate-credential-process-data.sh`. The former script is used strictly for unit testing, and it generates certificate and private key data with different parameters that are supported by IAM Roles Anywhere. You can run the bash script using `/bin/bash generate-certs.sh`, and you will see the generated certificates and keys under the `tst/certs` directory. The latter script is used both for unit testing and can also be used for testing the `credential-process` command after having built the binary. It will create a CA certificate/private key as well as a leaf certificate/private key. When testing IAM Roles Anywhere, you will have to upload the CA certificate a trust anchor and create a profile within Roles Anywhere before using the binary along with the leaf certificate/private key to call `credential-process` (more instructions can be found in the next section). You can run the bash script using `/bin/bash generate-credential-process-data.sh`, and you will see the generated certificate hierarchy (and corresponding keys) under the `credential-process-data` directory. Note that the unit tests that require these fixtures to exist will run the bash script themselves, before executing those tests that depend on the fixtures existing. Please note that these scripts currently only work on Unix-based systems and require `openssl` to be installed.
-
 ## Diagnostic Command Tools
 
 ### read-certificate-data
@@ -184,6 +180,134 @@ The searching methodology used to find objects within PKCS#11 tokens can largely
 that there are some slight differences in how objects are found in the credential helper 
 application. 
 
+#### TPMv2 Integration
+
+Private key files containing a TPM wrapped key in the `-----BEGIN TSS2 PRIVATE KEY-----`
+form as described [here](https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html)
+are transparently supported. You can just use such a file as you would any plain key
+file and expect it to work, just as you should expect with any well-behaved application. 
+
+These files are supported, and can be created by, both TPMv2 OpenSSL engines/providers, and GnuTLS.
+
+Note that some features of the TSS private key format are not yet supported. Some or all
+of these may be implemented in future versions. In some semblance of the order in which
+they're likely to be added:
+ * Password authentication on parent keys (and hierarchies)
+ as a parent
+ * Importable keys
+ * TPM Policy / AuthPolicy
+ * Sealed keys
+
+Note that it is possible to get around the parent key password authentication limit by loading 
+the signing key (the loading process will have to be done with other tools and will require 
+you to provivde your parent key password) into the TPM and referencing its handle in the command 
+you want to call with the credential helper. 
+
+##### Testing
+Currently, unit tests for testing TPM support are written in such a way that TPM keys that are used 
+for testing are either bound to a hardware TPM, or are bound to a software TPM. For software TPM 
+testing, `swtpm` is used. You can find the repository [here](https://github.com/stefanberger/swtpm). 
+Also, to create the keys and certificates that are required for unit testing, you will need to install 
+the [Intel TSS](https://github.com/tpm2-software/tpm2-tss), 
+[Intel OpenSSL provider](https://github.com/tpm2-software/tpm2-openssl), [`tpm2-tools`](https://github.com/tpm2-software/tpm2-tools), 
+ and the [`tpm2-tabrmd`](https://github.com/tpm2-software/tpm2-abrmd) (resource manager). 
+
+Once you've installed all the dependencies (which should be available on many Linux distributions 
+through standard package managers), you can run just the unit tests related to TPM support 
+through `make test-tpm-signer`. Note that `swtpm` will have to be run in UNIX socket mode (it can't 
+be run in TCP socket mode) for the tests since that is all `go-tpm` can cope with. But key and 
+certificate fixtures will be created when `swtpm` is running in TCP socket mode (as a part of the 
+appropriate `Makefile` targets). Afterwards, right before the unit tests are run, we switch `swtpm` 
+over to run in UNIX socket mode. 
+
+Also, for the sake of testing, a small script is included that emulates a subset of the functionality 
+that can be achieved with `create_tpm2_key`, a utility program that comes with the 
+[IBM OpenSSL ENGINE](https://git.kernel.org/pub/scm/linux/kernel/git/jejb/openssl_tpm2_engine.git/). It 
+is used to test TPM key files that include a permanent handle as their parent. 
+
+##### Notes on Tooling Used
+
+`tpm2-tools` and `tpm2-openssl` will by default create RSA keys that have the sign attribute, but that may 
+not be the case for other tools that you may find. As an example, the tools that come with the IBM OpenSSL 
+ENGINE will create RSA keys with the decrypt attribute but not the sign attribute by default. In order to 
+be able to use an RSA key with the credential helper it must have the sign attribute set. The credential 
+helper will delegate the signing operation to the TPM as opposed to using a raw RSA decrypt and deriving 
+the signature by implementing PKCS#1 v1.5 padding. 
+
+##### Guidance
+If you haven't already initialized your TPM's owner hierarchy yet, it is recommended that you configure 
+it with a password that has high entropy, as there are no dictionary attack protections for it. 
+
+Once you have initialized the TPM's owner hierarchy, you can create a primary key in it. You can do so 
+using one of the utility programs that comes with `tpm2-tools`: 
+
+```
+tpm2_createprimary -G rsa -g sha256 -p ${TPM_PRIMARY_KEY_PASSWORD} -c parent.ctx -P ${OWNER_HIERARCHY_PASSWORD}
+```
+
+This will create a primary key in the TPM owner hierarchy, with a key password of 
+`${TPM_PRIMARY_KEY_PASSWORD}`. If the owner hierarchy in your TPM doesn't have a password (not recommended) 
+you can omit the `-P` option in the above command. 
+
+Next, you can create a child key with the primary you just created as its parent: 
+```
+tpm2_create -C parent.ctx -u child.pub -r child.priv -P ${TPM_PRIMARY_KEY_PASSWORD} -p ${TPM_CHILD_KEY_PASSWORD}
+```
+
+Next, load the child key that was just created into the TPM as a transient object: 
+```
+tpm2_load -C parent.ctx -u child.pub -r child.priv -c child.ctx -P ${TPM_PRIMARY_KEY_PASSWORD} 
+```
+
+Afterwards, make the transient object that is the child key into a persistent one and save its handle: 
+```
+CHILD_HANDLE=$(tpm2_evictcontrol -c child.ctx | cut -d ' ' -f 2 | head -n 1)
+```
+
+Then, you can create a CSR, using the [`tpm2-openssl`](https://github.com/tpm2-software/tpm2-openssl) OpenSSL 
+provider. 
+```
+openssl req -provider tpm2 -provider default -propquery '?provider=tpm2' \
+            -new -key handle:${CHILD_HANDLE} \
+            -out client-csr.pem
+```
+
+Note that the above will prompt you for your password (`TPM_CHILD_KEY_PASSWORD`). 
+
+Lastly, once you have your CSR, you can provide it to a CA so that it can issue a client certificate for 
+you. The client certificate and TPM key can then be used with the credential helper application as follows: 
+```
+/path/to/aws_signing_helper credential-process \
+    --certificate /path/to/certificate/file \
+    --private-key handle:${CHILD_HANDLE} \
+    --role-arn ${ROLE_ARN} \
+    --trust-anchor-arn ${TA_ARN} \
+    --profile-arn ${PROFILE_ARN}
+```
+
+Please note that with this approach, it is your responsibility for clearing out the persistent and 
+temporary objects from the TPM after you no longer need them, so that they can't be used by others 
+on the same machine to escalate their privilege. Beware that if you load a key into the TPM that 
+isn't password-protected, anyone that has access to the machine will be able to use that key. 
+
+The alternative is to use a TPM key PEM file in the format described 
+[here](https://www.hansenpartnership.com/draft-bottomley-tpm2-keys.html), for use with the credential 
+helper. If a TPM key file is used, the wrapped private key within the key file will be loaded into the 
+TPM as a transient object and automatically flushed from the TPM after use by the credential helper (so 
+after signing). If signing needs to occur multiple times, the key will be loaded into the TPM each 
+time. The limitation with this approach is that the parent of the signing key can't be password-protected, 
+as there is no way currently for you to pass this password to the credential helper. 
+
+Below is an example of how you can use the credential helper with a TPM key file: 
+```
+/path/to/aws_signing_helper credential-process \
+    --certificate /path/to/certificate/file \
+    --private-key /path/to/tpm/key/file \
+    --role-arn ${ROLE_ARN} \
+    --trust-anchor-arn ${TA_ARN} \
+    --profile-arn ${PROFILE_ARN}
+```
+
 #### Other Notes
 
 ##### YubiKey Attestation Certificates
@@ -226,11 +350,7 @@ The `serve` command also supports a `--hop-limit` flag to limit the IP TTL on re
 
 ### Scripts
 
-The project also comes with two bash scripts at its root, called `generate-certs.sh` and `generate-credential-process-data.sh`. Note that these scripts currently only work on Unix-based systems and require `openssl` to be installed.
-
-#### generate-certs.sh
-
-Used by unit tests to generate test certificates and private keys supported by IAM Roles Anywhere. The test data is stored in the tst/certs directory.
+The project also comes with two bash scripts at its root, called `generate-credential-process-data.sh` and `create_tpm2_key.sh`. Please note that these scripts currently only work on Unix-based systems and require additional dependencies to be installed (further documented below). 
 
 #### generate-credential-process-data.sh
 
@@ -259,6 +379,10 @@ PROFILE_ARN=$(aws rolesanywhere create-profile \
 ```
 
 In the above example, you will have to create a role with a trust policy as documented [here](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/trust-model.html). After having done so, record the role ARN and use it both when creating a profile and when obtaining temporary security credentials through `credential-process`.
+
+#### create_tpm2_key.sh
+
+Used in the Makefile to emulate the `create_tpm2_key` utility that comes with the IBM OpenSSL TPM 2.0 ENGINE. Note that this script only supports a limited subset of the functionality that's available with the utility that comes with the OpenSSL ENGINE. The purpose is so that keys can be created with the appropriate attributes for the sake of testing, and error handling may not bbe very good. It is not recommended to use this script for other purposes. If you have a need to use the script, it is recommended that you install the OpenSSL ENGINE and use the utility that comes with it instead. 
 
 ## Security
 

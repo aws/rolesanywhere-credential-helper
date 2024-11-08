@@ -32,6 +32,8 @@ type CredentialsOpts struct {
 	Version             string
 	LibPkcs11           string
 	ReusePin            bool
+	TpmKeyPassword      string
+	NoTpmKeyPassword    bool
 	ServerTTL           int
 	RoleSessionName     string
 }
