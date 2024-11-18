@@ -14,6 +14,15 @@ const (
 	UpdateRefreshTime                  = time.Minute * time.Duration(5)
 	AwsSharedCredentialsFileEnvVarName = "AWS_SHARED_CREDENTIALS_FILE"
 	BufferSize                         = 49152
+
+	// UpdateOnceMode tries to update the credentials file one time and returns.
+	UpdateOnceMode UpdateMode = "once"
+	// UpdateFailFastMode updates the credentials file before
+	// the credentials expire but exits on errors.
+	UpdateFailFastMode UpdateMode = "fail-fast"
+	// UpdateRetryMode updates the credentials file continuously before
+	// the credentials expire and retries on errors with a backoff time.
+	UpdateRetryMode UpdateMode = "retry"
 )
 
 // Structure to contain a temporary credential
@@ -24,34 +33,45 @@ type TemporaryCredential struct {
 	Expiration      time.Time
 }
 
+type UpdateMode string
+
+// UpdateOpts configure the update credentials file process.
+type UpdateOpts struct {
+	// Profile is the name of the AWS profile to update.
+	Profile string
+	// Mode configures how the update process handles retries.
+	Mode UpdateMode
+}
+
 // Updates credentials in the credentials file for the specified profile
-func Update(credentialsOptions CredentialsOpts, profile string, once bool) {
-	if err := updateCredentialsFile(credentialsOptions, profile, once); err != nil {
+func Update(credentialsOptions CredentialsOpts, opts UpdateOpts) {
+	if err := updateCredentialsFile(credentialsOptions, opts); err != nil {
 		log.Fatal(err)
 	}
 }
 
-func updateCredentialsFile(credentialsOptions CredentialsOpts, profile string, once bool) error {
+func updateCredentialsFile(credentialsOptions CredentialsOpts, opts UpdateOpts) error {
 	signer, signatureAlgorithm, err := GetSigner(&credentialsOptions)
 	if err != nil {
 		return err
 	}
 	defer signer.Close()
 
-	updater := fileCredentialsUpdater{profile: profile}
+	updater := fileCredentialsUpdater{profile: opts.Profile}
 
-	if once {
+	switch opts.Mode {
+	case UpdateOnceMode:
 		if _, err := updater.updateCredentialsFile(&credentialsOptions, signer, signatureAlgorithm); err != nil {
 			return err
 		}
 		return nil
+	case UpdateFailFastMode:
+		return refreshCredentials(updater.updateCredentialsFile, &credentialsOptions, signer, signatureAlgorithm)
+	case UpdateRetryMode:
+		return refreshCredentials(withRetries(updater.updateCredentialsFile), &credentialsOptions, signer, signatureAlgorithm)
+	default:
+		return fmt.Errorf("update mode %s is not supported", opts.Mode)
 	}
-
-	if err := refreshCredentials(withRetries(updater.updateCredentialsFile), &credentialsOptions, signer, signatureAlgorithm); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Assume that the credentials file is located in the default path: `~/.aws/credentials`
