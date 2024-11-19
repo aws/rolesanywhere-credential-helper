@@ -7,11 +7,14 @@ import (
 	"log"
 	"net/http"
 	"runtime"
+        "time"
 
 	"github.com/aws/aws-sdk-go/aws"
 	"github.com/aws/aws-sdk-go/aws/arn"
+        awscredentials "github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/request"
 	"github.com/aws/aws-sdk-go/aws/session"
+        "github.com/aws/aws-sdk-go/service/sts"
 	"github.com/aws/rolesanywhere-credential-helper/rolesanywhere"
 )
 
@@ -20,9 +23,10 @@ type CredentialsOpts struct {
 	CertificateId       string
 	CertificateBundleId string
 	CertIdentifier      CertIdentifier
-	RoleArn             string
+	RoleArn             []string
 	ProfileArnStr       string
 	TrustAnchorArnStr   string
+	RoleSessionName     []string
 	SessionDuration     int
 	Region              string
 	Endpoint            string
@@ -102,13 +106,16 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 
 	certificateStr := base64.StdEncoding.EncodeToString(certificate.Raw)
 	durationSeconds := int64(opts.SessionDuration)
+        var firstRoleArn string
+        var remainingRoleArns []string
+        firstRoleArn, remainingRoleArns = opts.RoleArn[0], opts.RoleArn[1:]
 	createSessionRequest := rolesanywhere.CreateSessionInput{
 		Cert:               &certificateStr,
 		ProfileArn:         &opts.ProfileArnStr,
 		TrustAnchorArn:     &opts.TrustAnchorArnStr,
 		DurationSeconds:    &(durationSeconds),
 		InstanceProperties: nil,
-		RoleArn:            &opts.RoleArn,
+		RoleArn:            &firstRoleArn,
 		SessionName:        nil,
 	}
 	if opts.RoleSessionName != "" {
@@ -124,6 +131,45 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 		return CredentialProcessOutput{}, errors.New(msg)
 	}
 	credentials := output.CredentialSet[0].Credentials
+        var currentRoleArn = firstRoleArn
+        for i := 0; i < len(remainingRoleArns); i++ {
+	    if Debug {
+		log.Printf("using %s to assume %s\n",currentRoleArn,remainingRoleArns[i])
+	    }
+
+	    sess, err := session.NewSession(&aws.Config{
+		Region:      &opts.Region,
+	        Credentials: awscredentials.NewStaticCredentials(
+                    *credentials.AccessKeyId,
+                    *credentials.SecretAccessKey,
+                    *credentials.SessionToken,
+                ),
+	    })
+            stsClient := sts.New(sess)
+            rsn := "my-session"
+            if len(opts.RoleSessionName) > i {
+              rsn = opts.RoleSessionName[i]
+            }
+            stsRequest := sts.AssumeRoleInput{
+                RoleArn:         aws.String(remainingRoleArns[i]),
+                RoleSessionName: aws.String(rsn),
+                DurationSeconds: aws.Int64(durationSeconds), //min allowed
+            }
+
+            stsResponse, err := stsClient.AssumeRole(&stsRequest)
+            if err != nil {
+                return CredentialProcessOutput{}, err
+	    }
+            xp := stsResponse.Credentials.Expiration.Format(time.RFC3339)
+            credentials = &rolesanywhere.Credentials{
+                AccessKeyId:         stsResponse.Credentials.AccessKeyId,
+                SecretAccessKey:     stsResponse.Credentials.SecretAccessKey,
+                SessionToken:        stsResponse.Credentials.SessionToken,
+                Expiration:          &xp,
+            }
+
+            currentRoleArn = remainingRoleArns[i]
+        }
 	credentialProcessOutput := CredentialProcessOutput{
 		Version:         1,
 		AccessKeyId:     *credentials.AccessKeyId,
