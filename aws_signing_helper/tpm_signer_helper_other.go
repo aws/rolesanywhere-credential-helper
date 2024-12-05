@@ -9,7 +9,7 @@ import (
 	tpm2 "github.com/google/go-tpm/tpm2"
 )
 
-func openTPM() (io.ReadWriteCloser, error) {
+func OpenTPM() (io.ReadWriteCloser, error) {
 	var paths []string
 	tpmdev := os.Getenv("TPM_DEVICE")
 	if tpmdev != "" {

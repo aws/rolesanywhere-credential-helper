@@ -30,7 +30,7 @@ type tpm2_TPMAuthPolicy struct {
 	Policy []tpm2_TPMPolicy `asn1:"explicit,tag:1"`
 }
 
-type tpm2_TPMKey struct {
+type Tpm2_TPMKey struct {
 	Oid        asn1.ObjectIdentifier
 	EmptyAuth  bool                 `asn1:"optional,explicit,tag:0"`
 	Policy     []tpm2_TPMPolicy     `asn1:"optional,explicit,tag:1"`
@@ -41,13 +41,13 @@ type tpm2_TPMKey struct {
 	Privkey    []byte
 }
 
-var oidLoadableKey = asn1.ObjectIdentifier{2, 23, 133, 10, 1, 3}
+var OidLoadableKey = asn1.ObjectIdentifier{2, 23, 133, 10, 1, 3}
 var TPM_RC_AUTH_FAIL = "0x22"
 
 type TPMv2Signer struct {
 	cert      *x509.Certificate
 	certChain []*x509.Certificate
-	tpmData   tpm2_TPMKey
+	tpmData   Tpm2_TPMKey
 	public    tpm2.Public
 	private   []byte
 	password  string
@@ -59,7 +59,7 @@ func handleIsPersistent(h int) bool {
 	return (h >> 24) == int(tpm2.HandleTypePersistent)
 }
 
-var primaryParams = tpm2.Public{
+var PrimaryParams = tpm2.Public{
 	Type:       tpm2.AlgECC,
 	NameAlg:    tpm2.AlgSHA256,
 	Attributes: tpm2.FlagUserWithAuth | tpm2.FlagRestricted | tpm2.FlagDecrypt | tpm2.FlagFixedTPM | tpm2.FlagFixedParent | tpm2.FlagNoDA | tpm2.FlagSensitiveDataOrigin,
@@ -119,7 +119,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 		keyHandle tpmutil.Handle
 	)
 
-	rw, err := openTPM()
+	rw, err := OpenTPM()
 	if err != nil {
 		return nil, err
 	}
@@ -131,7 +131,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 		parentHandle := tpmutil.Handle(tpmv2Signer.tpmData.Parent)
 		if !handleIsPersistent(tpmv2Signer.tpmData.Parent) {
 			// Parent and owner passwords aren't supported currently when creating a primary given a persistent handle for the parent
-			parentHandle, _, err = tpm2.CreatePrimary(rw, tpmutil.Handle(tpmv2Signer.tpmData.Parent), tpm2.PCRSelection{}, "", "", primaryParams)
+			parentHandle, _, err = tpm2.CreatePrimary(rw, tpmutil.Handle(tpmv2Signer.tpmData.Parent), tpm2.PCRSelection{}, "", "", PrimaryParams)
 			if err != nil {
 				return nil, err
 			}
@@ -310,7 +310,7 @@ func fixupEmptyAuth(tpmData *[]byte) {
 	// Use asn1.Unmarshal to eat the OID; we care about 'rest'
 	var oid asn1.ObjectIdentifier
 	rest, err := asn1.Unmarshal((*tpmData)[pos:], &oid)
-	if err != nil || rest == nil || !oid.Equal(oidLoadableKey) || len(rest) < 5 {
+	if err != nil || rest == nil || !oid.Equal(OidLoadableKey) || len(rest) < 5 {
 		return
 	}
 
@@ -335,7 +335,7 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 		keyPem           *pem.Block
 		password         string
 		emptyAuth        bool
-		tpmData          tpm2_TPMKey
+		tpmData          Tpm2_TPMKey
 		handle           tpmutil.Handle
 		public           tpm2.Public
 		private          []byte
@@ -364,7 +364,7 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 		handle = tpmutil.Handle(handleValue)
 
 		// Read the public key from the loaded key within the TPM
-		rw, err := openTPM()
+		rw, err := OpenTPM()
 		if err != nil {
 			return nil, "", err
 		}
@@ -386,7 +386,7 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 			return nil, "", errors.New("password is provided but TPM key file indicates that one isn't required")
 		}
 
-		if !tpmData.Oid.Equal(oidLoadableKey) {
+		if !tpmData.Oid.Equal(OidLoadableKey) {
 			return nil, "", errors.New("invalid OID for TPMv2 key:" + tpmData.Oid.String())
 		}
 

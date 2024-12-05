@@ -8,6 +8,6 @@ import (
 	tpm2 "github.com/google/go-tpm/tpm2"
 )
 
-func openTPM() (io.ReadWriteCloser, error) {
+func OpenTPM() (io.ReadWriteCloser, error) {
 	return tpm2.OpenTPM()
 }
