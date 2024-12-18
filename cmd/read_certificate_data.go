@@ -70,10 +70,12 @@ var readCertificateDataCmd = &cobra.Command{
 		} else if certificateId != "" {
 			data, _, err := helper.ReadCertificateData(certificateId)
 			if err != nil {
+				log.Println(err)
 				os.Exit(1)
 			}
 			buf, err := json.Marshal(data)
 			if err != nil {
+				log.Println(err)
 				os.Exit(1)
 			}
 
