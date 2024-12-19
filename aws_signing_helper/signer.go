@@ -22,6 +22,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
@@ -633,8 +634,19 @@ func encodeDer(der []byte) (string, error) {
 	return buf.String(), nil
 }
 
-func parseDERFromPEM(pemDataId string, blockType string) (*pem.Block, error) {
+func getPEMFromFileOrString(pemDataId string) ([]byte, error) {
 	bytes, err := os.ReadFile(pemDataId)
+	if err != nil {
+		if !strings.HasPrefix(strings.TrimSpace(pemDataId), "-----") || (!errors.Is(err, os.ErrNotExist) && !errors.Is(err, syscall.ENAMETOOLONG)) {
+			return nil, err
+		}
+		bytes = []byte(pemDataId)
+	}
+	return bytes, nil
+}
+
+func parseDERFromPEM(pemDataId string, blockType string) (*pem.Block, error) {
+	bytes, err := getPEMFromFileOrString(pemDataId)
 	if err != nil {
 		return nil, err
 	}
