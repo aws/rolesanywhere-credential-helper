@@ -23,13 +23,13 @@ type FileSystemSigner struct {
 func (fileSystemSigner *FileSystemSigner) Public() crypto.PublicKey {
 	privateKey, _, _ := fileSystemSigner.readCertFiles()
 	{
-		privateKey, ok := privateKey.(ecdsa.PrivateKey)
+		privateKey, ok := privateKey.(*ecdsa.PrivateKey)
 		if ok {
 			return &privateKey.PublicKey
 		}
 	}
 	{
-		privateKey, ok := privateKey.(rsa.PrivateKey)
+		privateKey, ok := privateKey.(*rsa.PrivateKey)
 		if ok {
 			return &privateKey.PublicKey
 		}
@@ -56,17 +56,17 @@ func (fileSystemSigner *FileSystemSigner) Sign(rand io.Reader, digest []byte, op
 		return nil, ErrUnsupportedHash
 	}
 
-	ecdsaPrivateKey, ok := privateKey.(ecdsa.PrivateKey)
+	ecdsaPrivateKey, ok := privateKey.(*ecdsa.PrivateKey)
 	if ok {
-		sig, err := ecdsa.SignASN1(rand, &ecdsaPrivateKey, hash[:])
+		sig, err := ecdsa.SignASN1(rand, ecdsaPrivateKey, hash[:])
 		if err == nil {
 			return sig, nil
 		}
 	}
 
-	rsaPrivateKey, ok := privateKey.(rsa.PrivateKey)
+	rsaPrivateKey, ok := privateKey.(*rsa.PrivateKey)
 	if ok {
-		sig, err := rsa.SignPKCS1v15(rand, &rsaPrivateKey, opts.HashFunc(), hash[:])
+		sig, err := rsa.SignPKCS1v15(rand, rsaPrivateKey, opts.HashFunc(), hash[:])
 		if err == nil {
 			return sig, nil
 		}
@@ -91,11 +91,11 @@ func GetFileSystemSigner(privateKeyPath string, certPath string, bundlePath stri
 	fsSigner := &FileSystemSigner{bundlePath: bundlePath, certPath: certPath, isPkcs12: isPkcs12, privateKeyPath: privateKeyPath}
 	privateKey, _, _ := fsSigner.readCertFiles()
 	// Find the signing algorithm
-	_, isRsaKey := privateKey.(rsa.PrivateKey)
+	_, isRsaKey := privateKey.(*rsa.PrivateKey)
 	if isRsaKey {
 		signingAlgorithm = aws4_x509_rsa_sha256
 	}
-	_, isEcKey := privateKey.(ecdsa.PrivateKey)
+	_, isEcKey := privateKey.(*ecdsa.PrivateKey)
 	if isEcKey {
 		signingAlgorithm = aws4_x509_ecdsa_sha256
 	}

@@ -676,32 +676,32 @@ func ReadCertificateBundleData(certificateBundleId string) ([]*x509.Certificate,
 	return x509.ParseCertificates(derBytes)
 }
 
-func readECPrivateKey(privateKeyId string) (ecdsa.PrivateKey, error) {
+func readECPrivateKey(privateKeyId string) (*ecdsa.PrivateKey, error) {
 	block, err := parseDERFromPEM(privateKeyId, "EC PRIVATE KEY")
 	if err != nil {
-		return ecdsa.PrivateKey{}, errors.New("could not parse PEM data")
+		return nil, errors.New("could not parse PEM data")
 	}
 
 	privateKey, err := x509.ParseECPrivateKey(block.Bytes)
 	if err != nil {
-		return ecdsa.PrivateKey{}, errors.New("could not parse private key")
+		return nil, errors.New("could not parse private key")
 	}
 
-	return *privateKey, nil
+	return privateKey, nil
 }
 
-func readRSAPrivateKey(privateKeyId string) (rsa.PrivateKey, error) {
+func readRSAPrivateKey(privateKeyId string) (*rsa.PrivateKey, error) {
 	block, err := parseDERFromPEM(privateKeyId, "RSA PRIVATE KEY")
 	if err != nil {
-		return rsa.PrivateKey{}, errors.New("could not parse PEM data")
+		return nil, errors.New("could not parse PEM data")
 	}
 
 	privateKey, err := x509.ParsePKCS1PrivateKey(block.Bytes)
 	if err != nil {
-		return rsa.PrivateKey{}, errors.New("could not parse private key")
+		return nil, errors.New("could not parse private key")
 	}
 
-	return *privateKey, nil
+	return privateKey, nil
 }
 
 func readPKCS8PrivateKey(privateKeyId string) (crypto.PrivateKey, error) {
@@ -717,25 +717,26 @@ func readPKCS8PrivateKey(privateKeyId string) (crypto.PrivateKey, error) {
 
 	rsaPrivateKey, ok := privateKey.(*rsa.PrivateKey)
 	if ok {
-		return *rsaPrivateKey, nil
+		return rsaPrivateKey, nil
 	}
 
 	ecPrivateKey, ok := privateKey.(*ecdsa.PrivateKey)
 	if ok {
-		return *ecPrivateKey, nil
+		return ecPrivateKey, nil
 	}
 
 	return nil, errors.New("could not parse PKCS#8 private key")
 }
 
 // Reads and parses a PKCS#12 file (which should contain an end-entity
-// certificate, (optional) certificate chain, and the key associated with the
-// end-entity certificate). The end-entity certificate will be the first
-// certificate in the returned chain. This method assumes that there is
-// exactly one certificate that doesn't issue any others within the container
-// and treats that as the end-entity certificate. Also, the order of the other
-// certificates in the chain aren't guaranteed (it's also not guaranteed that
-// those certificates form a chain with the end-entity certificat either).
+// certificate (optional), certificate chain (optional), and the key
+// associated with the end-entity certificate). The end-entity certificate
+// will be the first certificate in the returned chain. This method assumes
+// that there is exactly one certificate that doesn't issue any others within
+// the container and treats that as the end-entity certificate. Also, the
+// order of the other certificates in the chain aren't guaranteed. It's
+// also not guaranteed that those certificates form a chain with the
+// end-entity certificate either.
 func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privateKey crypto.PrivateKey, err error) {
 	var (
 		bytes               []byte
@@ -775,7 +776,7 @@ func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privat
 
 	certMap = make(map[string]*x509.Certificate)
 	for _, cert := range parsedCerts {
-		// pkix.Name.String() roughly following the RFC 2253 Distinguished Names
+		// pkix.Name.String() roughly follows the RFC 2253 Distinguished Names
 		// syntax, so we assume that it's canonical.
 		issuer := cert.Issuer.String()
 		certMap[issuer] = cert
@@ -790,8 +791,8 @@ func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privat
 			break
 		}
 	}
-	if endEntityFoundIndex == -1 {
-		return nil, "", errors.New("no end-entity certificate found in PKCS#12 file")
+	if Debug {
+		log.Println("no end-entity certificate found in PKCS#12 file")
 	}
 
 	for i, cert := range parsedCerts {

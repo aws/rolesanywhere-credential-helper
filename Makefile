@@ -211,8 +211,8 @@ tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS
 		--mark-always-authenticate
 	mv $@.tmp $@
 
-.PHONY: test
-test: test-certs tst/softhsm2.conf
+.PHONY: test-all
+test-all: test-all-certs tst/softhsm2.conf
 	$(START_SWTPM)
 	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf go test -v ./... || :
 	$(STOP_SWTPM)
@@ -225,6 +225,10 @@ test-tpm-signer: $(certsdir)/cert-bundle.pem $(TPMKEYS) $(TPMCERTS) $(TPMLOADEDK
 	$(START_SWTPM)
 	go test ./... -run "TPM"
 	$(STOP_SWTPM)
+
+.PHONY: test
+test: test-certs
+	go test ./... -list . | grep -E '^Test[a-zA-Z0-9]+' | grep -vE 'TPMSigner|PKCS11Signer' | tr '\n' '|' | sed 's/|$$//' | xargs -t go test ./... -run
 
 define CERT_RECIPE
 	@SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
@@ -254,8 +258,6 @@ endef
 		-keypbe pbeWithSHA1And3-KeyTripleDES-CBC \
 		-inkey $${KEY} -out "$@" -in $${CERT}
 
-# And once again, it's hard to do a file-based rule for the contents of the certificate store. 
-# So just populate it as a side-effect of creating the p12 file.
 %-pass.p12: %-cert.pem
 	echo Creating $@...
 	ls -l $<
@@ -311,13 +313,19 @@ $(certsdir)/cert-bundle-with-comments.pem: $(RSACERTS) $(ECCERTS)
 		echo "Comment in bundle\n" >> $@; \
 	done
 
-KEYS := $(RSAKEYS) $(ECKEYS) $(TPMKEYS) $(PKCS8KEYS)
-CERTS := $(RSACERTS) $(ECCERTS) $(TPMCERTS)
+KEYS := $(RSAKEYS) $(ECKEYS) $(PKCS8KEYS)
+ALL_KEYS := $(KEYS) $(TPMKEYS)
+CERTS := $(RSACERTS) $(ECCERTS)
+ALL_CERTS := $(CERTS) $(TPMCERTS)
 COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(CERTS))
+ALL_COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(ALL_CERTS))
+
+.PHONY: test-all-certs
+test-all-certs: $(ALL_KEYS) $(ALL_CERTS) $(ALL_COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem tst/softhsm2.conf
+	$(STOP_SWTPM_TCP) 2>/dev/null || :
 
 .PHONY: test-certs
-test-certs: $(KEYS) $(CERTS) $(COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem tst/softhsm2.conf
-	$(STOP_SWTPM_TCP) 2>/dev/null || :
+test-certs: $(KEYS) $(CERTS) $(COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem
 
 .PHONY: test-clean
 test-clean:
