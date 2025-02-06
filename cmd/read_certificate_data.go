@@ -1,8 +1,6 @@
 package cmd
 
 import (
-	"crypto/sha1"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -29,17 +27,9 @@ func init() {
 
 type PrintCertificate func(int, helper.CertificateContainer)
 
+// Default function for printing certificate information
 func DefaultPrintCertificate(index int, certContainer helper.CertificateContainer) {
-	cert := certContainer.Cert
-
-	fingerprint := sha1.Sum(cert.Raw) // nosemgrep
-	fingerprintHex := hex.EncodeToString(fingerprint[:])
-	fmt.Printf("%d) %s \"%s\"\n", index+1, fingerprintHex, cert.Subject.String())
-
-	// Only for PKCS#11
-	if certContainer.Uri != "" {
-		fmt.Printf("\tURI: %s\n", certContainer.Uri)
-	}
+	fmt.Printf("%d) %s", index+1, helper.DefaultCertContainerToString(certContainer))
 }
 
 var readCertificateDataCmd = &cobra.Command{
