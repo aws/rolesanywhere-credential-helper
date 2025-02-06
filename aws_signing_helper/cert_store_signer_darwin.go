@@ -180,7 +180,7 @@ func GetCertStoreSigner(certIdentifier CertIdentifier, useLatestExpiringCert boo
 	}
 	selectedCertContainer = certContainers[len(certContainers)-1]
 	if Debug {
-		log.Print(fmt.Sprintf("Selected certificate: %s", DefaultCertContainerToString(selectedCertContainer)))
+		log.Print(fmt.Sprintf("selected certificate: %s", DefaultCertContainerToString(selectedCertContainer)))
 	}
 	cert = selectedCertContainer.Cert
 	certRef = certRefs[selectedCertContainer.Index]
