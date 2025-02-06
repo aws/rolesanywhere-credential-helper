@@ -482,7 +482,7 @@ func GetMatchingPKCSCerts(uriStr string, lib string) (matchingCerts []Certificat
 		if err != nil {
 			curUriStr = ""
 		}
-		matchingCerts = append(matchingCerts, CertificateContainer{obj.cert, curUriStr})
+		matchingCerts = append(matchingCerts, CertificateContainer{-1, obj.cert, curUriStr})
 	}
 
 	// Note that this clean up should happen regardless of failure.
