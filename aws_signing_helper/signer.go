@@ -2,6 +2,7 @@ package aws_signing_helper
 
 import (
 	"bytes"
+	"context"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rand"
@@ -24,8 +25,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/request"
+	"github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	"github.com/aws/smithy-go/middleware"
+	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"golang.org/x/crypto/pkcs12"
 	"golang.org/x/term"
 )
@@ -57,6 +59,9 @@ var (
 		"Trust",
 		"CA",
 	}
+
+	// Signing name for the IAM Roles Anywhere service
+	ROLESANYWHERE_SIGNING_NAME = "rolesanywhere"
 )
 
 // Interface that all signers will have to implement
@@ -425,75 +430,46 @@ func certificateChainToString(certificateChain []*x509.Certificate) string {
 	return x509ChainString.String()
 }
 
-func CreateRequestSignFunction(signer crypto.Signer, signingAlgorithm string, certificate *x509.Certificate, certificateChain []*x509.Certificate) func(*request.Request) {
-	return func(req *request.Request) {
-		region := req.ClientInfo.SigningRegion
-		if region == "" {
-			region = aws.StringValue(req.Config.Region)
+func CreateRequestSignFinalizeFunction(signer crypto.Signer, signingRegion string, signingAlgorithm string, certificate *x509.Certificate, certificateChain []*x509.Certificate) func(context.Context, middleware.FinalizeInput, middleware.FinalizeHandler) (middleware.FinalizeOutput, middleware.Metadata, error) {
+	return func(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (out middleware.FinalizeOutput, metadata middleware.Metadata, err error) {
+		req, ok := in.Request.(*smithyhttp.Request)
+		if !ok {
+			return out, metadata, errors.New(fmt.Sprintf("unexpected request middleware type %T", in.Request))
 		}
 
-		name := req.ClientInfo.SigningName
-		if name == "" {
-			name = req.ClientInfo.ServiceName
-		}
+		payloadHash := v4.GetPayloadHash(ctx)
+		signRequest(signer, signingRegion, signingAlgorithm, certificate, certificateChain, req.Request, payloadHash)
 
-		signerParams := SignerParams{time.Now(), region, name, signingAlgorithm}
-
-		// Set headers that are necessary for signing
-		req.HTTPRequest.Header.Set(host, req.HTTPRequest.URL.Host)
-		req.HTTPRequest.Header.Set(x_amz_date, signerParams.GetFormattedSigningDateTime())
-		req.HTTPRequest.Header.Set(x_amz_x509, certificateToString(certificate))
-		if certificateChain != nil {
-			req.HTTPRequest.Header.Set(x_amz_x509_chain, certificateChainToString(certificateChain))
-		}
-
-		contentSha256 := calculateContentHash(req.HTTPRequest, req.Body)
-		if req.HTTPRequest.Header.Get(x_amz_content_sha256) == "required" {
-			req.HTTPRequest.Header.Set(x_amz_content_sha256, contentSha256)
-		}
-
-		canonicalRequest, signedHeadersString := createCanonicalRequest(req.HTTPRequest, req.Body, contentSha256)
-
-		stringToSign := CreateStringToSign(canonicalRequest, signerParams)
-		signatureBytes, err := signer.Sign(rand.Reader, []byte(stringToSign), crypto.SHA256)
-		if err != nil {
-			log.Println("could not sign", err)
-			os.Exit(1)
-		}
-		signature := hex.EncodeToString(signatureBytes)
-
-		req.HTTPRequest.Header.Set(authorization, BuildAuthorizationHeader(req.HTTPRequest, req.Body, signedHeadersString, signature, certificate, signerParams))
-		req.SignedHeaderVals = req.HTTPRequest.Header
+		return next.HandleFinalize(ctx, in)
 	}
 }
 
-// Find the SHA256 hash of the provided request body as a io.ReadSeeker
-func makeSha256Reader(reader io.ReadSeeker) []byte {
-	hash := sha256.New()
-	start, _ := reader.Seek(0, 1)
-	defer reader.Seek(start, 0)
+func signRequest(signer crypto.Signer, signingRegion string, signingAlgorithm string, certificate *x509.Certificate, certificateChain []*x509.Certificate, req *http.Request, payloadHash string) {
+	signerParams := SignerParams{time.Now(), signingRegion, ROLESANYWHERE_SIGNING_NAME, signingAlgorithm}
 
-	io.Copy(hash, reader)
-	return hash.Sum(nil)
-}
-
-// Calculate the hash of the request body
-func calculateContentHash(r *http.Request, body io.ReadSeeker) string {
-	hash := r.Header.Get(x_amz_content_sha256)
-
-	if hash == "" {
-		if body == nil {
-			hash = emptyStringSHA256
-		} else {
-			hash = hex.EncodeToString(makeSha256Reader(body))
-		}
+	// Set headers that are necessary for signing
+	req.Header.Set(host, req.URL.Host)
+	req.Header.Set(x_amz_date, signerParams.GetFormattedSigningDateTime())
+	req.Header.Set(x_amz_x509, certificateToString(certificate))
+	if certificateChain != nil {
+		req.Header.Set(x_amz_x509_chain, certificateChainToString(certificateChain))
 	}
 
-	return hash
+	canonicalRequest, signedHeadersString := createCanonicalRequest(req, payloadHash)
+
+	stringToSign := CreateStringToSign(canonicalRequest, signerParams)
+	signatureBytes, err := signer.Sign(rand.Reader, []byte(stringToSign), crypto.SHA256)
+	if err != nil {
+		log.Println("could not sign request", err)
+		os.Exit(1)
+	}
+	signature := hex.EncodeToString(signatureBytes)
+
+	req.Header.Set(authorization, BuildAuthorizationHeader(req, signedHeadersString, signature, certificate, signerParams))
 }
 
 // Create the canonical query string.
-func createCanonicalQueryString(r *http.Request, body io.ReadSeeker) string {
+func createCanonicalQueryString(r *http.Request) string {
 	rawQuery := strings.Replace(r.URL.Query().Encode(), "+", "%20", -1)
 	return rawQuery
 }
@@ -573,14 +549,14 @@ func stripExcessSpaces(vals []string) {
 }
 
 // Create the canonical request.
-func createCanonicalRequest(r *http.Request, body io.ReadSeeker, contentSha256 string) (string, string) {
+func createCanonicalRequest(r *http.Request, contentSha256 string) (string, string) {
 	var canonicalRequestStrBuilder strings.Builder
 	canonicalHeaderString, signedHeadersString := createCanonicalHeaderString(r)
 	canonicalRequestStrBuilder.WriteString("POST")
 	canonicalRequestStrBuilder.WriteString("\n")
 	canonicalRequestStrBuilder.WriteString("/sessions")
 	canonicalRequestStrBuilder.WriteString("\n")
-	canonicalRequestStrBuilder.WriteString(createCanonicalQueryString(r, body))
+	canonicalRequestStrBuilder.WriteString(createCanonicalQueryString(r))
 	canonicalRequestStrBuilder.WriteString("\n")
 	canonicalRequestStrBuilder.WriteString(canonicalHeaderString)
 	canonicalRequestStrBuilder.WriteString("\n\n")
@@ -607,7 +583,7 @@ func CreateStringToSign(canonicalRequest string, signerParams SignerParams) stri
 }
 
 // Builds the complete authorization header
-func BuildAuthorizationHeader(request *http.Request, body io.ReadSeeker, signedHeadersString string, signature string, certificate *x509.Certificate, signerParams SignerParams) string {
+func BuildAuthorizationHeader(request *http.Request, signedHeadersString string, signature string, certificate *x509.Certificate, signerParams SignerParams) string {
 	signingCredentials := certificate.SerialNumber.String() + "/" + signerParams.GetScope()
 	credential := "Credential=" + signingCredentials
 	signerHeaders := "SignedHeaders=" + signedHeadersString
