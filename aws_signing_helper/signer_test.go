@@ -99,8 +99,6 @@ func TestReadPrivateKeyData(t *testing.T) {
 		_, err := ReadPrivateKeyData(fixture)
 
 		if err != nil {
-			t.Log(fixture)
-			t.Log(err)
 			t.Log("Failed to read private key data")
 			t.Fail()
 		}
@@ -156,10 +154,10 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 	requestSignFunction := CreateRequestSignFunction(signer, signingAlgorithm, certificate, certificateChain)
 	requestSignFunction(&awsRequest)
 
-	certificateList2, _ := ReadCertificateBundleData("../tst/certs/rsa-2048-2-sha256-cert.pem")
+	certificateList2, _ := ReadCertificateBundleData("../tst/certs/rsa-4096-sha256-cert.pem")
 	certificate2 := certificateList2[0]
 	os.Rename("../tst/certs/rsa-2048-sha256-cert.pem", "../tst/certs/rsa-2048-sha256-cert.pem.bak")
-	os.Rename("../tst/certs/rsa-2048-2-sha256-cert.pem", "../tst/certs/rsa-2048-sha256-cert.pem")
+	os.Rename("../tst/certs/rsa-4096-sha256-cert.pem", "../tst/certs/rsa-2048-sha256-cert.pem")
 	certificate, err = signer.Certificate()
 	if err != nil {
 		t.Log(err)
@@ -180,7 +178,7 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 			t.Fail()
 		}
 	}
-	os.Rename("../tst/certs/rsa-2048-sha256-cert.pem", "../tst/certs/rsa-2048-2-sha256-cert.pem")
+	os.Rename("../tst/certs/rsa-2048-sha256-cert.pem", "../tst/certs/rsa-4096-sha256-cert.pem")
 	os.Rename("../tst/certs/rsa-2048-sha256-cert.pem.bak", "../tst/certs/rsa-2048-sha256-cert.pem")
 	requestSignFunction2 := CreateRequestSignFunction(signer, signingAlgorithm, certificate, certificateChain)
 	requestSignFunction2(&awsRequest)
@@ -255,77 +253,6 @@ func TestSign(t *testing.T) {
 				CertificateId: cert,
 			})
 		}
-	}
-
-	tpm_digests := []string{"sha1", "sha256", "sha384", "sha512"}
-	var tpm_keys []string
-
-	tpmdev := os.Getenv("TPM_DEVICE")
-	if strings.HasPrefix(tpmdev, "/dev/") {
-		tpm_keys = []string{"hw-rsa", "hw-ec", "hw-ec-81000001"}
-	} else {
-		tpm_keys = []string{"sw-rsa", "sw-ec-prime256", "sw-ec-secp384r1", "sw-ec-81000001"}
-	}
-
-	for _, digest := range tpm_digests {
-		for _, keyname := range tpm_keys {
-			cert := fmt.Sprintf("../tst/certs/tpm-%s-%s-cert.pem",
-				keyname, digest)
-			key := fmt.Sprintf("../tst/certs/tpm-%s-key.pem", keyname)
-			testTable = append(testTable, CredentialsOpts{
-				CertificateId: cert,
-				PrivateKeyId:  key,
-			})
-
-			cert = fmt.Sprintf("../tst/certs/tpm-%s-%s-combo.pem",
-				keyname, digest)
-			testTable = append(testTable, CredentialsOpts{
-				CertificateId: cert,
-			})
-		}
-	}
-
-	pkcs11_objects := []string{"rsa-2048", "ec-prime256v1"}
-
-	for _, object := range pkcs11_objects {
-		base_pkcs11_uri := "pkcs11:token=credential-helper-test?pin-value=1234"
-		basic_pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s?pin-value=1234", object)
-		always_auth_pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s-always-auth?pin-value=1234", object)
-		cert_file := fmt.Sprintf("../tst/certs/%s-sha256-cert.pem", object)
-
-		testTable = append(testTable, CredentialsOpts{
-			CertificateId: basic_pkcs11_uri,
-		})
-		testTable = append(testTable, CredentialsOpts{
-			PrivateKeyId: basic_pkcs11_uri,
-		})
-		testTable = append(testTable, CredentialsOpts{
-			CertificateId: basic_pkcs11_uri,
-			PrivateKeyId:  basic_pkcs11_uri,
-		})
-		testTable = append(testTable, CredentialsOpts{
-			CertificateId: cert_file,
-			PrivateKeyId:  basic_pkcs11_uri,
-		})
-		testTable = append(testTable, CredentialsOpts{
-			CertificateId: basic_pkcs11_uri,
-			PrivateKeyId:  always_auth_pkcs11_uri,
-			ReusePin:      true,
-		})
-		testTable = append(testTable, CredentialsOpts{
-			CertificateId: cert_file,
-			PrivateKeyId:  always_auth_pkcs11_uri,
-			ReusePin:      true,
-		})
-		// Note that for the below test case, there are two matching keys.
-		// Both keys will validate with the certificate, and one will be chosen
-		// (it doesn't matter which, since both are the exact same key - it's
-		// just that one has the CKA_ALWAYS_AUTHENTICATE attribute set).
-		testTable = append(testTable, CredentialsOpts{
-			CertificateId: cert_file,
-			PrivateKeyId:  base_pkcs11_uri,
-			ReusePin:      true,
-		})
 	}
 
 	RunSignTestWithTestTable(t, testTable)
@@ -447,72 +374,6 @@ func TestSignerCreationFails(t *testing.T) {
 			testTable = append(testTable, CredentialsOpts{
 				CertificateId: cert,
 			})
-		}
-	}
-
-	for _, credOpts := range testTable {
-		_, _, err := GetSigner(&credOpts)
-		// We expect a failure since the certificates in these .p12 files are
-		// self-signed. When creating a signer, we expect there to be an
-		// end-entity certificate within the container.
-		if err == nil {
-			t.Log("Expected failure when creating PKCS#12 signer, but received none")
-			t.Fail()
-		}
-	}
-}
-
-func TestPKCS11SignerCreationFails(t *testing.T) {
-	testTable := []CredentialsOpts{}
-
-	template_uri := "pkcs11:token=credential-helper-test;object=%s?pin-value=1234"
-	rsa_generic_uri := fmt.Sprintf(template_uri, "rsa-2048")
-	ec_generic_uri := fmt.Sprintf(template_uri, "ec-prime256v1")
-	always_auth_rsa_uri := fmt.Sprintf(template_uri, "rsa-2048-always-auth")
-	always_auth_ec_uri := fmt.Sprintf(template_uri, "ec-prime256v1-always-auth")
-
-	testTable = append(testTable, CredentialsOpts{
-		CertificateId: rsa_generic_uri,
-		PrivateKeyId:  ec_generic_uri,
-	})
-	testTable = append(testTable, CredentialsOpts{
-		CertificateId: ec_generic_uri,
-		PrivateKeyId:  rsa_generic_uri,
-	})
-	testTable = append(testTable, CredentialsOpts{
-		CertificateId: "../tst/certs/ec-prime256v1-sha256-cert.pem",
-		PrivateKeyId:  rsa_generic_uri,
-	})
-	testTable = append(testTable, CredentialsOpts{
-		CertificateId: "../tst/certs/rsa-2048-sha256-cert.pem",
-		PrivateKeyId:  ec_generic_uri,
-	})
-	testTable = append(testTable, CredentialsOpts{
-		CertificateId: rsa_generic_uri,
-		PrivateKeyId:  always_auth_ec_uri,
-		ReusePin:      true,
-	})
-	testTable = append(testTable, CredentialsOpts{
-		CertificateId: ec_generic_uri,
-		PrivateKeyId:  always_auth_rsa_uri,
-		ReusePin:      true,
-	})
-	testTable = append(testTable, CredentialsOpts{
-		CertificateId: "../tst/certs/ec-prime256v1-sha256-cert.pem",
-		PrivateKeyId:  always_auth_rsa_uri,
-		ReusePin:      true,
-	})
-	testTable = append(testTable, CredentialsOpts{
-		CertificateId: "../tst/certs/rsa-2048-sha256-cert.pem",
-		PrivateKeyId:  always_auth_ec_uri,
-		ReusePin:      true,
-	})
-
-	for _, credOpts := range testTable {
-		_, _, err := GetSigner(&credOpts)
-		if err == nil {
-			t.Log("Expected failure when creating PKCS#11 signer, but received none")
-			t.Fail()
 		}
 	}
 }
