@@ -11,10 +11,10 @@ require (
 	github.com/miekg/pkcs11 v1.1.1
 	github.com/spf13/cobra v1.8.1
 	github.com/stefanberger/go-pkcs11uri v0.0.0-20230803200340-78284954bff6
-	golang.org/x/crypto v0.28.0
+	golang.org/x/crypto v0.31.0
 	golang.org/x/net v0.30.0
-	golang.org/x/sys v0.26.0
-	golang.org/x/term v0.25.0
+	golang.org/x/sys v0.28.0
+	golang.org/x/term v0.27.0
 )
 
 require (
