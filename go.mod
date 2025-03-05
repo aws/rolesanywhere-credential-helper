@@ -3,7 +3,6 @@ module github.com/aws/rolesanywhere-credential-helper
 go 1.22.5
 
 require (
-	github.com/aws/aws-sdk-go v1.55.5
 	github.com/aws/aws-sdk-go-v2 v1.36.1
 	github.com/aws/aws-sdk-go-v2/config v1.29.6
 	github.com/aws/smithy-go v1.22.2
