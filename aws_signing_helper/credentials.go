@@ -122,18 +122,12 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 		}
 	}
 	cfg.APIOptions = append(cfg.APIOptions, func(stack *middleware.Stack) error {
-		for _, name := range stack.Finalize.List() {
-			fmt.Println(name)
-		}
 		// Remove middleware related to SigV4 signing
 		stack.Finalize.Remove("Signing")
 		stack.Finalize.Remove("setLegacyContextSigningOptions")
 		stack.Finalize.Remove("GetIdentity")
 		// Add middleware for SigV4-X509 signing
 		stack.Finalize.Add(middleware.FinalizeMiddlewareFunc("Signing", CreateRequestSignFinalizeFunction(signer, opts.Region, signatureAlgorithm, certificate, certificateChain)), middleware.After)
-		for _, name := range stack.Finalize.List() {
-			fmt.Println(name)
-		}
 		return nil
 	})
 
