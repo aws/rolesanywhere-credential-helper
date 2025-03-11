@@ -6,7 +6,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.36.1
 	github.com/aws/aws-sdk-go-v2/config v1.29.6
 	github.com/aws/smithy-go v1.22.2
-	github.com/google/go-tpm v0.3.3
+	github.com/google/go-tpm v0.9.3
 	github.com/miekg/pkcs11 v1.1.1
 	github.com/spf13/cobra v1.8.1
 	github.com/stefanberger/go-pkcs11uri v0.0.0-20230803200340-78284954bff6
