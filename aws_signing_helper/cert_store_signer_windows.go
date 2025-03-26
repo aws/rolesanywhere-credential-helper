@@ -218,18 +218,6 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 			certContainers = append(certContainers, CertificateContainer{certContainerIndex, curCert, ""})
 			certContainerIndex += 1
 
-			// Assign to certChain and certCtx at most once in the loop.
-			// The value is only useful if there is exactly one match in the certificate store.
-			// When creating a signer, there has to be exactly one matching certificate.
-			// if certChain == nil {
-			// 	certChain = x509CertChain[:]
-			// 	certCtx = chainElts[0].CertContext
-			// 	// This is required later on when creating the WindowsCertStoreSigner
-			// 	// If this method isn't being called in order to create a WindowsCertStoreSigner,
-			// 	// this return value will have to be freed explicitly.
-			// 	windows.CertDuplicateCertificateContext(certCtx)
-			// }
-
 			certChains = append(certChains, x509CertChain[:])
 			certCtx = chainElts[0].CertContext
 			// It's the responsibility of the caller to free the below once they are done using it.

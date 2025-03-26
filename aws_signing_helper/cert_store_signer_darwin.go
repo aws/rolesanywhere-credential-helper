@@ -97,10 +97,6 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) ([]C.SecIdentity
 			// Assign to certRef and identRef at most once in the loop
 			// Both values are only useful if there is exactly one match in the certificate store
 			// When creating a signer, there has to be exactly one matching certificate
-			// if certRef == 0 {
-			// 	certRef = curCertRef
-			// 	identRef = C.SecIdentityRef(curIdentRef)
-			// }
 
 			certRefs = append(certRefs, curCertRef)
 			// Note that only the SecIdentityRef needs to be retained since it was neither created nor copied
@@ -114,15 +110,6 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) ([]C.SecIdentity
 	if Debug {
 		log.Printf("found %d matching identities\n", len(certContainers))
 	}
-
-	// Only retain the SecIdentityRef if it should be used later on
-	// Note that only the SecIdentityRef needs to be retained since it was neither created nor copied
-	// if len(certContainers) == 1 {
-	// 	C.CFRetain(C.CFTypeRef(identRef))
-	// 	return identRef, certRef, certContainers, nil
-	// } else {
-	// 	return 0, 0, certContainers, nil
-	// }
 
 	// It's the caller's responsibility to release each SecIdentityRef after use.
 	return outputIdentRefs, certRefs, certContainers, nil
