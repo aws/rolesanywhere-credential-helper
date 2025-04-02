@@ -7,6 +7,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/x509"
 	"encoding/asn1"
@@ -104,6 +105,8 @@ type CredentialProcessOutput struct {
 }
 
 type CertificateContainer struct {
+	// Index (can be useful in sorting)
+	Index int
 	// Certificate data
 	Cert *x509.Certificate
 	// Certificate URI (only populated in the case that the certificate is a PKCS#11 object)
@@ -248,6 +251,39 @@ func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, interface{
 	return "", nil, err
 }
 
+// Default function to showcase certificate information
+func DefaultCertContainerToString(certContainer CertificateContainer) string {
+	var certStr string
+
+	cert := certContainer.Cert
+
+	fingerprint := sha1.Sum(cert.Raw) // nosemgrep
+	fingerprintHex := hex.EncodeToString(fingerprint[:])
+	certStr = fmt.Sprintf("%s \"%s\"\n", fingerprintHex, cert.Subject.String())
+
+	// Only for PKCS#11
+	if certContainer.Uri != "" {
+		certStr += fmt.Sprintf("\tURI: %s\n", certContainer.Uri)
+	}
+
+	return certStr
+}
+
+// CertificateContainerList implements the sort.Interface interface
+type CertificateContainerList []CertificateContainer
+
+func (certificateContainerList CertificateContainerList) Less(i, j int) bool {
+	return certificateContainerList[i].Cert.NotAfter.Before(certificateContainerList[j].Cert.NotAfter)
+}
+
+func (certificateContainerList CertificateContainerList) Swap(i, j int) {
+	certificateContainerList[i], certificateContainerList[j] = certificateContainerList[j], certificateContainerList[i]
+}
+
+func (certificateContainerList CertificateContainerList) Len() int {
+	return len(certificateContainerList)
+}
+
 // Find whether the current certificate matches the CertIdentifier
 func certMatches(certIdentifier CertIdentifier, cert x509.Certificate) bool {
 	if certIdentifier.Subject != "" && certIdentifier.Subject != cert.Subject.String() {
@@ -299,7 +335,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			if Debug {
 				log.Println("attempting to use CertStoreSigner")
 			}
-			return GetCertStoreSigner(opts.CertIdentifier)
+			return GetCertStoreSigner(opts.CertIdentifier, opts.UseLatestExpiringCertificate)
 		}
 		privateKeyId = opts.CertificateId
 	}

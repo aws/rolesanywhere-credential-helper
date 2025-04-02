@@ -23,6 +23,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"sort"
 	"unsafe"
 )
 
@@ -43,7 +44,7 @@ const (
 
 // Gets the matching identity and certificate for this CertIdentifier
 // If there is more than one, only a list of the matching certificates is returned
-func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRef, C.SecCertificateRef, []CertificateContainer, error) {
+func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) ([]C.SecIdentityRef, []C.SecCertificateRef, []CertificateContainer, error) {
 	queryMap := map[C.CFTypeRef]C.CFTypeRef{
 		C.CFTypeRef(C.kSecClass):      C.CFTypeRef(C.kSecClassIdentity),
 		C.CFTypeRef(C.kSecReturnRef):  C.CFTypeRef(C.kCFBooleanTrue),
@@ -52,16 +53,16 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 
 	query := mapToCFDictionary(queryMap)
 	if query == 0 {
-		return 0, 0, nil, errors.New("error creating CFDictionary")
+		return nil, nil, nil, errors.New("error creating CFDictionary")
 	}
 	defer C.CFRelease(C.CFTypeRef(query))
 
 	var absResult C.CFTypeRef
 	if err := osStatusError(C.SecItemCopyMatching(query, &absResult)); err != nil {
 		if err == errSecItemNotFound {
-			return 0, 0, nil, errors.New("unable to find matching identity in cert store")
+			return nil, nil, nil, errors.New("unable to find matching identity in cert store")
 		}
-		return 0, 0, nil, err
+		return nil, nil, nil, err
 	}
 	defer C.CFRelease(C.CFTypeRef(absResult))
 	aryResult := C.CFArrayRef(absResult)
@@ -71,13 +72,14 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 	identRefs := make([]C.CFTypeRef, numIdentRefs)
 	C.CFArrayGetValues(aryResult, C.CFRange{0, numIdentRefs}, (*unsafe.Pointer)(unsafe.Pointer(&identRefs[0])))
 	var certContainers []CertificateContainer
-	var certRef C.SecCertificateRef
-	var identRef C.SecIdentityRef
+	var certRefs []C.SecCertificateRef
+	var outputIdentRefs []C.SecIdentityRef
 	var isMatch bool
+	certContainerIndex := 0
 	for _, curIdentRef := range identRefs {
 		curCertRef, err := getCertRef(C.SecIdentityRef(curIdentRef))
 		if err != nil {
-			return 0, 0, nil, errors.New("unable to get cert ref")
+			return nil, nil, nil, errors.New("unable to get cert ref")
 		}
 		curCert, err := exportCertRef(curCertRef)
 		if err != nil {
@@ -90,14 +92,16 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 		// Find whether there is a matching certificate
 		isMatch = certMatches(certIdentifier, *curCert)
 		if isMatch {
-			certContainers = append(certContainers, CertificateContainer{curCert, ""})
+			certContainers = append(certContainers, CertificateContainer{certContainerIndex, curCert, ""})
+			certContainerIndex += 1
 			// Assign to certRef and identRef at most once in the loop
 			// Both values are only useful if there is exactly one match in the certificate store
 			// When creating a signer, there has to be exactly one matching certificate
-			if certRef == 0 {
-				certRef = curCertRef
-				identRef = C.SecIdentityRef(curIdentRef)
-			}
+
+			certRefs = append(certRefs, curCertRef)
+			// Note that only the SecIdentityRef needs to be retained since it was neither created nor copied
+			C.CFRetain(C.CFTypeRef(curIdentRef))
+			outputIdentRefs = append(outputIdentRefs, C.SecIdentityRef(curIdentRef))
 		}
 
 	nextIteration:
@@ -107,39 +111,67 @@ func GetMatchingCertsAndIdentity(certIdentifier CertIdentifier) (C.SecIdentityRe
 		log.Printf("found %d matching identities\n", len(certContainers))
 	}
 
-	// Only retain the SecIdentityRef if it should be used later on
-	// Note that only the SecIdentityRef needs to be retained since it was neither created nor copied
-	if len(certContainers) == 1 {
-		C.CFRetain(C.CFTypeRef(identRef))
-		return identRef, certRef, certContainers, nil
-	} else {
-		return 0, 0, certContainers, nil
-	}
+	// It's the caller's responsibility to release each SecIdentityRef after use.
+	return outputIdentRefs, certRefs, certContainers, nil
 }
 
 // Gets the certificates that match the CertIdentifier
 func GetMatchingCerts(certIdentifier CertIdentifier) ([]CertificateContainer, error) {
-	identRef, certRef, certContainers, err := GetMatchingCertsAndIdentity(certIdentifier)
-	if len(certContainers) == 1 {
+	identRefs, certRefs, certContainers, err := GetMatchingCertsAndIdentity(certIdentifier)
+	for i, identRef := range identRefs {
 		C.CFRelease(C.CFTypeRef(identRef))
+		identRefs[i] = 0
+	}
+	for i, certRef := range certRefs {
 		C.CFRelease(C.CFTypeRef(certRef))
+		certRefs[i] = 0
 	}
 	return certContainers, err
 }
 
 // Creates a DarwinCertStoreSigner based on the identifying certificate
-func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAlgorithm string, err error) {
-	identRef, certRef, certContainers, err := GetMatchingCertsAndIdentity(certIdentifier)
+func GetCertStoreSigner(certIdentifier CertIdentifier, useLatestExpiringCert bool) (signer Signer, signingAlgorithm string, err error) {
+	var (
+		selectedCertContainer CertificateContainer
+		cert                  *x509.Certificate
+		identRef              C.SecIdentityRef
+		certRef               C.SecCertificateRef
+		keyRef                C.SecKeyRef
+	)
+
+	identRefs, certRefs, certContainers, err := GetMatchingCertsAndIdentity(certIdentifier)
 	if err != nil {
-		return nil, "", err
+		goto fail
 	}
 	if len(certContainers) == 0 {
-		return nil, "", errors.New("no matching identities")
+		err = errors.New("no matching identities")
+		goto fail
 	}
-	if len(certContainers) > 1 {
-		return nil, "", errors.New("multiple matching identities")
+	if useLatestExpiringCert {
+		sort.Sort(CertificateContainerList(certContainers))
+		// Release the `SecIdentityRef`s and `SecCertificateRef`s that won't be used
+		for i, certContainer := range certContainers {
+			if i != len(certContainers)-1 {
+				C.CFRelease(C.CFTypeRef(identRefs[certContainer.Index]))
+				C.CFRelease(C.CFTypeRef(certRefs[certContainer.Index]))
+
+				identRefs[certContainer.Index] = 0
+				certRefs[certContainer.Index] = 0
+			}
+		}
+	} else {
+		if len(certContainers) > 1 {
+			err = errors.New("multiple matching identities")
+			goto fail
+		}
 	}
-	cert := certContainers[0].Cert
+	selectedCertContainer = certContainers[len(certContainers)-1]
+	if Debug {
+		log.Print(fmt.Sprintf("selected certificate: %s", DefaultCertContainerToString(selectedCertContainer)))
+	}
+	cert = selectedCertContainer.Cert
+	certRef = certRefs[selectedCertContainer.Index]
+	identRef = identRefs[selectedCertContainer.Index]
 
 	// Find the signing algorithm
 	switch cert.PublicKey.(type) {
@@ -148,15 +180,32 @@ func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAl
 	case *rsa.PublicKey:
 		signingAlgorithm = aws4_x509_rsa_sha256
 	default:
-		return nil, "", errors.New("unsupported algorithm")
+		err = errors.New("unsupported algorithm")
+		goto fail
 	}
 
-	keyRef, err := getKeyRef(identRef)
+	keyRef, err = getKeyRef(identRef)
 	if err != nil {
-		return nil, "", errors.New("unable to get key reference")
+		err = errors.New("unable to get key reference")
+		goto fail
 	}
 
 	return &DarwinCertStoreSigner{identRef, keyRef, certRef, cert, nil}, signingAlgorithm, nil
+
+fail:
+	for i, identRef := range identRefs {
+		if identRef != 0 {
+			C.CFRelease(C.CFTypeRef(identRef))
+			identRefs[i] = 0
+		}
+	}
+	for i, certRef := range certRefs {
+		if certRef != 0 {
+			C.CFRelease(C.CFTypeRef(certRef))
+			certRefs[i] = 0
+		}
+	}
+	return nil, "", err
 }
 
 // Gets the certificate associated with this DarwinCertStoreSigner

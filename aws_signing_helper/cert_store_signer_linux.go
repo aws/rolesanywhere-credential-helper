@@ -10,6 +10,6 @@ func GetMatchingCerts(certIdentifier CertIdentifier) ([]CertificateContainer, er
 	return nil, errors.New("unable to use cert store signer on linux")
 }
 
-func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAlgorithm string, err error) {
+func GetCertStoreSigner(certIdentifier CertIdentifier, useLatestExpiringCert bool) (signer Signer, signingAlgorithm string, err error) {
 	return nil, "", errors.New("unable to use cert store signer on linux")
 }

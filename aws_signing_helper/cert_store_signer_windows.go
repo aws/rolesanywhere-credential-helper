@@ -41,6 +41,7 @@ import (
 	"golang.org/x/sys/windows"
 	"io"
 	"log"
+	"sort"
 	"strconv"
 	"strings"
 	"unsafe"
@@ -145,7 +146,7 @@ func (secStatus securityStatus) Error() string {
 // Gets the certificates that match the given CertIdentifier within the user's specified system
 // certificate store. By default, that is "MY".
 // If there is only a single matching certificate, then its chain will be returned too
-func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Handle, certCtx *windows.CertContext, certChain []*x509.Certificate, certContainers []CertificateContainer, err error) {
+func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Handle, certCtxs []*windows.CertContext, certChains [][]*x509.Certificate, certContainers []CertificateContainer, err error) {
 	storeName, err := windows.UTF16PtrFromString(certIdentifier.SystemStoreName)
 	if err != nil {
 		return 0, nil, nil, nil, errors.New("unable to UTF-16 encode personal certificate store name")
@@ -164,12 +165,14 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 		params    windows.CertChainFindByIssuerPara
 		paramsPtr unsafe.Pointer
 		chainCtx  *windows.CertChainContext = nil
+		certCtx   *windows.CertContext
 	)
 	params.Size = uint32(unsafe.Sizeof(params))
 	paramsPtr = unsafe.Pointer(&params)
 
 	var curCertCtx *windows.CertContext
 	var curCert *x509.Certificate
+	certContainerIndex := 0
 	for {
 		// Previous chainCtx should be freed here if it isn't nil
 		chainCtx, err = windows.CertFindChainInStore(store, encoding, flags, findType, paramsPtr, chainCtx)
@@ -212,19 +215,14 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 
 		curCert = x509CertChain[0]
 		if certMatches(certIdentifier, *curCert) {
-			certContainers = append(certContainers, CertificateContainer{curCert, ""})
+			certContainers = append(certContainers, CertificateContainer{certContainerIndex, curCert, ""})
+			certContainerIndex += 1
 
-			// Assign to certChain and certCtx at most once in the loop.
-			// The value is only useful if there is exactly one match in the certificate store.
-			// When creating a signer, there has to be exactly one matching certificate.
-			if certChain == nil {
-				certChain = x509CertChain[:]
-				certCtx = chainElts[0].CertContext
-				// This is required later on when creating the WindowsCertStoreSigner
-				// If this method isn't being called in order to create a WindowsCertStoreSigner,
-				// this return value will have to be freed explicitly.
-				windows.CertDuplicateCertificateContext(certCtx)
-			}
+			certChains = append(certChains, x509CertChain[:])
+			certCtx = chainElts[0].CertContext
+			// It's the responsibility of the caller to free the below once they are done using it.
+			windows.CertDuplicateCertificateContext(certCtx)
+			certCtxs = append(certCtxs, certCtx)
 		}
 
 	nextIteration:
@@ -234,14 +232,18 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 		log.Printf("found %d matching identities\n", len(certContainers))
 	}
 
-	return store, certCtx, certChain, certContainers, nil
+	return store, certCtxs, certChains, certContainers, nil
 
 fail:
 	if chainCtx != nil {
 		windows.CertFreeCertificateChain(chainCtx)
+		chainCtx = nil
 	}
-	if certCtx != nil {
-		windows.CertFreeCertificateContext(certCtx)
+	for i, curCertCtx := range certCtxs {
+		if curCertCtx != nil {
+			windows.CertFreeCertificateContext(curCertCtx)
+			certCtxs[i] = nil
+		}
 	}
 	windows.CertCloseStore(store, 0)
 
@@ -250,9 +252,12 @@ fail:
 
 // Gets the certificates that match a CertIdentifier
 func GetMatchingCerts(certIdentifier CertIdentifier) ([]CertificateContainer, error) {
-	store, certCtx, _, certContainers, err := GetMatchingCertsAndChain(certIdentifier)
-	if certCtx != nil {
-		windows.CertFreeCertificateContext(certCtx)
+	store, certCtxs, _, certContainers, err := GetMatchingCertsAndChain(certIdentifier)
+	for i, curCertCtx := range certCtxs {
+		if curCertCtx != nil {
+			windows.CertFreeCertificateContext(curCertCtx)
+			certCtxs[i] = nil
+		}
 	}
 	windows.CertCloseStore(store, 0)
 
@@ -260,14 +265,17 @@ func GetMatchingCerts(certIdentifier CertIdentifier) ([]CertificateContainer, er
 }
 
 // Gets a WindowsCertStoreSigner based on the CertIdentifier
-func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAlgorithm string, err error) {
-	var privateKey *winPrivateKey
-	store, certCtx, certChain, certContainers, err := GetMatchingCertsAndChain(certIdentifier)
+func GetCertStoreSigner(certIdentifier CertIdentifier, useLatestExpiringCert bool) (signer Signer, signingAlgorithm string, err error) {
+	var (
+		privateKey            *winPrivateKey
+		selectedCertContainer CertificateContainer
+		cert                  *x509.Certificate
+		certCtx               *windows.CertContext
+		certChain             []*x509.Certificate
+	)
+
+	store, certCtxs, certChains, certContainers, err := GetMatchingCertsAndChain(certIdentifier)
 	if err != nil {
-		goto fail
-	}
-	if len(certContainers) > 1 {
-		err = errors.New("more than one matching cert found in cert store")
 		goto fail
 	}
 	if len(certContainers) == 0 {
@@ -275,7 +283,24 @@ func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAl
 		goto fail
 	}
 
-	signer = &WindowsCertStoreSigner{store: store, cert: certContainers[0].Cert, certCtx: certCtx, certChain: certChain}
+	if useLatestExpiringCert {
+		sort.Sort(CertificateContainerList(certContainers))
+	} else {
+		if len(certContainers) > 1 {
+			err = errors.New("multiple matching identities")
+			goto fail
+		}
+	}
+
+	selectedCertContainer = certContainers[len(certContainers)-1]
+	if Debug {
+		log.Printf("selected certificate: %s", DefaultCertContainerToString(selectedCertContainer))
+	}
+	cert = selectedCertContainer.Cert
+	certCtx = certCtxs[selectedCertContainer.Index]
+	certChain = certChains[selectedCertContainer.Index]
+
+	signer = &WindowsCertStoreSigner{store: store, cert: cert, certCtx: certCtx, certChain: certChain}
 
 	privateKey, err = signer.(*WindowsCertStoreSigner).getPrivateKey()
 	if err != nil {
@@ -296,8 +321,11 @@ func GetCertStoreSigner(certIdentifier CertIdentifier) (signer Signer, signingAl
 	return signer, signingAlgorithm, err
 
 fail:
-	if certCtx != nil {
-		windows.CertFreeCertificateContext(certCtx)
+	for i, curCertCtx := range certCtxs {
+		if curCertCtx != nil {
+			windows.CertFreeCertificateContext(curCertCtx)
+			certCtxs[i] = nil
+		}
 	}
 	if signer != nil {
 		signer.Close()
