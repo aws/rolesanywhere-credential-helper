@@ -26,7 +26,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/aws/aws-sdk-go-v2/aws/signer/v4"
+	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
 	"golang.org/x/crypto/pkcs12"
@@ -195,18 +195,6 @@ func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, interface{
 		ttyWritePath = "CONOUT$"
 	}
 
-	ttyReadFile, err = os.OpenFile(ttyReadPath, os.O_RDWR, 0)
-	if err != nil {
-		return "", nil, errors.New(parseErrMsg)
-	}
-	defer ttyReadFile.Close()
-
-	ttyWriteFile, err = os.OpenFile(ttyWritePath, os.O_WRONLY, 0)
-	if err != nil {
-		return "", nil, errors.New(parseErrMsg)
-	}
-	defer ttyWriteFile.Close()
-
 	// If no password is required
 	if noPassword {
 		checkPasswordResult, err = checkPassword("")
@@ -224,6 +212,18 @@ func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, interface{
 		}
 		return password, checkPasswordResult, nil
 	}
+
+	ttyReadFile, err = os.OpenFile(ttyReadPath, os.O_RDWR, 0)
+	if err != nil {
+		return "", nil, errors.New(parseErrMsg)
+	}
+	defer ttyReadFile.Close()
+
+	ttyWriteFile, err = os.OpenFile(ttyWritePath, os.O_WRONLY, 0)
+	if err != nil {
+		return "", nil, errors.New(parseErrMsg)
+	}
+	defer ttyWriteFile.Close()
 
 	// The key has a password, so prompt for it
 	password, err = GetPassword(ttyReadFile, ttyWriteFile, prompt, parseErrMsg)
