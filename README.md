@@ -244,7 +244,6 @@ openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pas
 This command uses the default scrypt parameters: N=16,384, r=8, and p=1.
 After obtaining the encrypted key in a PEM file, pass it to the credential helper along with the password as the value for the `--pkcs8-password` option during signing. Note the following:
 
-- Zero-length passwords aren't accepted.
 - If you don't want to encrypt a private key and are using OpenSSL, use the `-nocrypt` flag.
 - Zero-length passwords are treated as no password.
 
