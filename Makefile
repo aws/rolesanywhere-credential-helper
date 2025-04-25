@@ -25,12 +25,42 @@ P11TOOL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp p11tool
 
 certsdir=tst/certs
 
+PKCS8_OPENSSL_CMD = openssl pkcs8 -topk8 -inform PEM -outform PEM -in $< -out $@ -passout pass:password
+
 RSAKEYS := $(foreach keylen, 1024 2048 4096, $(certsdir)/rsa-$(keylen)-key.pem)
 ECKEYS := $(foreach curve, prime256v1 secp384r1, $(certsdir)/ec-$(curve)-key.pem)
 PKCS8KEYS := $(patsubst %-key.pem,%-key-pkcs8.pem,$(RSAKEYS) $(ECKEYS))
+PKCS8ENCRYPTEDKEYS := $(patsubst %.pem, %-pkcs8-scrypt.pem, $(RSAKEYS) $(ECKEYS)) \
+	$(foreach prf, hmacWithSHA256 hmacWithSHA384 hmacWithSHA512, \
+		$(patsubst %.pem, %-pkcs8-$(prf).pem, $(RSAKEYS) $(ECKEYS))) \
+	$(foreach algo, aes-128-cbc aes-192-cbc aes-256-cbc, \
+		$(patsubst %.pem, %-pkcs8-$(subst -,,$(algo)).pem, $(RSAKEYS) $(ECKEYS)))
 ECCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(ECKEYS)))
 RSACERTS := $(foreach digest, md5 sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(RSAKEYS)))
 PKCS12CERTS := $(patsubst %-cert.pem, %.p12, $(RSACERTS) $(ECCERTS))
+
+# Rules for converting a .pem private key to an encrypted PKCS#8 format using different
+# encryption schemes or key derivation functions (e.g., HMAC with SHA algorithms, AES-CBC, scrypt).
+%-pkcs8-hmacWithSHA256.pem: %.pem
+	$(PKCS8_OPENSSL_CMD) -v2prf hmacWithSHA256
+
+%-pkcs8-hmacWithSHA384.pem: %.pem
+	$(PKCS8_OPENSSL_CMD) -v2prf hmacWithSHA384
+
+%-pkcs8-hmacWithSHA512.pem: %.pem
+	$(PKCS8_OPENSSL_CMD) -v2prf hmacWithSHA512
+
+%-pkcs8-aes128cbc.pem: %.pem
+	$(PKCS8_OPENSSL_CMD) -v2 aes-128-cbc
+
+%-pkcs8-aes192cbc.pem: %.pem
+	$(PKCS8_OPENSSL_CMD) -v2 aes-192-cbc
+
+%-pkcs8-aes256cbc.pem: %.pem
+	$(PKCS8_OPENSSL_CMD) -v2 aes-256-cbc
+
+%-pkcs8-scrypt.pem: %.pem
+	$(PKCS8_OPENSSL_CMD) -scrypt
 
 # Software TPM. For generating keys/certs, we run the swtpm in TCP mode,
 # because that's what the tools and the OpenSSL ENGINE require. Each of
@@ -313,7 +343,7 @@ $(certsdir)/cert-bundle-with-comments.pem: $(RSACERTS) $(ECCERTS)
 		echo "Comment in bundle\n" >> $@; \
 	done
 
-KEYS := $(RSAKEYS) $(ECKEYS) $(PKCS8KEYS)
+KEYS := $(RSAKEYS) $(ECKEYS) $(PKCS8KEYS) $(PKCS8ENCRYPTEDKEYS)
 ALL_KEYS := $(KEYS) $(TPMKEYS)
 CERTS := $(RSACERTS) $(ECCERTS)
 ALL_CERTS := $(CERTS) $(TPMCERTS)
@@ -330,7 +360,7 @@ test-certs: $(KEYS) $(CERTS) $(COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pe
 .PHONY: test-clean
 test-clean:
 	rm -f $(RSAKEYS) $(ECKEYS) $(HWTPMKEYS)
-	rm -f $(PKCS8KEYS)
+	rm -f $(PKCS8KEYS) $(PKCS8ENCRYPTEDKEYS)
 	rm -f $(RSACERTS) $(ECCERTS) $(HWTPMCERTS)
 	rm -f $(PKCS12CERTS) $(COMBOS)
 	rm -f $(certsdir)/cert-bundle.pem

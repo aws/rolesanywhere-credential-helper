@@ -37,6 +37,8 @@ var (
 	tpmKeyPassword   string
 	noTpmKeyPassword bool
 
+	pkcs8Password string
+
 	credentialsOptions helper.CredentialsOpts
 
 	X509_SUBJECT_KEY = "x509Subject"
@@ -85,6 +87,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().BoolVar(&noTpmKeyPassword, "no-tpm-key-password", false, "Required if the TPM key has no password and"+
 		"a handle is used to refer to the key")
 	subCmd.PersistentFlags().StringVar(&roleSessionName, "role-session-name", "", "An identifier of a role session")
+	subCmd.PersistentFlags().StringVar(&pkcs8Password, "pkcs8-password", "", "Password for PKCS#8 key, if applicable")
 
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
@@ -100,6 +103,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "tpm-key-password")
+	subCmd.MarkFlagsMutuallyExclusive("pkcs8-password", "tpm-key-password")
 }
 
 // Parses a cert selector string to a map
@@ -266,6 +270,7 @@ func PopulateCredentialsOptions() error {
 		TpmKeyPassword:               tpmKeyPassword,
 		NoTpmKeyPassword:             noTpmKeyPassword,
 		RoleSessionName:              roleSessionName,
+		Pkcs8Password:                pkcs8Password,
 	}
 
 	return nil
