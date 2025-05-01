@@ -411,7 +411,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			)
 		}
 
-		if !isPKCS8EncryptedPrivateKey(privateKeyId, EncryptedBlockType) {
+		if !isPKCS8EncryptedBlockType(privateKeyId) {
 			_, err = ReadPrivateKeyData(privateKeyId, opts.Pkcs8Password)
 			if err != nil {
 				return nil, "", err
@@ -794,7 +794,7 @@ func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privat
 	return certChain, privateKey, nil
 }
 
-// Load the private key referenced by `privateKeyId`. If `pkcs8Password` is provided, attempt to load an encrypted PKCS8 key.
+// Load the private key referenced by `privateKeyId`. If `pkcs8Password` is provided, attempt to load an encrypted PKCS#8 key.
 func ReadPrivateKeyData(privateKeyId string, pkcs8Password ...string) (crypto.PrivateKey, error) {
 	if len(pkcs8Password) > 0 && pkcs8Password[0] != "" {
 		if key, err := readPKCS8EncryptedPrivateKey(privateKeyId, []byte(pkcs8Password[0])); err == nil {

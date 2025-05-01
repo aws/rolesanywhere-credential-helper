@@ -208,7 +208,7 @@ You can pass a password-encrypted private key to the credential helper for signi
 - Unencrypted: `-----BEGIN PRIVATE KEY-----`
 - Password-encrypted: `-----BEGIN ENCRYPTED PRIVATE KEY-----` (using PBES2)
 
-To encrypt an unencrypted private key stored on disk, use a tool of your choice. The following example uses OpenSSL in a Bash environment:
+To encrypt a plaintext private key stored on disk, you can use `openssl`:
 
 ```bash
 openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pass:password -v2 aes-256-cbc
@@ -220,7 +220,7 @@ This command encrypts a PEM file containing an unencrypted private key in PKCS#8
 - AES-192-CBC
 - AES-256-CBC
 
-You can also encrypt the key using a different Pseudorandom Function (PRF):
+You can also encrypt the key using a different pseudorandom function (PRF):
 
 ```bash
 openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pass:password -v2prf hmacWithSHA256
@@ -234,7 +234,7 @@ Supported PRFs include:
 
 If you don't specify a cipher or PRF, the key is converted to PKCS#8 format using PKCS#5 v2.0 with AES-256-CBC and HMACWithSHA256.
 The credential helper supports decrypting PKCS#8-encrypted private keys using PBES2, as defined in PKCS#5 (RFC 8018), with the options mentioned earlier. The key derivation function is PBKDF2, as specified in RFC 8018.
-To enhance key protection, you can use scrypt to secure the PKCS#8-encoded key. Scrypt, defined in RFC 7914, is a memory-intensive algorithm that improves resistance to attacks.
+To enhance key protection, you can use scrypt to secure the PKCS#8-encoded key. Scrypt, defined in RFC 7914, is a memory-intensive KDF that improves resistance to attacks.
 To encrypt a key using scrypt with OpenSSL:
 
 ```bash
@@ -246,6 +246,7 @@ After obtaining the encrypted key in a PEM file, pass it to the credential helpe
 
 - If you don't want to encrypt a private key and are using OpenSSL, use the `-nocrypt` flag.
 - Zero-length passwords are treated as no password.
+- Only UTF-8-encoded passwords are supported.
 
 ##### Testing
 Currently, unit tests for testing TPM support are written in such a way that TPM keys that are used 

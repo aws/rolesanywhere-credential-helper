@@ -33,6 +33,7 @@ import (
 	"hash"
 	"log"
 	"os"
+	"strings"
 
 	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/crypto/scrypt"
@@ -94,8 +95,8 @@ var cipherMap = map[string]struct {
 	"2.16.840.1.101.3.4.1.2":  {16, aes.NewCipher}, // AES-128-CBC
 }
 
-const UnencryptedBlockType = "PRIVATE KEY"
-const EncryptedBlockType = "ENCRYPTED PRIVATE KEY"
+const unencryptedBlockType = "PRIVATE KEY"
+const encryptedBlockType = "ENCRYPTED PRIVATE KEY"
 
 // 'getNewHash' creates a new hash based on the specified PRF
 func getNewHash(oid asn1.ObjectIdentifier) (func() hash.Hash, error) {
@@ -183,19 +184,13 @@ func parseDERFromPEMForPKCS8(pemDataId string, blockType string) (*pem.Block, er
 		if block.Type == blockType {
 			return block, nil
 		}
-		if block.Type == UnencryptedBlockType {
-			if Debug {
-				log.Println("PKCS#8 password provided but block type indicates that one isn't required.")
-			}
-			return nil, errors.New("PKCS#8 password provided but block type indicates that one isn't required")
-		}
 	}
-	return nil, errors.New("requested block type could not be found")
+	return nil, fmt.Errorf("requested block type could not be found. The block type detected is %s", block.Type)
 }
 
-// 'isPKCS8EncryptedPrivateKey' tries to decode the PEM block
-// and determine if the private key is PKCS8-encrypted based on the PEM block type.
-func isPKCS8EncryptedPrivateKey(pemDataId string, blockType string) bool {
+// 'isPKCS8EncryptedBlockType' tries to decode the PEM block
+// and determine if the PEM block type is 'ENCRYPTED PRIVATE KEY'.
+func isPKCS8EncryptedBlockType(pemDataId string) bool {
 	bytes, err := os.ReadFile(pemDataId)
 	if err != nil {
 		return false
@@ -207,7 +202,7 @@ func isPKCS8EncryptedPrivateKey(pemDataId string, blockType string) bool {
 		if block == nil {
 			return false
 		}
-		if block.Type == blockType {
+		if block.Type == encryptedBlockType {
 			return true
 		}
 	}
@@ -216,7 +211,7 @@ func isPKCS8EncryptedPrivateKey(pemDataId string, blockType string) bool {
 
 // 'readPKCS8PrivateKey' reads and parses an unencrypted PKCS#8 private key.
 func readPKCS8PrivateKey(privateKeyId string) (crypto.PrivateKey, error) {
-	block, err := parseDERFromPEMForPKCS8(privateKeyId, UnencryptedBlockType)
+	block, err := parseDERFromPEMForPKCS8(privateKeyId, unencryptedBlockType)
 	if err != nil {
 		return nil, err
 	}
@@ -242,8 +237,11 @@ func readPKCS8PrivateKey(privateKeyId string) (crypto.PrivateKey, error) {
 // 'readPKCS8EncryptedPrivateKey' reads and parses an encrypted PKCS#8 private key, following the process defined in RFC 8018.
 // Note that the encryption scheme must be PBES2, and the supported key types are limited to RSA and ECDSA.
 func readPKCS8EncryptedPrivateKey(privateKeyId string, pkcs8Password []byte) (crypto.PrivateKey, error) {
-	block, err := parseDERFromPEMForPKCS8(privateKeyId, EncryptedBlockType)
+	block, err := parseDERFromPEMForPKCS8(privateKeyId, encryptedBlockType)
 	if err != nil {
+		if Debug && strings.Contains(err.Error(), `The block type detected is PRIVATE KEY`) {
+			log.Println("PKCS#8 password provided but block type indicates that one isn't required.")
+		}
 		return nil, errors.New("could not parse PEM data")
 	}
 
