@@ -40,6 +40,7 @@ type CredentialsOpts struct {
 	NoTpmKeyPassword             bool
 	ServerTTL                    int
 	RoleSessionName              string
+	Pkcs8Password                string
 }
 
 // Middleware to set a custom user agent header

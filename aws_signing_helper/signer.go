@@ -358,7 +358,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			if err != nil {
 				return nil, "", err
 			}
-			return GetFileSystemSigner(opts.PrivateKeyId, opts.CertificateId, opts.CertificateBundleId, true)
+			return GetFileSystemSigner(opts.PrivateKeyId, opts.CertificateId, opts.CertificateBundleId, true, opts.Pkcs8Password)
 		} else {
 			return nil, "", err
 		}
@@ -411,9 +411,11 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 			)
 		}
 
-		_, err = ReadPrivateKeyData(privateKeyId)
-		if err != nil {
-			return nil, "", err
+		if !isPKCS8EncryptedBlockType(privateKeyId) {
+			_, err = ReadPrivateKeyData(privateKeyId, opts.Pkcs8Password)
+			if err != nil {
+				return nil, "", err
+			}
 		}
 
 		if certificate == nil {
@@ -422,7 +424,7 @@ func GetSigner(opts *CredentialsOpts) (signer Signer, signatureAlgorithm string,
 		if Debug {
 			log.Println("attempting to use FileSystemSigner")
 		}
-		return GetFileSystemSigner(privateKeyId, opts.CertificateId, opts.CertificateBundleId, false)
+		return GetFileSystemSigner(privateKeyId, opts.CertificateId, opts.CertificateBundleId, false, opts.Pkcs8Password)
 	}
 }
 
@@ -716,30 +718,6 @@ func readRSAPrivateKey(privateKeyId string) (*rsa.PrivateKey, error) {
 	return privateKey, nil
 }
 
-func readPKCS8PrivateKey(privateKeyId string) (crypto.PrivateKey, error) {
-	block, err := parseDERFromPEM(privateKeyId, "PRIVATE KEY")
-	if err != nil {
-		return nil, errors.New("could not parse PEM data")
-	}
-
-	privateKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
-	if err != nil {
-		return nil, errors.New("could not parse private key")
-	}
-
-	rsaPrivateKey, ok := privateKey.(*rsa.PrivateKey)
-	if ok {
-		return rsaPrivateKey, nil
-	}
-
-	ecPrivateKey, ok := privateKey.(*ecdsa.PrivateKey)
-	if ok {
-		return ecPrivateKey, nil
-	}
-
-	return nil, errors.New("could not parse PKCS#8 private key")
-}
-
 // Reads and parses a PKCS#12 file (which should contain an end-entity
 // certificate (optional), certificate chain (optional), and the key
 // associated with the end-entity certificate). The end-entity certificate
@@ -816,12 +794,20 @@ func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privat
 	return certChain, privateKey, nil
 }
 
-// Load the private key referenced by `privateKeyId`.
-func ReadPrivateKeyData(privateKeyId string) (crypto.PrivateKey, error) {
+// Load the private key referenced by `privateKeyId`. If `pkcs8Password` is provided, attempt to load an encrypted PKCS#8 key.
+func ReadPrivateKeyData(privateKeyId string, pkcs8Password ...string) (crypto.PrivateKey, error) {
+	if len(pkcs8Password) > 0 && pkcs8Password[0] != "" {
+		if key, err := readPKCS8EncryptedPrivateKey(privateKeyId, []byte(pkcs8Password[0])); err == nil {
+			return key, nil
+		}
+		return nil, errors.New("unable to parse private key")
+	}
+
 	if key, err := readPKCS8PrivateKey(privateKeyId); err == nil {
 		return key, nil
 	}
 
+	// Try EC and RSA keys as a fallback
 	if key, err := readECPrivateKey(privateKeyId); err == nil {
 		return key, nil
 	}

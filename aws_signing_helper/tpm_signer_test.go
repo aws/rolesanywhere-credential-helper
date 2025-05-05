@@ -103,10 +103,10 @@ func TestTPMSignerWithCertificateBundle(t *testing.T) {
 	if err != nil {
 		var logMsg string
 		if credOpts.CertificateId != "" || credOpts.PrivateKeyId != "" {
-			logMsg = fmt.Sprintf("Failed to get signer for '%s'/'%s'",
+			logMsg = fmt.Sprintf("failed to get signer for '%s'/'%s'",
 				credOpts.CertificateId, credOpts.PrivateKeyId)
 		} else {
-			logMsg = fmt.Sprintf("Failed to get signer for '%s'",
+			logMsg = fmt.Sprintf("failed to get signer for '%s'",
 				credOpts.CertIdentifier.Subject)
 		}
 		t.Log(logMsg)

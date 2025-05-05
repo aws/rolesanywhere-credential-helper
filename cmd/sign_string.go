@@ -92,6 +92,7 @@ func init() {
 		"a handle is used to refer to the key")
 	signStringCmd.PersistentFlags().Var(format, "format", "Output format. One of json, text, and bin")
 	signStringCmd.PersistentFlags().Var(digestArg, "digest", "One of SHA256, SHA384, and SHA512")
+	signStringCmd.PersistentFlags().StringVar(&pkcs8Password, "pkcs8-password", "", "Password for PKCS#8 key, if applicable")
 
 	signStringCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	signStringCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
@@ -106,6 +107,7 @@ func init() {
 	signStringCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "cert-selector")
 	signStringCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "reuse-pin")
 	signStringCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "tpm-key-password")
+	signStringCmd.MarkFlagsMutuallyExclusive("pkcs8-password", "tpm-key-password")
 }
 
 func getFixedStringToSign(publicKey crypto.PublicKey) string {

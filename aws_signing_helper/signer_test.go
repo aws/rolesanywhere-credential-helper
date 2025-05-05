@@ -103,6 +103,47 @@ func TestReadPrivateKeyData(t *testing.T) {
 	}
 }
 
+func TestReadPrivateKeyDataWithPassword(t *testing.T) {
+	keyTypes := []string{"ec-prime256v1", "ec-secp384r1", "rsa-1024", "rsa-2048"}
+	supportedEncryptions := []string{
+		"aes128cbc", "aes192cbc", "aes256cbc",
+		"hmacWithSHA256", "hmacWithSHA384", "hmacWithSHA512",
+		"scrypt",
+	}
+
+	var fixtures []string
+	for _, keyType := range keyTypes {
+		for _, supportedEncryption := range supportedEncryptions {
+			fixtures = append(fixtures, fmt.Sprintf("../tst/certs/%s-key-pkcs8-%s.pem", keyType, supportedEncryption))
+		}
+	}
+
+	for _, fixture := range fixtures {
+		_, err := ReadPrivateKeyData(fixture, "password")
+
+		if err != nil {
+			t.Log("Failed to read private key data")
+			t.Fail()
+		}
+	}
+}
+
+func TestReadPrivateKeyDataWithIncorrectPassword(t *testing.T) {
+	fixtures := []string{
+		"../tst/certs/ec-prime256v1-key-pkcs8-aes256cbc.pem",
+		"../tst/certs/rsa-2048-key-pkcs8-scrypt.pem",
+	}
+
+	for _, fixture := range fixtures {
+		_, err := ReadPrivateKeyData(fixture, "incorrect-password")
+
+		if err == nil || !strings.Contains(err.Error(), "unable to parse private key") {
+			t.Log("Failed to throw a handled error")
+			t.Fail()
+		}
+	}
+}
+
 func TestReadInvalidPrivateKeyData(t *testing.T) {
 	_, err := ReadPrivateKeyData("../tst/certs/invalid-rsa-key.pem")
 	if err == nil || !strings.Contains(err.Error(), "unable to parse private key") {
@@ -123,7 +164,7 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 	certificate1 := certificateList1[0]
 	pkPath := "../tst/certs/rsa-2048-key.pem"
 
-	signer, signingAlgorithm, err := GetFileSystemSigner(pkPath, "", path, false)
+	signer, signingAlgorithm, err := GetFileSystemSigner(pkPath, "", path, false, "")
 	if err != nil {
 		t.Log(err)
 		t.Fail()
@@ -184,6 +225,16 @@ func TestBuildAuthorizationHeader(t *testing.T) {
 func TestSign(t *testing.T) {
 	testTable := []CredentialsOpts{}
 
+	encryptionOpts := []string{
+		"aes128cbc",
+		"aes192cbc",
+		"aes256cbc",
+		"hmacWithSHA256",
+		"hmacWithSHA384",
+		"hmacWithSHA512",
+		"scrypt",
+	}
+
 	// TODO: Include tests for PKCS#12 containers, once fixtures are created
 	// with end-entity certificates.
 	ec_digests := []string{"sha1", "sha256", "sha384", "sha512"}
@@ -204,6 +255,15 @@ func TestSign(t *testing.T) {
 				CertificateId: cert,
 				PrivateKeyId:  key,
 			})
+
+			for _, method := range encryptionOpts {
+				key = fmt.Sprintf("../tst/certs/ec-%s-key-pkcs8-%s.pem", curve, method)
+				testTable = append(testTable, CredentialsOpts{
+					CertificateId: cert,
+					PrivateKeyId:  key,
+					Pkcs8Password: "password",
+				})
+			}
 
 			cert = fmt.Sprintf("../tst/certs/ec-%s-%s.p12",
 				curve, digest)
@@ -237,6 +297,15 @@ func TestSign(t *testing.T) {
 				CertificateId: cert,
 				PrivateKeyId:  key,
 			})
+
+			for _, method := range encryptionOpts {
+				key = fmt.Sprintf("../tst/certs/rsa-%s-key-pkcs8-%s.pem", keylen, method)
+				testTable = append(testTable, CredentialsOpts{
+					CertificateId: cert,
+					PrivateKeyId:  key,
+					Pkcs8Password: "password",
+				})
+			}
 
 			cert = fmt.Sprintf("../tst/certs/rsa-%s-%s.p12",
 				keylen, digest)
