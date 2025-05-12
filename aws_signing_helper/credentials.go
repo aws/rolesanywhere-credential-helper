@@ -12,6 +12,7 @@ import (
 
 	"github.com/aws/aws-sdk-go-v2/aws"
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
+	awshttp "github.com/aws/aws-sdk-go-v2/aws/transport/http"
 	"github.com/aws/aws-sdk-go-v2/config"
 	"github.com/aws/rolesanywhere-credential-helper/rolesanywhere"
 	"github.com/aws/smithy-go/middleware"
@@ -81,18 +82,12 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 	}
 
 	// Custom HTTP client with proxy and TLS settings
-	var tr *http.Transport
-	if opts.WithProxy {
-		tr = &http.Transport{
-			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: opts.NoVerifySSL},
-			Proxy:           http.ProxyFromEnvironment,
+	httpClient := awshttp.NewBuildableClient().WithTransportOptions(func(tr *http.Transport) {
+		tr.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: opts.NoVerifySSL}
+		if opts.WithProxy {
+			tr.Proxy = http.ProxyFromEnvironment
 		}
-	} else {
-		tr = &http.Transport{
-			TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: opts.NoVerifySSL},
-		}
-	}
-	httpClient := &http.Client{Transport: tr}
+	})
 	ctx := context.TODO()
 	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(opts.Region), config.WithHTTPClient(httpClient), config.WithClientLogMode(logMode))
 	if err != nil {
