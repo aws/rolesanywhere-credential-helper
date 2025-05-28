@@ -261,7 +261,7 @@ test: test-certs
 	go test ./... -list . | grep -E '^Test[a-zA-Z0-9]+' | grep -vE 'TPMSigner|PKCS11Signer' | tr '\n' '|' | sed 's/|$$//' | xargs -t go test ./... -run
 
 define CERT_RECIPE
-	@SUBJ=$$(echo "$@" | sed 's^\(.*/\)\?\([^/]*\)-cert.pem^\2^'); \
+	@SUBJ=$$(echo "$@" | sed 's/.*\/\([^/]*\)-cert\.pem/\1/'); \
 	[ "$${SUBJ#tpm-}" != "$${SUBJ}" ] && ENG="-provider tpm2 -provider default -propquery '?provider=tpm2'";  \
 	if [ "$${SUBJ#tpm-sw-}" != "$${SUBJ}" ]; then $(START_SWTPM_TCP); TPM_PREFIX="$(SWTPM_PREFIX)"; fi; \
 	if echo $< | grep -q "loaded"; then KEY=handle:0x$(word 4, $(subst -, , $<)); else KEY=$<; fi; \
@@ -282,7 +282,7 @@ endef
 # Go PKCS#12 only supports SHA1 and 3DES!!
 %.p12: %-cert.pem
 	KEY=$$(echo "$@" | sed 's/-[^-]*\.p12/-key.pem/'); \
-	CERT=$$(echo "$@" | sed 's/.p12/-cert.pem/'); \
+	CERT=$$(echo "$@" | sed 's/\.p12/-cert.pem/'); \
 	openssl pkcs12 -export -passout pass: -macalg SHA1 \
 		-certpbe pbeWithSHA1And3-KeyTripleDES-CBC \
 		-keypbe pbeWithSHA1And3-KeyTripleDES-CBC \
