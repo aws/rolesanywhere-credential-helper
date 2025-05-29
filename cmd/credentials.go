@@ -3,8 +3,10 @@ package cmd
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/ioutil"
 	"math/big"
+	"slices"
 	"strings"
 
 	helper "github.com/aws/rolesanywhere-credential-helper/aws_signing_helper"
@@ -50,6 +52,8 @@ var (
 		X509_ISSUER_KEY,
 		X509_SERIAL_KEY,
 	}
+
+	DUPLICATE_KEYS_ERR_STR = "duplicate %s keys can't be present in cert selector"
 )
 
 type MapEntry struct {
@@ -119,15 +123,12 @@ func getStringMap(s string) (map[string]string, error) {
 		}
 		key := strings.TrimSpace(strings.Join(keyTokens[1:], "="))
 
-		isValidKey := false
-		for _, validKey := range validCertSelectorKeys {
-			if validKey == key {
-				isValidKey = true
-				break
-			}
-		}
+		isValidKey := slices.Contains(validCertSelectorKeys, key)
 		if !isValidKey {
 			return nil, errors.New("cert selector contained invalid key")
+		}
+		if _, ok := m[key]; ok {
+			return nil, fmt.Errorf(DUPLICATE_KEYS_ERR_STR, key)
 		}
 
 		valueTokens := strings.Split(tokens[1], "=")
@@ -150,38 +151,51 @@ func getMapFromJsonEntries(jsonStr string) (map[string]string, error) {
 		return nil, errors.New("unable to parse JSON map entries")
 	}
 	for _, mapEntry := range mapEntries {
-		isValidKey := false
-		for _, validKey := range validCertSelectorKeys {
-			if validKey == mapEntry.Key {
-				isValidKey = true
-				break
-			}
-		}
+		isValidKey := slices.Contains(validCertSelectorKeys, mapEntry.Key)
 		if !isValidKey {
 			return nil, errors.New("cert selector contained invalid key")
+		}
+		if _, ok := m[mapEntry.Key]; ok {
+			return nil, fmt.Errorf(DUPLICATE_KEYS_ERR_STR, mapEntry.Key)
 		}
 		m[mapEntry.Key] = mapEntry.Value
 	}
 	return m, nil
 }
 
-func createCertSelectorFromMap(certSelectorMap map[string]string) helper.CertIdentifier {
-	var certIdentifier helper.CertIdentifier
+func createCertSelectorFromMap(certSelectorMap map[string]string) (helper.CertIdentifier, error) {
+	var (
+		certIdentifier helper.CertIdentifier
+		keyMap         map[string]bool
+	)
 
+	keyMap = make(map[string]bool)
 	for key, value := range certSelectorMap {
 		switch key {
 		case X509_SUBJECT_KEY:
+			if keyMap[X509_SUBJECT_KEY] {
+				return helper.CertIdentifier{}, fmt.Errorf(DUPLICATE_KEYS_ERR_STR, X509_SUBJECT_KEY)
+			}
+			keyMap[X509_SUBJECT_KEY] = true
 			certIdentifier.Subject = value
 		case X509_ISSUER_KEY:
+			if keyMap[X509_ISSUER_KEY] {
+				return helper.CertIdentifier{}, fmt.Errorf(DUPLICATE_KEYS_ERR_STR, X509_ISSUER_KEY)
+			}
+			keyMap[X509_ISSUER_KEY] = true
 			certIdentifier.Issuer = value
 		case X509_SERIAL_KEY:
+			if keyMap[X509_SERIAL_KEY] {
+				return helper.CertIdentifier{}, fmt.Errorf(DUPLICATE_KEYS_ERR_STR, X509_SERIAL_KEY)
+			}
+			keyMap[X509_SERIAL_KEY] = true
 			certSerial := new(big.Int)
 			certSerial.SetString(value, 16)
 			certIdentifier.SerialNumber = certSerial
 		}
 	}
 
-	return certIdentifier
+	return certIdentifier, nil
 }
 
 func PopulateCertIdentifierFromJsonStr(jsonStr string) (helper.CertIdentifier, error) {
@@ -189,7 +203,7 @@ func PopulateCertIdentifierFromJsonStr(jsonStr string) (helper.CertIdentifier, e
 	if err != nil {
 		return helper.CertIdentifier{}, err
 	}
-	return createCertSelectorFromMap(certSelectorMap), nil
+	return createCertSelectorFromMap(certSelectorMap)
 }
 
 // Populates a CertIdentifier object using a cert selector string
@@ -199,7 +213,7 @@ func PopulateCertIdentifierFromCertSelectorStr(certSelectorStr string) (helper.C
 		return helper.CertIdentifier{}, err
 	}
 
-	return createCertSelectorFromMap(certSelectorMap), nil
+	return createCertSelectorFromMap(certSelectorMap)
 }
 
 // Populates a CertIdentifier using a cert selector
@@ -218,12 +232,12 @@ func PopulateCertIdentifier(certSelector string, systemStoreName string) (helper
 			}
 			certIdentifier, err = PopulateCertIdentifierFromJsonStr(string(certSelectorFile[:]))
 			if err != nil {
-				return helper.CertIdentifier{}, errors.New("unable to parse JSON cert selector")
+				return helper.CertIdentifier{}, err
 			}
 		} else {
 			certIdentifier, err = PopulateCertIdentifierFromCertSelectorStr(certSelector)
 			if err != nil {
-				return helper.CertIdentifier{}, errors.New("unable to parse cert selector string")
+				return helper.CertIdentifier{}, err
 			}
 		}
 	}

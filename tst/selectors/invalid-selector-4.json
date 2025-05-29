@@ -1,0 +1,18 @@
+[
+    {
+        "Key": "x509Subject",
+        "Value": "CN=Subject"
+    },
+    {
+        "Key": "x509Issuer",
+        "Value": "CN=Issuer"
+    },
+    {
+        "Key": "x509Serial",
+        "Value": "15D19632234BF759A32802C0DA88F9E8AFC8702D"
+    },
+    {
+        "Key": "x509Subject",
+        "Value": "CN=Subject2"
+    }
+]
