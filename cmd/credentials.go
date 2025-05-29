@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"math/big"
+	"regexp"
 	"slices"
 	"strings"
 
@@ -54,6 +55,7 @@ var (
 	}
 
 	DUPLICATE_KEYS_ERR_STR = "duplicate %s keys can't be present in cert selector"
+	CERT_SELECTOR_KEY_VALUE_REGEX = regexp.MustCompile(`^\s*Key=(.+?),Value=(.+?)\s*(?:Key=|$)`)
 )
 
 type MapEntry struct {
@@ -112,31 +114,41 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 
 // Parses a cert selector string to a map
 func getStringMap(s string) (map[string]string, error) {
-	entries := strings.Split(s, " ")
-
 	m := make(map[string]string)
-	for _, e := range entries {
-		tokens := strings.SplitN(e, ",", 2)
-		keyTokens := strings.Split(tokens[0], "=")
-		if keyTokens[0] != "Key" {
-			return nil, errors.New("invalid cert selector map key")
-		}
-		key := strings.TrimSpace(strings.Join(keyTokens[1:], "="))
+	for {
+		match := CERT_SELECTOR_KEY_VALUE_REGEX.FindStringSubmatch(s)
+		if match == nil || len(match) == 0 {
+			break
+		} else {
+			if len(match) < 3 {
+				return nil, errors.New("unable to parse cert selector string")
+			}
 
-		isValidKey := slices.Contains(validCertSelectorKeys, key)
-		if !isValidKey {
-			return nil, errors.New("cert selector contained invalid key")
-		}
-		if _, ok := m[key]; ok {
-			return nil, fmt.Errorf(DUPLICATE_KEYS_ERR_STR, key)
-		}
+			key := match[1]
+			isValidKey := slices.Contains(validCertSelectorKeys, key)
+			if !isValidKey {
+				return nil, errors.New("cert selector contained invalid key")
+			}
+			value := match[2]
 
-		valueTokens := strings.Split(tokens[1], "=")
-		if valueTokens[0] != "Value" {
-			return nil, errors.New("invalid cert selector map value")
+			if _, ok := m[key]; ok {
+				return nil, fmt.Errorf(DUPLICATE_KEYS_ERR_STR, key)
+			}
+			m[key] = value
+
+			// Remove the matching prefix from the input cert selector string
+			matchEnd := len(match[0])
+			if matchEnd != len(s) {
+				// Since the `Key=` part of the next key-value pair will have been matched, don't include it in the prefix to remove
+				matchEnd -= 4
+			}
+			s = s[matchEnd:]
 		}
-		value := strings.TrimSpace(strings.Join(valueTokens[1:], "="))
-		m[key] = value
+	}
+
+	// There is some part of the cert selector string that couldn't be parsed by the above loop
+	if len(s) != 0 {
+		return nil, errors.New("unable to parse cert selector string")
 	}
 
 	return m, nil
