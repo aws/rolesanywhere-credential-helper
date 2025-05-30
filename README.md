@@ -64,7 +64,7 @@ If you would like to use a JSON file, it should look something like this:
 If the above is placed in a file called `selector.json`, it can be specified with the `--cert-selector` flag through `file://path/to/selector.json`. The very same certificate selector argument can be specified through the command line as follows:
 
 ```
---cert-selector Key=x509Subject,Value=CN=Subject Key=x509Issuer,Value=CN=Issuer Key=x509Serial,Value=15D19632234BF759A32802C0DA88F9E8AFC8702D
+--cert-selector "Key=x509Subject,Value=CN=Subject Key=x509Issuer,Value=CN=Issuer Key=x509Serial,Value=15D19632234BF759A32802C0DA88F9E8AFC8702D"
 ```
 
 The example given here is quite simple (the Subject and Issuer each contain only a single RDN), so it may not be obvious, but the Subject and Issuer values roughly follow the [RFC 2253](https://www.rfc-editor.org/rfc/rfc2253.html) Distinguished Names syntax.
@@ -203,51 +203,6 @@ the signing key (the loading process will have to be done with other tools and w
 you to provivde your parent key password) into the TPM and referencing its handle in the command 
 you want to call with the credential helper. 
 
-#### Password-Encrypted Private Keys
-You can pass a password-encrypted private key to the credential helper for signing the request. The credential helper supports two formats of PKCS#8 private key files:
-- Unencrypted: `-----BEGIN PRIVATE KEY-----`
-- Password-encrypted: `-----BEGIN ENCRYPTED PRIVATE KEY-----` (using PBES2)
-
-To encrypt a plaintext private key stored on disk, you can use `openssl`:
-
-```bash
-openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pass:password -v2 aes-256-cbc
-```
-
-This command encrypts a PEM file containing an unencrypted private key in PKCS#8 format using the AES-256-CBC cipher with the password "password". The encrypted key is saved to a PEM file. Supported ciphers include:
-
-- AES-128-CBC
-- AES-192-CBC
-- AES-256-CBC
-
-You can also encrypt the key using a different pseudorandom function (PRF):
-
-```bash
-openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pass:password -v2prf hmacWithSHA256
-```
-
-Supported PRFs include:
-
-- HMACWithSHA256
-- HMACWithSHA384
-- HMACWithSHA512
-
-If you don't specify a cipher or PRF, the key is converted to PKCS#8 format using PKCS#5 v2.0 with AES-256-CBC and HMACWithSHA256.
-The credential helper supports decrypting PKCS#8-encrypted private keys using PBES2, as defined in PKCS#5 (RFC 8018), with the options mentioned earlier. The key derivation function is PBKDF2, as specified in RFC 8018.
-To enhance key protection, you can use scrypt to secure the PKCS#8-encoded key. Scrypt, defined in RFC 7914, is a memory-intensive KDF that improves resistance to attacks.
-To encrypt a key using scrypt with OpenSSL:
-
-```bash
-openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pass:password -scrypt
-```
-
-This command uses the default scrypt parameters: N=16,384, r=8, and p=1.
-After obtaining the encrypted key in a PEM file, pass it to the credential helper along with the password as the value for the `--pkcs8-password` option during signing. Note the following:
-
-- If you don't want to encrypt a private key and are using OpenSSL, use the `-nocrypt` flag.
-- Zero-length passwords are treated as no password.
-- Only UTF-8-encoded passwords are supported.
-
 ##### Testing
 Currently, unit tests for testing TPM support are written in such a way that TPM keys that are used 
 for testing are either bound to a hardware TPM, or are bound to a software TPM. For software TPM 
@@ -352,6 +307,52 @@ Below is an example of how you can use the credential helper with a TPM key file
     --trust-anchor-arn ${TA_ARN} \
     --profile-arn ${PROFILE_ARN}
 ```
+
+#### Password-Encrypted Private Keys
+You can pass a password-encrypted private key to the credential helper for signing the request. The credential helper supports two formats of PKCS#8 private key files:
+- Unencrypted: `-----BEGIN PRIVATE KEY-----`
+- Password-encrypted: `-----BEGIN ENCRYPTED PRIVATE KEY-----` (using PBES2)
+
+To encrypt a plaintext private key stored on disk, you can use `openssl`:
+
+```bash
+openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pass:password -v2 aes-256-cbc
+```
+
+This command encrypts a PEM file containing an unencrypted private key in PKCS#8 format using the AES-256-CBC cipher with the password "password". The encrypted key is saved to a PEM file. Supported ciphers include:
+
+- AES-128-CBC
+- AES-192-CBC
+- AES-256-CBC
+
+You can also encrypt the key using a different pseudorandom function (PRF):
+
+```bash
+openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pass:password -v2prf hmacWithSHA256
+```
+
+Supported PRFs include:
+
+- HMACWithSHA256
+- HMACWithSHA384
+- HMACWithSHA512
+
+If you don't specify a cipher or PRF, the key is converted to PKCS#8 format using PKCS#5 v2.0 with AES-256-CBC and HMACWithSHA256.
+The credential helper supports decrypting PKCS#8-encrypted private keys using PBES2, as defined in PKCS#5 (RFC 8018), with the options mentioned earlier. The key derivation function is PBKDF2, as specified in RFC 8018.
+To enhance key protection, you can use scrypt to secure the PKCS#8-encoded key. Scrypt, defined in RFC 7914, is a memory-intensive KDF that improves resistance to attacks.
+To encrypt a key using scrypt with OpenSSL:
+
+```bash
+openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pass:password -scrypt
+```
+
+This command uses the default scrypt parameters: N=16,384, r=8, and p=1.
+After obtaining the encrypted key in a PEM file, pass it to the credential helper along with the password as the value for the `--pkcs8-password` option during signing. Note the following:
+
+- If you don't want to encrypt a private key and are using OpenSSL, use the `-nocrypt` flag.
+- Zero-length passwords are treated as no password.
+- Only UTF-8-encoded passwords are supported.
+
 
 #### Other Notes
 
