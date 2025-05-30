@@ -259,12 +259,18 @@ func DefaultCertContainerToString(certContainer CertificateContainer) string {
 
 	fingerprint := sha1.Sum(cert.Raw) // nosemgrep
 	fingerprintHex := hex.EncodeToString(fingerprint[:])
-	certStr = fmt.Sprintf("%s \"%s\"\n", fingerprintHex, cert.Subject.String())
+	serialHexUpper := strings.ToUpper(cert.SerialNumber.Text(16))
+	certStr = fmt.Sprintf("Hex Fingerprint: %s\n", fingerprintHex)
+	certStr += fmt.Sprintf("Subject: %s\n", cert.Subject.String())
+	certStr += fmt.Sprintf("Issuer: %s\n", cert.Issuer.String())
+	certStr += fmt.Sprintf("Serial Number: %s\n", serialHexUpper)
 
 	// Only for PKCS#11
 	if certContainer.Uri != "" {
-		certStr += fmt.Sprintf("\tURI: %s\n", certContainer.Uri)
+		certStr += fmt.Sprintf("URI: %s\n", certContainer.Uri)
 	}
+
+	certStr += "\n"
 
 	return certStr
 }
