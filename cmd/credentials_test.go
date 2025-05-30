@@ -31,9 +31,11 @@ func TestInvalidSelectorParsing(t *testing.T) {
 		"file://../tst/selectors/invalid-selector.json",
 		"file://../tst/selectors/invalid-selector-2.json",
 		"file://../tst/selectors/invalid-selector-3.json",
+		"file://../tst/selectors/invalid-selector-4.json",
 		"laksdjadf",
 		"Key=laksdjf,Valalsd",
 		"Key=aljsdf,Value=aljsdfadsf",
+		"Key=x509Subject,Value=CN=Subject Key=x509Issuer,Value=CN=Issuer Key=x509Serial,Value=15D19632234BF759A32802C0DA88F9E8AFC8702D Key=x509Subject,Value=CN=Subject2",
 	}
 	for _, fixture := range fixtures {
 		_, err := PopulateCertIdentifier(fixture, "MY")

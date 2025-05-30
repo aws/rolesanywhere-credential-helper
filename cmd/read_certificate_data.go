@@ -40,7 +40,7 @@ var readCertificateDataCmd = &cobra.Command{
 	Run: func(cmd *cobra.Command, args []string) {
 		certIdentifier, err := PopulateCertIdentifier(certSelector, systemStoreName)
 		if err != nil {
-			log.Println("unable to populate CertIdentifier")
+			log.Println(err)
 			os.Exit(1)
 		}
 
