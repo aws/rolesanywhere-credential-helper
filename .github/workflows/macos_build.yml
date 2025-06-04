@@ -15,11 +15,11 @@ jobs:
       matrix:
         include:
           - runner_image: macos-13
-            s3_path: X86_64/OSX/MacOS
-            display_name: "MacOS Intel"
+            s3_path: ${{ secrets.MACOS_X86_64_S3_PATH }}
+            display_name: "MacOS X86_64"
           - runner_image: macos-14
-            s3_path: Aarch64/OSX/MacOS
-            display_name: "MacOS Arm64"
+            s3_path: ${{ secrets.MACOS_AARCH64_S3_PATH }}
+            display_name: "MacOS Aarch64"
 
     steps: 
       - name: Checkout code
@@ -35,14 +35,13 @@ jobs:
         run: |
           echo "Building on ${{ matrix.display_name }}"
           make release
-          make test-certs
           make test
 
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4.2.0
         with:
           role-to-assume: ${{ secrets.BINARY_BUILDING_ROLE_ARN }}
-          role-session-name: githubosxbuild
+          role-session-name: githubmacosbuild
           aws-region: us-west-2
           
       - name: Upload to S3
