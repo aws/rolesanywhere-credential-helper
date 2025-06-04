@@ -15,10 +15,10 @@ jobs:
       matrix:
         include:
           - runner_image: macos-13
-            s3_path: ${{ secrets.MACOS_X86_64_S3_PATH }}
+            arch: "X86_64"
             display_name: "MacOS X86_64"
           - runner_image: macos-14
-            s3_path: ${{ secrets.MACOS_AARCH64_S3_PATH }}
+            arch: "Aarch64"
             display_name: "MacOS Aarch64"
 
     steps: 
@@ -48,4 +48,9 @@ jobs:
         id: s3
         run: |
           S3_DESTINATION="s3://${{ secrets.INTERMEDIATE_BUCKET_NAME }}"
-          aws s3 cp build/bin/aws_signing_helper "${S3_DESTINATION}/${{ matrix.s3_path }}/aws_signing_helper"
+          if [[ "${{ matrix.arch }}" == "X86_64" ]]; then
+            S3_PATH=${{ secrets.MACOS_X86_64_S3_PATH }}
+          else
+            S3_PATH=${{ secrets.MACOS_AARCH64_S3_PATH }}
+          fi
+          aws s3 cp build/bin/aws_signing_helper "${S3_DESTINATION}/${S3_PATH}/aws_signing_helper"
