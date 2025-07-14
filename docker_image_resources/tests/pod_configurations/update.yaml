@@ -1,0 +1,73 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: update-test
+spec:
+  containers:
+  - name: credential-helper
+    securityContext:
+      runAsUser: 0 #Necessary for write to root directory
+    image: $REGISTRY/$REPOSITORY:$VERSION
+    imagePullPolicy: Never #Needed when using a local image
+    resources:
+      requests:
+        memory: "128Mi"
+        cpu: "100m"
+      limits:
+        memory: "256Mi"
+        cpu: "200m"
+    args:
+    - "update"
+    - "--certificate"
+    - "/certs/certificate.pem"
+    - "--private-key"
+    - "/certs/private_key.pem"
+    - "--trust-anchor-arn"
+    - "$TRUST_ANCHOR_ARN"
+    - "--profile-arn"
+    - "$PROFILE_ARN"
+    - "--role-arn"
+    - "$ROLE_ARN"
+    - "--debug"
+    volumeMounts:
+    - name: certs-volume
+      mountPath: /certs
+      readOnly: true
+    - name: aws-credentials
+      mountPath: /root/.aws
+
+  - name: test-client
+    image: amazon/aws-cli:latest
+    resources:
+      requests:
+        memory: "64Mi"
+        cpu: "50m"
+      limits:
+        memory: "128Mi"
+        cpu: "100m"
+    env:
+    - name: ROLE_ARN
+      value: "$ROLE_ARN"
+    command:
+    - "/bin/bash"
+    - "-c"
+    - |
+      echo "Executing auth validation script..."
+      # Execute the script
+      /resources/evaluate-caller-identity.sh
+    volumeMounts:
+    - name: aws-credentials
+      mountPath: /root/.aws
+    - name: test-volume
+      mountPath: /resources
+
+  volumes:
+  - name: certs-volume
+    configMap:
+      name: cert-files
+  - name: aws-credentials
+    emptyDir: {}
+  - name: test-volume
+    configMap:
+      name: test-resources
+      defaultMode: 0755 #Ensure client test script is executable
