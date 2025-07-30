@@ -34,6 +34,12 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
+      - name: Login to Amazon ECR Public
+        id: login-ecr-public
+        uses: aws-actions/amazon-ecr-login@v2
+        with: 
+          registry-type: public
+
       - name: Tag Images and Push to ECR
         id: tag_and_push  
         run: |
