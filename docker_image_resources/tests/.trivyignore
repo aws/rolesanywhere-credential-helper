@@ -1,0 +1,2 @@
+# We do not trigger affected codepaths in our implementation
+CVE-2025-22874

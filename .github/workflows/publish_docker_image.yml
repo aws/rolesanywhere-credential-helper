@@ -1,0 +1,81 @@
+name: Publish Credential Helper Docker Image
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch: # Temporarily introduced for initial push to repo. Will be removed in a subsequent commit
+
+jobs:
+  publish-images-to-ecr:
+    name: Publish Built Images to ECR 
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write   # This is required for requesting the JWT for AWS authentication
+    env:
+      PUBLIC_REGISTRY: public.ecr.aws/rolesanywhere
+      PUBLIC_REPOSITORY: credential-helper
+      STAGING_REGISTRY: 264252446756.dkr.ecr.us-east-1.amazonaws.com
+      STAGING_REPOSITORY: credential-helper-staging
+      AWS_REGION: us-east-1
+      AWS_SIGNER_PLUGIN_LINK: https://d2hvyiie56hcat.cloudfront.net/linux/amd64/plugin/latest/notation-aws-signer-plugin.zip
+      AWS_SIGNER_PLUGIN_FILENAME: notation-aws-signer-plugin.zip
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@master
+        with:
+          role-to-assume: arn:aws:iam::264252446756:role/GithubActionsAccessRole 
+          aws-region: ${{ env.AWS_REGION }}
+
+      - name: Login to Amazon ECR
+        id: login-ecr
+        uses: aws-actions/amazon-ecr-login@v2
+
+      - name: Tag Images and Push to ECR
+        id: tag_and_push  
+        run: |
+          AMD64_DOCKER_IMAGE="${{ env.STAGING_REGISTRY }}/${{ env.STAGING_REPOSITORY }}:${{ github.sha }}-amd64"
+          ARM64_DOCKER_IMAGE="${{ env.STAGING_REGISTRY }}/${{ env.STAGING_REPOSITORY }}:${{ github.sha }}-arm64"
+          docker pull $AMD64_DOCKER_IMAGE
+          docker pull $ARM64_DOCKER_IMAGE
+          # extract version from executable
+          VERSION=$(docker run --rm $AMD64_DOCKER_IMAGE version)
+          TIMESTAMP=$(date +%Y.%m.%d.%H.%M)
+          docker tag $AMD64_DOCKER_IMAGE ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:$VERSION-amd64-$TIMESTAMP
+          docker tag $AMD64_DOCKER_IMAGE ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:latest-amd64
+          docker push ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:$VERSION-amd64-$TIMESTAMP
+          AMD64_IMAGE_SHA=$(docker push ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:latest-amd64 | grep digest | cut -d' ' -f3 )
+          echo "amd64_image_sha=$AMD64_IMAGE_SHA" >> "$GITHUB_OUTPUT"
+          docker tag $ARM64_DOCKER_IMAGE ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:$VERSION-arm64-$TIMESTAMP
+          docker tag $ARM64_DOCKER_IMAGE ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:latest-arm64
+          docker push ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:$VERSION-arm64-$TIMESTAMP
+          ARM64_IMAGE_SHA=$(docker push ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:latest-arm64 | grep digest | cut -d' ' -f3 )
+          echo "arm64_image_sha=$ARM64_IMAGE_SHA" >> "$GITHUB_OUTPUT"
+          docker manifest create ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:latest \
+            ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@$AMD64_IMAGE_SHA \
+            ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@$ARM64_IMAGE_SHA 
+          echo "manifest_sha=$(docker manifest push ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:latest)" >> "$GITHUB_OUTPUT"
+
+      - name: Setup Notation CLI
+        uses: notaryproject/notation-action/setup@v1
+
+      - name: Retrieve AWS Signer Checksum Value 
+        id: checksum
+        run: |
+          curl -LO ${{ env.AWS_SIGNER_PLUGIN_LINK}}
+          echo "signer_sha=$(sha256sum ${{env.AWS_SIGNER_PLUGIN_FILENAME}} | cut -f1 -d' ')" >> "$GITHUB_OUTPUT"
+
+      - name: Sign the Images and Manifest with Notation 
+        uses: notaryproject/notation-action/sign@v1
+        with:
+          plugin_name: com.amazonaws.signer.notation.plugin
+          plugin_url: https://d2hvyiie56hcat.cloudfront.net/linux/amd64/plugin/latest/notation-aws-signer-plugin.zip 
+          plugin_checksum: ${{steps.checksum.outputs.signer_sha}} # Required in order to use the AWS signer plugin
+          key_id: arn:aws:signer:us-east-1:264252446756:/signing-profiles/IAM_ROLES_ANYWHERE_SIGNING_PROFILE_V1_0
+          target_artifact_reference: |-
+            ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@${{steps.tag_and_push.outputs.manifest_sha}}
+            ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@${{steps.tag_and_push.outputs.amd64_image_sha}}
+            ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@${{steps.tag_and_push.outputs.arm64_image_sha}}
