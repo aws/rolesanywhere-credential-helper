@@ -330,7 +330,7 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	endpoint.PortNum = listener.Addr().(*net.TCPAddr).Port
 	log.Println("Local server started on port:", endpoint.PortNum)
 	log.Println("Make it available to the sdk by running:")
-	log.Printf("export AWS_EC2_METADATA_SERVICE_ENDPOINT=http://%s:%d/", LocalHostAddress, endpoint.PortNum)
+	log.Printf("export AWS_EC2_METADATA_SERVICE_ENDPOINT=http://%s:%d", LocalHostAddress, endpoint.PortNum)
 	if err := endpoint.Server.Serve(listener); err != nil {
 		log.Println("Httpserver: ListenAndServe() error")
 		os.Exit(1)
