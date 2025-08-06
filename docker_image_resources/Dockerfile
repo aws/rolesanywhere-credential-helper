@@ -1,6 +1,6 @@
 # Stage 1: Build the IAM Roles Anywhere Credential Helper from source
 # Version pinned to most recent stable release
-FROM --platform=$TARGETPLATFORM public.ecr.aws/amazonlinux/amazonlinux:2023.7.20250527.1 AS builder
+FROM --platform=$TARGETPLATFORM public.ecr.aws/amazonlinux/amazonlinux:2023.8.20250721.2 AS builder
 
 # Add build arguments
 ARG TARGETARCH
@@ -8,7 +8,7 @@ ARG VERSION
 
 # Install build dependencies
 RUN dnf install -y \
-    golang-1.24.3-1.amzn2023.0.1 \
+    golang-1.24.5-1.amzn2023.0.1 \
     make \
     && dnf clean all
 
