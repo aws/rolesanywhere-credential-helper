@@ -1,2 +1,4 @@
-# We do not trigger affected codepaths in our implementation
-CVE-2025-22874
+# The CVE in question only affects using Row.Scan and Rows.Scan from the database/sql package 
+# Since we do not utilize "database/sql" the credential helper is unaffected by this vulnerability 
+# A follow-up release targeting Go 1.24.6 will be scheduled when it is made available on utilized build platforms to mitigate this vulnerability
+CVE-2025-47907

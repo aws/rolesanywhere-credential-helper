@@ -1,4 +1,4 @@
-VERSION=1.7.0
+VERSION=1.7.1
 # IMPORTANT: This VERSION variable is parsed by the GitHub Actions image build workflow.
 # Please maintain the X.Y.Z format to ensure compatibility with the automated build process. 
 .PHONY: release
