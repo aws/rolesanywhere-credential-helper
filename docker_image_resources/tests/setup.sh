@@ -38,6 +38,10 @@ echo "Loading image into Kind cluster..."
 kind load docker-image "${REGISTRY}/${REPOSITORY}:${VERSION}" --name credential-helper-test
 
 # Create ConfigMap for certificates
+# SECURITY NOTE: ConfigMaps are used here for testing purposes only.
+# In production environments, use Kubernetes Secrets instead of ConfigMaps
+# for sensitive data like certificates and private keys, as ConfigMaps
+# store data in plain text and are not encrypted at rest by default.
 echo "Creating ConfigMap for certificates..."
 kubectl delete configmap cert-files --ignore-not-found
 kubectl create configmap cert-files \
@@ -45,6 +49,8 @@ kubectl create configmap cert-files \
   --from-file=private_key.pem=$PRIVATE_KEY_PATH
 
 # Create the ConfigMap for test-client script
+# SECURITY NOTE: ConfigMaps are appropriate for non-sensitive configuration data.
+# This ConfigMap contains test scripts and is suitable for testing environments.
 echo "Creating ConfigMap for testing resources..."
 kubectl delete configmap test-resources --ignore-not-found
 kubectl create configmap test-resources \

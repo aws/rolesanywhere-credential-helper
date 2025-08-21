@@ -11,13 +11,10 @@ openssl req -new -key docker_image_resources/tests/certs/private_key.pem \
 -out /tmp/certificate.csr \
 -subj "/CN=credential-helper-test/O=Amazon/OU=Cryptography"
 
-# Convert CSR to base64 for AWS CLI
-CSR_CONTENT=$(cat /tmp/certificate.csr | base64 -w 0)
-
 # Issue certificate using AWS Private CA
 CERTIFICATE_ARN=$(aws acm-pca issue-certificate \
 --certificate-authority-arn $PCA_ARN \
---csr $CSR_CONTENT \
+--csr fileb:///tmp/certificate.csr \
 --signing-algorithm "SHA256WITHRSA" \
 --validity Value=1,Type=DAYS \
 --query 'CertificateArn' \

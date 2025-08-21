@@ -28,6 +28,42 @@ make release
 
 After building, you should see the `aws_signing_helper` binary built for your system at `build/bin/aws_signing_helper`. Usage can be found in [AWS's documentation](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/credential-helper.html). A later section also goes into how you can use the scripts provided in this repository to test out the credential helper binary.
 
+## Docker Image
+
+The AWS IAM Roles Anywhere Credential Helper is also available as a Docker image, providing a containerized deployment option for environments like Kubernetes, Docker Compose, or other container orchestration platforms.
+
+### When to Use the Docker Image
+
+The Docker image is recommended when:
+
+- **Container environments**: You're deploying in Kubernetes, Docker Swarm, or other container orchestration platforms
+- **Consistent runtime**: You need a consistent, reproducible runtime environment across different systems. Particularly useful for environments where glibc is not available (ex. alpine linux)
+
+### Quick Start
+
+```bash
+docker pull public.ecr.aws/rolesanywhere/credential-helper:latest
+```
+
+The official Docker image is available from the AWS ECR Public Gallery at [gallery.ecr.aws/rolesanywhere/credential-helper](https://gallery.ecr.aws/rolesanywhere/credential-helper).
+See the [Docker image documentation](docker_image_resources/README.md) for more information.
+
+### Image Tags
+
+This repository follows 3 tagging schemas for images:
+
+- `latest`: Offers the latest image for both amd64 and arm64 images.
+- `latest-<platform>`: Offers the latest image for a specified platform
+- `<version>-<platform>-<timestamp>`: Offers a specific, immutable image with a precise version number, platform architecture, and build timestamp.
+
+### Supported Architectures
+
+OS/Arch: Linux, ARM 64, x86-64
+
+### Image Verification
+
+For security-conscious deployments, you can verify the authenticity of Docker images using notation. See the [image verification guide](docker_image_resources/notation/README.md) for detailed instructions on setting up and using notation to verify image signatures and attestations.
+
 ## Diagnostic Command Tools
 
 ### read-certificate-data
