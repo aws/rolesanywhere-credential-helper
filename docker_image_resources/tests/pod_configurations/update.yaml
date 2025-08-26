@@ -65,6 +65,10 @@ spec:
   - name: certs-volume
     configMap:
       name: cert-files
+    # SECURITY WARNING: This ConfigMap contains sensitive certificate data and is used
+    # for testing purposes only. In production environments, use Kubernetes Secrets
+    # instead of ConfigMaps for certificates and private keys to ensure proper encryption
+    # and access control. Example: kubectl create secret tls cert-files --cert=cert.pem --key=key.pem
   - name: aws-credentials
     emptyDir: {}
   - name: test-volume
