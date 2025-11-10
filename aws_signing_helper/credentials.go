@@ -61,11 +61,11 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 	// Assign values to region and endpoint if they haven't already been assigned
 	trustAnchorArn, err := arn.Parse(opts.TrustAnchorArnStr)
 	if err != nil {
-		return CredentialProcessOutput{}, err
+		return CredentialProcessOutput{}, fmt.Errorf("failed to parse trust anchor arn: '%w'", err)
 	}
 	profileArn, err := arn.Parse(opts.ProfileArnStr)
 	if err != nil {
-		return CredentialProcessOutput{}, err
+		return CredentialProcessOutput{}, fmt.Errorf("failed to parse profile arn: '%w'", err)
 	}
 
 	if trustAnchorArn.Region != profileArn.Region {
