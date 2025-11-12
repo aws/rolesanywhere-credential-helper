@@ -912,10 +912,10 @@ retry_search:
 
 	// So that hunting for the key can be more efficient in the future,
 	// return a key URI that has CKA_ID and CKA_LABEL appropriately set.
-	if privateKeyObj.id != nil && len(privateKeyObj.id) != 0 {
+	if len(privateKeyObj.id) != 0 {
 		keyUri.SetPathAttribute("id", escapeAll(privateKeyObj.id))
 	}
-	if privateKeyObj.label != nil && len(privateKeyObj.label) != 0 {
+	if len(privateKeyObj.label) != 0 {
 		keyUri.SetPathAttribute("object", escapeAll(privateKeyObj.label))
 	}
 
@@ -1181,7 +1181,7 @@ const hexchar = "0123456789ABCDEF"
 func escapeAll(s []byte) string {
 	res := make([]byte, len(s)*3)
 	j := 0
-	for i := 0; i < len(s); i++ {
+	for i := range s {
 		c := s[i]
 		res[j] = '%'
 		res[j+1] = hexchar[c>>4]
