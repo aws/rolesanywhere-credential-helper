@@ -123,7 +123,7 @@ func (fileSystemSigner *FileSystemSigner) readCertFiles() (crypto.PrivateKey, *x
 			passwordPromptInput := PasswordPromptProps{
 				InitialPassword: fileSystemSigner.pkcs8Password,
 				NoPassword:      false,
-				CheckPassword: func(password string) (interface{}, error) {
+				CheckPassword: func(password string) (any, error) {
 					return ReadPrivateKeyData(fileSystemSigner.privateKeyPath, password)
 				},
 				IncorrectPasswordMsg:               "incorrect PKCS#8 private key password",
