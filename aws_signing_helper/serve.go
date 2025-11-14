@@ -313,7 +313,11 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 			for key, value := range tokenMap {
 				if curTime.After(value) {
 					delete(tokenMap, key)
-					log.Printf("removed expired token: %s", key)
+					if Debug {
+						log.Printf("removed expired token: %s", key)
+					} else {
+						log.Printf("removed an expired token")
+					}
 				}
 			}
 			mutex.Unlock()
