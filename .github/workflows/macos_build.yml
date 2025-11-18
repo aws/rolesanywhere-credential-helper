@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner_image: macos-13
+          - runner_image: macos-15-intel
             arch: "X86_64"
             display_name: "MacOS X86_64"
           - runner_image: macos-14
