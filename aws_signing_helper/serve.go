@@ -46,7 +46,10 @@ type SessionToken struct {
 }
 
 const TOKEN_RESOURCE_PATH = "/latest/api/token"
-const SECURITY_CREDENTIALS_RESOURCE_PATH = "/latest/meta-data/iam/security-credentials/"
+const TOKEN_RESOURCE_PATH_WITH_TRAILING_SLASH = TOKEN_RESOURCE_PATH + "/"
+
+const SECURITY_CREDENTIALS_RESOURCE_PATH = "/latest/meta-data/iam/security-credentials"
+const SECURITY_CREDENTIALS_RESOURCE_PATH_WITH_TRAILING_SLASH = SECURITY_CREDENTIALS_RESOURCE_PATH + "/"
 
 const EC2_METADATA_TOKEN_HEADER = "x-aws-ec2-metadata-token"
 const EC2_METADATA_TOKEN_TTL_HEADER = "x-aws-ec2-metadata-token-ttl-seconds"
@@ -270,6 +273,19 @@ func AllIssuesHandlers(cred *RefreshableCred, roleName string, opts *Credentials
 	return putTokenHandler, getRoleNameHandler, getCredentialsHandler
 }
 
+func setupHandlers(roleName string, putTokenHandler http.HandlerFunc, getRoleNameHandler http.HandlerFunc, getCredentialsHandler http.HandlerFunc) http.Handler {
+	mux := http.NewServeMux()
+
+	mux.HandleFunc(TOKEN_RESOURCE_PATH, putTokenHandler)
+	mux.HandleFunc(TOKEN_RESOURCE_PATH_WITH_TRAILING_SLASH, putTokenHandler)
+	mux.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH, getRoleNameHandler)
+	mux.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH_WITH_TRAILING_SLASH, getRoleNameHandler)
+	mux.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH_WITH_TRAILING_SLASH + roleName, getCredentialsHandler)
+	mux.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH_WITH_TRAILING_SLASH + roleName + "/", getCredentialsHandler)
+
+	return mux
+}
+
 func Serve(port int, credentialsOptions CredentialsOpts) {
 	var refreshableCred = RefreshableCred{}
 
@@ -295,14 +311,14 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	refreshableCred.LastUpdated = time.Now()
 	refreshableCred.Type = REFRESHABLE_CRED_TYPE
 	endpoint := &Endpoint{PortNum: port, TmpCred: refreshableCred}
-	endpoint.Server = &http.Server{}
+
 	roleResourceParts := strings.Split(roleArn.Resource, "/")
 	roleName := roleResourceParts[len(roleResourceParts)-1] // Find role name without path
-	putTokenHandler, getRoleNameHandler, getCredentialsHandler := AllIssuesHandlers(&endpoint.TmpCred, roleName, &credentialsOptions, signer, signatureAlgorithm)
 
-	http.HandleFunc(TOKEN_RESOURCE_PATH, putTokenHandler)
-	http.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH, getRoleNameHandler)
-	http.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH+roleName, getCredentialsHandler)
+	putTokenHandler, getRoleNameHandler, getCredentialsHandler := AllIssuesHandlers(&endpoint.TmpCred, roleName, &credentialsOptions, signer, signatureAlgorithm)
+	handler := setupHandlers(roleName, putTokenHandler, getRoleNameHandler, getCredentialsHandler)
+
+	endpoint.Server = &http.Server{Handler: handler}
 
 	// Background thread that cleans up expired tokens
 	ticker := time.NewTicker(5 * time.Second)
