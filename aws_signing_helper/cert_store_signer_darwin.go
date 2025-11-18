@@ -167,7 +167,7 @@ func GetCertStoreSigner(certIdentifier CertIdentifier, useLatestExpiringCert boo
 	}
 	selectedCertContainer = certContainers[len(certContainers)-1]
 	if Debug {
-		log.Print(fmt.Sprintf("selected certificate: %s", DefaultCertContainerToString(selectedCertContainer)))
+		log.Printf("selected certificate: %s", DefaultCertContainerToString(selectedCertContainer))
 	}
 	cert = selectedCertContainer.Cert
 	certRef = certRefs[selectedCertContainer.Index]
@@ -260,7 +260,7 @@ func (signer *DarwinCertStoreSigner) CertificateChain() ([]*x509.Certificate, er
 
 	certChainArr := C.SecTrustCopyCertificateChain(trustRef)
 	defer C.CFRelease(C.CFTypeRef(certChainArr))
-	for i := C.CFIndex(0); i < nChain; i++ {
+	for i := range nChain {
 		chainCertRef := C.SecCertificateRef(C.CFArrayGetValueAtIndex(certChainArr, i))
 		if chainCertRef == 0 {
 			return nil, errors.New("nil certificate in chain")
