@@ -1,5 +1,6 @@
-VERSION=1.7.2
-# IMPORTANT: This VERSION variable is parsed by the GitHub Actions image build workflow.
+VERSION=1.7.1
+# IMPORTANT: Contributors should not increase this number. Working on automation to make this more straight forward.
+# This VERSION variable is parsed by the GitHub Actions image build workflow.
 # Please maintain the X.Y.Z format to ensure compatibility with the automated build process. 
 .PHONY: release
 release: build/bin/aws_signing_helper
