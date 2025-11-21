@@ -2,7 +2,7 @@ name: MacOS build and test rolesanywhere-credential-helper
 on:
   push:
     branches: [ main ]
-  
+
 permissions:
   statuses: write
   id-token: write
@@ -14,14 +14,14 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner_image: macos-15-intel
+          - runner_image: macos-13
             arch: "X86_64"
             display_name: "MacOS X86_64"
           - runner_image: macos-14
             arch: "Aarch64"
             display_name: "MacOS Aarch64"
 
-    steps: 
+    steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -43,7 +43,7 @@ jobs:
           role-to-assume: ${{ secrets.BINARY_BUILDING_ROLE_ARN }}
           role-session-name: githubmacosbuild
           aws-region: us-west-2
-          
+
       - name: Upload to S3
         id: s3
         run: |
