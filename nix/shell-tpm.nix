@@ -1,10 +1,5 @@
 { pkgs ? import <nixpkgs> {} }:
 
-# Full test environment with TPM and PKCS11 support
-# Use nix/shell-base.nix for builds only
-# Use nix/shell-tpm.nix for TPM tests only
-# Use nix/shell-pkcs11.nix for PKCS11 tests only
-
 pkgs.mkShell {
   buildInputs = with pkgs; [
     go
@@ -12,11 +7,9 @@ pkgs.mkShell {
     swtpm
     tpm2-tools
     tpm2-abrmd
-    softhsm
-    gnutls
-    dbus
     tpm2-tss
     tpm2-openssl
+    dbus
   ];
 
   shellHook = ''

@@ -1,0 +1,50 @@
+name: TPM Tests (Nix)
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  tpm-tests:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-25.11
+
+      - name: Cache nix store
+        uses: actions/cache@v4
+        with:
+          path: /nix/store
+          key: nix-${{ runner.os }}-${{ hashFiles('shell.nix') }}
+          restore-keys: |
+            nix-${{ runner.os }}-
+
+      - name: Build nix environment
+        run: nix-shell --run "echo 'Environment ready'"
+
+      - name: Setup dbus config
+        run: |
+          sudo mkdir -p /etc/dbus-1
+          echo '<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+          <busconfig>
+            <type>session</type>
+            <listen>unix:tmpdir=/tmp</listen>
+            <policy context="default">
+              <allow send_destination="*" eavesdrop="true"/>
+              <allow eavesdrop="true"/>
+              <allow own="*"/>
+            </policy>
+          </busconfig>' | sudo tee /etc/dbus-1/session.conf
+
+      - name: Run TPM tests
+        run: |
+          nix-shell --run '
+            dbus-run-session -- bash -c "
+              rm -rf tst/swtpm
+              make test-tpm-signer
+            "
+          '

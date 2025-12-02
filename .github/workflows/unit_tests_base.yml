@@ -1,0 +1,79 @@
+name: Unit Tests (Base)
+
+on:
+  workflow_call:
+    inputs:
+      os:
+        required: true
+        type: string
+        description: 'Operating system identifier (ubuntu-24.04, macos-13, macos-14)'
+      runner-label:
+        required: true
+        type: string
+        description: 'GitHub runner label'
+      test-target:
+        required: false
+        type: string
+        default: 'test-tpm-signer'
+        description: 'Make test target to run (test-tpm-signer, test-all, test)'
+
+jobs:
+  test:
+    runs-on: ${{ inputs.runner-label }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: cachix/install-nix-action@v30
+        with:
+          nix_path: nixpkgs=channel:nixos-25.11
+
+      - name: Determine nix shell
+        id: nix-shell
+        run: |
+          if [[ "${{ inputs.test-target }}" == "test-tpm-signer" ]]; then
+            SHELL="nix/shell-tpm.nix"
+          elif [[ "${{ inputs.test-target }}" == "test-pkcs11-signer" ]]; then
+            SHELL="nix/shell-pkcs11.nix"
+          elif [[ "${{ inputs.test-target }}" == "test-all" ]]; then
+            SHELL="shell.nix"
+          else
+            SHELL="nix/shell-base.nix"
+          fi
+          echo "Using: $SHELL"
+          echo "shell=$SHELL" >> $GITHUB_OUTPUT
+
+      - name: Build nix environment
+        run: nix-shell ${{ steps.nix-shell.outputs.shell }} --run "echo 'Environment ready'"
+
+      - name: Setup dbus config (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          sudo mkdir -p /etc/dbus-1
+          echo '<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN" "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+          <busconfig>
+            <type>session</type>
+            <listen>unix:tmpdir=/tmp</listen>
+            <policy context="default">
+              <allow send_destination="*" eavesdrop="true"/>
+              <allow eavesdrop="true"/>
+              <allow own="*"/>
+            </policy>
+          </busconfig>' | sudo tee /etc/dbus-1/session.conf
+
+      - name: Run tests (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          nix-shell ${{ steps.nix-shell.outputs.shell }} --run '
+            dbus-run-session -- bash -c "
+              rm -rf tst/swtpm
+              make ${{ inputs.test-target }}
+            "
+          '
+
+      - name: Run tests (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          nix-shell ${{ steps.nix-shell.outputs.shell }} --run "
+            rm -rf tst/swtpm
+            make ${{ inputs.test-target }}
+          "

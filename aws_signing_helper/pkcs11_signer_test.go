@@ -2,11 +2,13 @@ package aws_signing_helper
 
 import (
 	"fmt"
+	"os"
 	"testing"
 )
 
 func TestPKCS11Signer(t *testing.T) {
 	testTable := []CredentialsOpts{}
+	libPkcs11 := os.Getenv("PKCS11_MODULE")
 
 	pkcs11_objects := []string{"rsa-2048", "ec-prime256v1"}
 
@@ -18,27 +20,33 @@ func TestPKCS11Signer(t *testing.T) {
 
 		testTable = append(testTable, CredentialsOpts{
 			CertificateId: basic_pkcs11_uri,
+			LibPkcs11:     libPkcs11,
 		})
 		testTable = append(testTable, CredentialsOpts{
 			PrivateKeyId: basic_pkcs11_uri,
+			LibPkcs11:    libPkcs11,
 		})
 		testTable = append(testTable, CredentialsOpts{
 			CertificateId: basic_pkcs11_uri,
 			PrivateKeyId:  basic_pkcs11_uri,
+			LibPkcs11:     libPkcs11,
 		})
 		testTable = append(testTable, CredentialsOpts{
 			CertificateId: cert_file,
 			PrivateKeyId:  basic_pkcs11_uri,
+			LibPkcs11:     libPkcs11,
 		})
 		testTable = append(testTable, CredentialsOpts{
 			CertificateId: basic_pkcs11_uri,
 			PrivateKeyId:  always_auth_pkcs11_uri,
 			ReusePin:      true,
+			LibPkcs11:     libPkcs11,
 		})
 		testTable = append(testTable, CredentialsOpts{
 			CertificateId: cert_file,
 			PrivateKeyId:  always_auth_pkcs11_uri,
 			ReusePin:      true,
+			LibPkcs11:     libPkcs11,
 		})
 		// Note that for the below test case, there are two matching keys.
 		// Both keys will validate with the certificate, and one will be chosen
@@ -48,6 +56,7 @@ func TestPKCS11Signer(t *testing.T) {
 			CertificateId: cert_file,
 			PrivateKeyId:  base_pkcs11_uri,
 			ReusePin:      true,
+			LibPkcs11:     libPkcs11,
 		})
 	}
 
