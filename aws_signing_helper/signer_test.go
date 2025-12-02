@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -19,7 +20,7 @@ import (
 const TestCredentialsFilePath = "/tmp/credentials"
 
 func setup() error {
-	generateCredentialProcessDataScript := exec.Command("/bin/bash", "../generate-credential-process-data.sh")
+	generateCredentialProcessDataScript := exec.Command("bash", "../generate-credential-process-data.sh")
 	_, err := generateCredentialProcessDataScript.Output()
 	return err
 }
@@ -669,11 +670,13 @@ aws_session_token = sessionToken
 				t.Fail()
 			}
 
-			info, _ := os.Stat(TestCredentialsFilePath)
-			mode := info.Mode()
-			if mode != ((1 << 8) | (1 << 7)) {
-				t.Log("unexpected file mode")
-				t.Fail()
+			if runtime.GOOS != "windows" {
+				info, _ := os.Stat(TestCredentialsFilePath)
+				mode := info.Mode()
+				if mode != ((1 << 8) | (1 << 7)) {
+					t.Log("unexpected file mode")
+					t.Fail()
+				}
 			}
 		})
 	}

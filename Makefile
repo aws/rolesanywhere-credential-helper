@@ -271,8 +271,8 @@ define CERT_RECIPE
 	[ "$${SUBJ#tpm-}" != "$${SUBJ}" ] && ENG="-provider tpm2 -provider default -propquery '?provider=tpm2'";  \
 	if [ "$${SUBJ#tpm-sw-}" != "$${SUBJ}" ]; then $(START_SWTPM_TCP); TPM_PREFIX="$(SWTPM_PREFIX)"; fi; \
 	if echo $< | grep -q "loaded"; then KEY=handle:0x$(word 4, $(subst -, , $<)); else KEY=$<; fi; \
-	echo 	$${TPM_PREFIX} openssl req -x509 -new $${ENG} -key $${KEY} -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-}; \
-	eval $${TPM_PREFIX} openssl req -x509 -new $${ENG} -key $${KEY} -out $@ -days 10000 -subj "/CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-};
+	echo 	$${TPM_PREFIX} openssl req -x509 -new $${ENG} -key $${KEY} -out $@ -days 10000 -subj "//CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-}; \
+	eval $${TPM_PREFIX} openssl req -x509 -new $${ENG} -key $${KEY} -out $@ -days 10000 -subj "//CN=roles-anywhere-$${SUBJ}" -$${SUBJ##*-};
 endef
 
 %-md5-cert.pem: %-key.pem; $(CERT_RECIPE)
