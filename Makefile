@@ -23,6 +23,7 @@ clean: test-clean
 # This portion is largely copied from https://gitlab.com/openconnect/openconnect/-/blob/v9.12/tests/Makefile.am#L363.
 SHM2_UTIL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp softhsm2-util
 P11TOOL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp p11tool
+SOFTHSM2_MODULE=$(shell pkg-config --variable=libdir softhsm2 2>/dev/null)/softhsm/libsofthsm2.so
 
 certsdir=tst/certs
 
@@ -221,25 +222,25 @@ tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS
 
 	$(SHM2_UTIL) --token credential-helper-test --pin 1234 \
 		--import $(certsdir)/rsa-2048-key-pkcs8.pem --label rsa-2048 --id 01
-	$(P11TOOL) --load-certificate $(certsdir)/rsa-2048-sha256-cert.pem \
-		--no-mark-private --label rsa-2048 --id 01 --set-pin 1234 --login \
-		--write "pkcs11:token=credential-helper-test;pin-value=1234"
 
 	$(SHM2_UTIL) --token credential-helper-test --pin 1234 \
 		--import $(certsdir)/ec-prime256v1-key-pkcs8.pem --label ec-prime256v1 --id 02
-	$(P11TOOL) --load-certificate $(certsdir)/ec-prime256v1-sha256-cert.pem \
-		--no-mark-private --label ec-prime256v1 --id 02 --set-pin 1234 --login \
-		--write "pkcs11:token=credential-helper-test;pin-value=1234"
 
-	$(P11TOOL) --load-privkey $(certsdir)/rsa-2048-key-pkcs8.pem \
-		--label rsa-2048-always-auth --id 03 --set-pin 1234 --login \
-		--write "pkcs11:token=credential-helper-test;pin-value=1234" \
-		--mark-always-authenticate
+	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $$(pkg-config --variable=libdir softhsm2)/softhsm/libsofthsm2.so \
+		--login --pin 1234 --write-object $(certsdir)/rsa-2048-key-pkcs8.pem --type privkey \
+		--label rsa-2048-always-auth --id 03 --usage-sign --always-auth
 
-	$(P11TOOL) --load-privkey $(certsdir)/ec-prime256v1-key-pkcs8.pem \
-		--label ec-prime256v1-always-auth --id 04 --set-pin 1234 --login \
-		--write "pkcs11:token=credential-helper-test;pin-value=1234" \
-		--mark-always-authenticate
+	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $$(pkg-config --variable=libdir softhsm2)/softhsm/libsofthsm2.so \
+		--login --pin 1234 --write-object $(certsdir)/ec-prime256v1-key-pkcs8.pem --type privkey \
+		--label ec-prime256v1-always-auth --id 04 --usage-sign --always-auth
+
+	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $$(pkg-config --variable=libdir softhsm2)/softhsm/libsofthsm2.so \
+		--login --pin 1234 --write-object $(certsdir)/rsa-2048-sha256-cert.pem --type cert \
+		--label rsa-2048 --id 01
+
+	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $$(pkg-config --variable=libdir softhsm2)/softhsm/libsofthsm2.so \
+		--login --pin 1234 --write-object $(certsdir)/ec-prime256v1-sha256-cert.pem --type cert \
+		--label ec-prime256v1 --id 02
 	mv $@.tmp $@
 
 .PHONY: test-all
@@ -256,6 +257,10 @@ test-tpm-signer: $(certsdir)/cert-bundle.pem $(TPMKEYS) $(TPMCERTS) $(TPMLOADEDK
 	$(START_SWTPM)
 	go test ./... -run "TPM"
 	$(STOP_SWTPM)
+
+.PHONY: test-pkcs11-signer
+test-pkcs11-signer: tst/softhsm2.conf
+	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf PKCS11_MODULE=$$(pkg-config --variable=libdir softhsm2)/softhsm/libsofthsm2.so go test ./... -run "PKCS11"
 
 .PHONY: test
 test: test-certs
@@ -320,7 +325,7 @@ $(certsdir)/tpm-hw-ec-81000001-key.pem:
 	fi
 	openssl genpkey -provider tpm2 -algorithm EC -pkeyopt group:prime256v1 -pkeyopt parent:0x81000001 -out $@
 
-$(certsdir)/tpm-hw-ec-81000001-key.pem:
+$(certsdir)/tpm-hw-ec-81000001-key-with-pw.pem:
 	if ! tpm2_readpublic -c 0x81000001; then \
 		tpm2_createprimary -G rsa -c parent.ctx && \
 		tpm2_evictcontrol -c parent.ctx 0x81000001; \

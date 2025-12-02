@@ -1,0 +1,47 @@
+name: Unit Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  basic-tests-linux:
+    name: Basic Tests (Linux)
+    uses: ./.github/workflows/unit_tests_base.yml
+    with:
+      os: ubuntu-24.04
+      runner-label: ubuntu-24.04
+      test-target: test
+
+  basic-tests-macos:
+    name: Basic Tests (macOS)
+    uses: ./.github/workflows/unit_tests_base.yml
+    with:
+      os: macos-14
+      runner-label: macos-14
+      test-target: test
+
+  tpm-tests-linux:
+    name: TPM Tests (Linux)
+    uses: ./.github/workflows/unit_tests_base.yml
+    with:
+      os: ubuntu-24.04
+      runner-label: ubuntu-24.04
+      test-target: test-tpm-signer
+
+  pkcs11-tests-linux:
+    name: PKCS11 Tests (Linux)
+    uses: ./.github/workflows/unit_tests_base.yml
+    with:
+      os: ubuntu-24.04
+      runner-label: ubuntu-24.04
+      test-target: test-pkcs11-signer
+
+  pkcs11-tests-macos:
+    name: PKCS11 Tests (macOS)
+    uses: ./.github/workflows/unit_tests_base.yml
+    with:
+      os: macos-14
+      runner-label: macos-14
+      test-target: test-pkcs11-signer
