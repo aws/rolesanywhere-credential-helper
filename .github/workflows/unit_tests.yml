@@ -22,6 +22,14 @@ jobs:
       runner-label: macos-14
       test-target: test
 
+  basic-tests-windows:
+    name: Basic Tests (Windows)
+    uses: ./.github/workflows/unit_tests_base.yml
+    with:
+      os: windows-2022
+      runner-label: windows-2022
+      test-target: test
+
   tpm-tests-linux:
     name: TPM Tests (Linux)
     uses: ./.github/workflows/unit_tests_base.yml
