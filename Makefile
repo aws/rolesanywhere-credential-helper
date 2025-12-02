@@ -1,6 +1,6 @@
 VERSION=1.7.2
 # IMPORTANT: This VERSION variable is parsed by the GitHub Actions image build workflow.
-# Please maintain the X.Y.Z format to ensure compatibility with the automated build process. 
+# Please maintain the X.Y.Z format to ensure compatibility with the automated build process.
 .PHONY: release
 release: build/bin/aws_signing_helper
 
@@ -19,8 +19,8 @@ build/bin/aws_signing_helper:
 clean: test-clean
 	rm -rf build
 
-# Setting up SoftHSM for PKCS#11 tests. 
-# This portion is largely copied from https://gitlab.com/openconnect/openconnect/-/blob/v9.12/tests/Makefile.am#L363. 
+# Setting up SoftHSM for PKCS#11 tests.
+# This portion is largely copied from https://gitlab.com/openconnect/openconnect/-/blob/v9.12/tests/Makefile.am#L363.
 SHM2_UTIL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp softhsm2-util
 P11TOOL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp p11tool
 
@@ -72,7 +72,7 @@ PKCS12CERTS := $(patsubst %-cert.pem, %.p12, $(RSACERTS) $(ECCERTS))
 #
 # For the actual test, we need it to run in UNIX socket mode, since
 # *that* is all that go-tpm can cope with. So we start it in that mode
-# in the 'test:' (or 'test-tpm-signer:') recipe(s), and stop it again 
+# in the 'test:' (or 'test-tpm-signer:') recipe(s), and stop it again
 # afterwards.
 SWTPM_STATEDIR := $(curdir)/tst/swtpm
 SWTPM_CTRLSOCK := $(curdir)/tst/swtpm-ctrl
@@ -172,7 +172,7 @@ $(certsdir)/tpm-sw-rsa-81000001-sign-key.pem:
 	fi
 	$(SWTPM_PREFIX) openssl genpkey -provider tpm2 -algorithm RSA -pkeyopt parent:0x81000001 -out $@
 
-$(certsdir)/tpm-sw-rsa-81000001-sign-key-with-pw.pem: 
+$(certsdir)/tpm-sw-rsa-81000001-sign-key-with-pw.pem:
 	if ! $(SWTPM_PREFIX) tpm2_readpublic -c 0x81000001; then \
 		$(SWTPM_PREFIX) tpm2_createprimary -G rsa -c parent.ctx && \
 		$(SWTPM_PREFIX) tpm2_evictcontrol -c parent.ctx 0x81000001; \
@@ -180,10 +180,10 @@ $(certsdir)/tpm-sw-rsa-81000001-sign-key-with-pw.pem:
 	$(SWTPM_PREFIX) openssl genpkey -provider tpm2 -algorithm RSA -pkeyopt parent:0x81000001 -pkeyopt user-auth:1234 -out $@
 
 SWTPM_LOADED_KEYS_WO_PW := $(certsdir)/tpm-sw-loaded-81000101-ec-secp384r1-key.pem
-SWTPM_LOADED_KEYS_W_PW := $(certsdir)/tpm-sw-loaded-81000102-ec-secp384r1-key-with-pw.pem 
+SWTPM_LOADED_KEYS_W_PW := $(certsdir)/tpm-sw-loaded-81000102-ec-secp384r1-key-with-pw.pem
 SWTPMKEYS_WO_PW_WO_SIGN_CAP := $(certsdir)/tpm-sw-rsa-key.pem
 SWTPMKEYS_WO_PW := $(certsdir)/tpm-sw-ec-secp384r1-key.pem $(certsdir)/tpm-sw-ec-prime256-key.pem $(certsdir)/tpm-sw-rsa-81000001-sign-key.pem
-SWTPMKEYS_W_PW := $(patsubst %.pem, %-with-pw.pem, $(SWTPMKEYS_WO_PW)) $(certsdir)/tpm-sw-ec-81000001-key.pem $(certsdir)/tpm-sw-ec-81000001-key-with-pw.pem $(certsdir)/tpm-sw-rsa-81000001-sign-key-with-pw.pem
+SWTPMKEYS_W_PW := $(patsubst %.pem, %-with-pw.pem, $(SWTPMKEYS_WO_PW)) $(certsdir)/tpm-sw-ec-81000001-key.pem $(certsdir)/tpm-sw-ec-81000001-key-with-pw.pem $(certsdir)/tpm-sw-rsa-81000001-sign-key-with-pw.pem $(certsdir)/tpm-sw-rsa-key-with-pw.pem
 SWTPMKEYS := $(SWTPMKEYS_WO_PW) $(SWTPMKEYS_W_PW) $(SWTPMKEYS_WO_PW_WO_SIGN_CAP)
 SWTPM_LOADED_KEY_CERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(SWTPM_LOADED_KEYS_WO_PW)))
 SWTPMCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(SWTPMKEYS_WO_PW)))
