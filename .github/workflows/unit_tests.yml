@@ -6,50 +6,27 @@ on:
   workflow_dispatch:
 
 jobs:
-  basic-tests-linux:
-    name: Basic Tests (Linux)
+  tests:
+    name: ${{ matrix.test-target }} (${{ matrix.os }})
     uses: ./.github/workflows/unit_tests_base.yml
+    strategy:
+      matrix:
+        os: [ubuntu-24.04, ubuntu-24.04-arm, macos-13, macos-14, windows-2019]
+        test-target: [test]
+        include:
+          - os: ubuntu-24.04
+            test-target: test-tpm-signer
+          - os: ubuntu-24.04
+            test-target: test-pkcs11-signer
+          - os: ubuntu-24.04-arm
+            test-target: test-tpm-signer
+          - os: ubuntu-24.04-arm
+            test-target: test-pkcs11-signer
+          - os: macos-13
+            test-target: test-pkcs11-signer
+          - os: macos-14
+            test-target: test-pkcs11-signer
     with:
-      os: ubuntu-24.04
-      runner-label: ubuntu-24.04
-      test-target: test
-
-  basic-tests-macos:
-    name: Basic Tests (macOS)
-    uses: ./.github/workflows/unit_tests_base.yml
-    with:
-      os: macos-14
-      runner-label: macos-14
-      test-target: test
-
-  basic-tests-windows:
-    name: Basic Tests (Windows)
-    uses: ./.github/workflows/unit_tests_base.yml
-    with:
-      os: windows-2022
-      runner-label: windows-2022
-      test-target: test
-
-  tpm-tests-linux:
-    name: TPM Tests (Linux)
-    uses: ./.github/workflows/unit_tests_base.yml
-    with:
-      os: ubuntu-24.04
-      runner-label: ubuntu-24.04
-      test-target: test-tpm-signer
-
-  pkcs11-tests-linux:
-    name: PKCS11 Tests (Linux)
-    uses: ./.github/workflows/unit_tests_base.yml
-    with:
-      os: ubuntu-24.04
-      runner-label: ubuntu-24.04
-      test-target: test-pkcs11-signer
-
-  pkcs11-tests-macos:
-    name: PKCS11 Tests (macOS)
-    uses: ./.github/workflows/unit_tests_base.yml
-    with:
-      os: macos-14
-      runner-label: macos-14
-      test-target: test-pkcs11-signer
+      os: ${{ matrix.os }}
+      runner-label: ${{ matrix.os }}
+      test-target: ${{ matrix.test-target }}
