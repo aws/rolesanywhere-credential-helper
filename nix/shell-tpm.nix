@@ -1,18 +1,19 @@
 { pkgs ? import <nixpkgs> {} }:
 
+let
+  base = import ./shell-base.nix { inherit pkgs; };
+in
 pkgs.mkShell {
-  buildInputs = with pkgs; [
-    go
-    openssl_3
+  buildInputs = base.buildInputs ++ (with pkgs; [
     swtpm
     tpm2-tools
     tpm2-abrmd
     tpm2-tss
     tpm2-openssl
     dbus
-  ];
+  ]);
 
-  shellHook = ''
+  shellHook = base.shellHook + ''
     export TPM2_OPENSSL="${pkgs.tpm2-openssl}"
     export TPM2_TSS="${pkgs.tpm2-tss}"
     export OPENSSL_MODULES="${pkgs.tpm2-openssl}/lib/ossl-modules"

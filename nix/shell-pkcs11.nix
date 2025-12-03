@@ -1,20 +1,21 @@
 { pkgs ? import <nixpkgs> {} }:
 
+let
+  base = import ./shell-base.nix { inherit pkgs; };
+in
 pkgs.mkShell {
   nativeBuildInputs = with pkgs; [
     pkg-config
   ];
 
-  buildInputs = with pkgs; [
-    go
-    openssl_3
+  buildInputs = base.buildInputs ++ (with pkgs; [
     softhsm
     gnutls
     opensc
     dbus
-  ];
+  ]);
 
-  shellHook = ''
+  shellHook = base.shellHook + ''
     # Patch in missing .pc file required by Makefile
     mkdir -p .nix-pkgconfig
     cat > .nix-pkgconfig/softhsm2.pc << EOF

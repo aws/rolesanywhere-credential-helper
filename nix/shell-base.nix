@@ -5,8 +5,4 @@ pkgs.mkShell {
     go
     openssl_3
   ];
-
-  shellHook = ''
-    echo "Base build environment ready"
-  '';
 }
