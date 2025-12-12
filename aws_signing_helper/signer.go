@@ -500,8 +500,14 @@ func signRequest(signer crypto.Signer, signingRegion string, signingAlgorithm st
 	}
 
 	canonicalRequest, signedHeadersString := createCanonicalRequest(req, payloadHash)
+	if Debug {
+		log.Println("Canonical Request Hash: " + canonicalRequest)
+	}
 
 	stringToSign := CreateStringToSign(canonicalRequest, signerParams)
+	if Debug {
+		log.Println("String to sign: " + stringToSign)
+	}
 	signatureBytes, err := signer.Sign(rand.Reader, []byte(stringToSign), crypto.SHA256)
 	if err != nil {
 		log.Println("could not sign request", err)
@@ -608,6 +614,10 @@ func createCanonicalRequest(r *http.Request, contentSha256 string) (string, stri
 	canonicalRequestStrBuilder.WriteString("\n")
 	canonicalRequestStrBuilder.WriteString(contentSha256)
 	canonicalRequestString := canonicalRequestStrBuilder.String()
+	if Debug {
+		log.Println("Canonical URL: " + r.URL.String())
+		log.Println("Canonical Request: ", canonicalRequestString)
+	}
 	canonicalRequestStringHashBytes := sha256.Sum256([]byte(canonicalRequestString))
 	return hex.EncodeToString(canonicalRequestStringHashBytes[:]), signedHeadersString
 }
@@ -642,6 +652,9 @@ func BuildAuthorizationHeader(request *http.Request, signedHeadersString string,
 	authHeaderStringBuilder.WriteString(", ")
 	authHeaderStringBuilder.WriteString(signatureHeader)
 	authHeaderString := authHeaderStringBuilder.String()
+	if Debug {
+		log.Println("AuthorizationHeaderString: " + authHeaderString)
+	}
 	return authHeaderString
 }
 
