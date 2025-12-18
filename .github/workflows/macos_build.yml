@@ -14,7 +14,7 @@ jobs:
     strategy:
       matrix:
         include:
-          - runner_image: macos-13
+          - runner_image: macos-15-intel
             arch: "X86_64"
             display_name: "MacOS X86_64"
           - runner_image: macos-14
@@ -30,6 +30,14 @@ jobs:
         with:
           go-version-file: 'go.mod'
           cache: true
+
+      - name: Set build flag environment variables for Sonoma compatability if build is on x86
+        run: |
+          if [[ "${{ matrix.arch }}" == "X86_64" ]]; then
+            echo "MACOSX_DEPLOYMENT_TARGET=14.0" >> $GITHUB_ENV
+            echo "CGO_CFLAGS=-mmacosx-version-min=14.0" >> $GITHUB_ENV
+            echo "CGO_LDFLAGS=-mmacosx-version-min=14.0" >> $GITHUB_ENV
+          fi
 
       - name: Build Project
         run: |
