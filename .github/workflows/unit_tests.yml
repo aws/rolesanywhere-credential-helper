@@ -21,7 +21,7 @@ jobs:
             tpm: true
             pkcs11: true
           - name: macOS x64
-            os: macos-13
+            os: macos-15-intel
             pkcs11: true
           - name: macOS ARM
             os: macos-14
@@ -61,6 +61,13 @@ jobs:
       - name: Base tests (Linux)
         if: runner.os == 'Linux'
         run: nix-shell nix/shell-base.nix --run 'dbus-run-session -- bash -c "rm -rf tst/swtpm && make test"'
+
+      - name: Set build flag environment variables for Sonoma compatability on x86 Mac
+        if: matrix.os == 'macos-15-intel'
+        run: |
+            echo "MACOSX_DEPLOYMENT_TARGET=14.0" >> $GITHUB_ENV
+            echo "CGO_CFLAGS=-mmacosx-version-min=14.0" >> $GITHUB_ENV
+            echo "CGO_LDFLAGS=-mmacosx-version-min=14.0" >> $GITHUB_ENV
 
       - name: Base tests (macOS)
         if: runner.os == 'macOS'

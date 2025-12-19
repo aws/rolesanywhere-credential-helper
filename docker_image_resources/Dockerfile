@@ -12,6 +12,19 @@ RUN dnf install -y \
     make \
     && dnf clean all
 
+ENV GOPATH=/root/go \
+    PATH=/root/go/bin:$PATH \
+    HOME=/root \
+ 
+RUN mkdir -p /root/go/bin && \
+    go install golang.org/dl/go1.24.11@latest && \
+    go1.24.11 download && \
+    rm -rf /usr/local/go && \
+    ln -s /root/sdk/go1.24.11 /usr/local/go
+ 
+ENV GOROOT=/usr/local/go \
+    PATH=/usr/local/go/bin:/root/go/bin:$PATH
+
 # Set up working directory
 WORKDIR /build/rolesanywhere-credential-helper
 
