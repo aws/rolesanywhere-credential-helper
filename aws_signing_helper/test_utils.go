@@ -35,8 +35,8 @@ func RunSignTestWithTestTable(t *testing.T, testTable []CredentialsOpts) {
 
 		pubKey := signer.Public()
 		if credOpts.CertificateId != "" && pubKey == nil {
-			t.Log(fmt.Sprintf("Signer didn't provide public key for '%s'/'%s'",
-				credOpts.CertificateId, credOpts.PrivateKeyId))
+			t.Logf("Signer didn't provide public key for '%s'/'%s'",
+				credOpts.CertificateId, credOpts.PrivateKeyId)
 			t.Fail()
 			return
 		}
@@ -48,8 +48,8 @@ func RunSignTestWithTestTable(t *testing.T, testTable []CredentialsOpts) {
 			// makes sure that the context-specific PIN was saved.
 			signer.Sign(rand.Reader, []byte(msg), digest)
 			if err != nil {
-				t.Log(fmt.Sprintf("Failed to %s sign the input message for '%s'/'%s': %s",
-					digest, credOpts.CertificateId, credOpts.PrivateKeyId, err))
+				t.Logf("Failed to %s sign the input message for '%s'/'%s': %s",
+					digest, credOpts.CertificateId, credOpts.PrivateKeyId, err)
 				t.Fail()
 				return
 			}
@@ -63,8 +63,8 @@ func RunSignTestWithTestTable(t *testing.T, testTable []CredentialsOpts) {
 			if pubKey != nil {
 				valid, _ := Verify([]byte(msg), pubKey, digest, signatureBytes)
 				if !valid {
-					t.Log(fmt.Sprintf("Failed to verify %s signature for '%s'/'%s'",
-						digest, credOpts.CertificateId, credOpts.PrivateKeyId))
+					t.Logf("Failed to verify %s signature for '%s'/'%s'",
+						digest, credOpts.CertificateId, credOpts.PrivateKeyId)
 					t.Fail()
 					return
 				}
@@ -97,8 +97,8 @@ func RunNegativeSignTestWithTestTable(t *testing.T, testTable []CredentialsOpts)
 
 		pubKey := signer.Public()
 		if credOpts.CertificateId != "" && pubKey == nil {
-			t.Log(fmt.Sprintf("Signer didn't provide public key for '%s'/'%s'",
-				credOpts.CertificateId, credOpts.PrivateKeyId))
+			t.Logf("Signer didn't provide public key for '%s'/'%s'",
+				credOpts.CertificateId, credOpts.PrivateKeyId)
 			t.Fail()
 			return
 		}
@@ -107,8 +107,8 @@ func RunNegativeSignTestWithTestTable(t *testing.T, testTable []CredentialsOpts)
 			_, err := signer.Sign(rand.Reader, []byte(msg), digest)
 			signer.Sign(rand.Reader, []byte(msg), digest)
 			if err == nil {
-				t.Log(fmt.Sprintf("Expected %s sign on the input message to fail for '%s'/'%s': %s, but it succeeded",
-					digest, credOpts.CertificateId, credOpts.PrivateKeyId, err))
+				t.Logf("Expected %s sign on the input message to fail for '%s'/'%s': %s, but it succeeded",
+					digest, credOpts.CertificateId, credOpts.PrivateKeyId, err)
 				t.Fail()
 				return
 			}
