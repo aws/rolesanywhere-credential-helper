@@ -6,9 +6,9 @@ VERSION="${VERSION:-latest}"
 REGISTRY="${REGISTRY:-local}"
 REPOSITORY="${REPOSITORY:-iamra-credential-helper}"
 
-if [ $(uname -m) = "x86_64" ]; then
+if [ $(uname -m) = "x86_64" ] || [ $(uname -m) = "amd64" ]; then
   PLATFORM=amd64
-elif [ $(uname -m) = "aarch64" ]; then
+elif [ $(uname -m) = "aarch64" ] || [ $(uname -m) = "arm64" ]; then
   PLATFORM=arm64
 else
   echo "Error: Invalid platform. Supported platforms are arm64 and amd64 linux."
