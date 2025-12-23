@@ -14,7 +14,7 @@ RUN dnf install -y \
 
 ENV GOPATH=/root/go \
     PATH=/root/go/bin:$PATH \
-    HOME=/root \
+    HOME=/root
  
 RUN mkdir -p /root/go/bin && \
     go install golang.org/dl/go1.24.11@latest && \
