@@ -16,6 +16,7 @@ require (
 	golang.org/x/net v0.47.0
 	golang.org/x/sys v0.38.0
 	golang.org/x/term v0.37.0
+	github.com/cloudflare/circl v1.6.1
 )
 
 require (

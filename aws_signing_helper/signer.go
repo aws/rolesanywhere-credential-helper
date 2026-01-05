@@ -29,9 +29,52 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa44"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
 	"golang.org/x/crypto/pkcs12"
 	"golang.org/x/term"
 )
+
+// ML-DSA OIDs as defined in NIST FIPS 204
+var (
+	// ML-DSA-44 OID: 2.16.840.1.101.3.4.3.17
+	OidMLDSA44 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 3, 17}
+
+	// ML-DSA-65 OID: 2.16.840.1.101.3.4.3.18
+	OidMLDSA65 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 3, 18}
+
+	// ML-DSA-87 OID: 2.16.840.1.101.3.4.3.19
+	OidMLDSA87 = asn1.ObjectIdentifier{2, 16, 840, 1, 101, 3, 4, 3, 19}
+)
+
+// SubjectPublicKeyInfo represents the ASN.1 structure for public key information
+type SubjectPublicKeyInfo struct {
+	Algorithm        AlgorithmIdentifier
+	SubjectPublicKey asn1.BitString
+}
+
+// AlgorithmIdentifier represents the ASN.1 structure for algorithm identification
+type AlgorithmIdentifier struct {
+	Algorithm  asn1.ObjectIdentifier
+	Parameters asn1.RawValue `asn1:"optional"`
+}
+
+// TBSCertificate represents the "To Be Signed" portion of an X.509 certificate
+// We only parse the fields we need to extract the signature algorithm
+type TBSCertificate struct {
+	Version            int `asn1:"optional,explicit,default:0,tag:0"`
+	SerialNumber       *big.Int
+	SignatureAlgorithm AlgorithmIdentifier
+	// We don't need to parse the rest of the fields
+}
+
+// Certificate represents the top-level ASN.1 structure of an X.509 certificate
+type Certificate struct {
+	TBSCertificate     asn1.RawValue
+	SignatureAlgorithm AlgorithmIdentifier
+	SignatureValue     asn1.BitString
+}
 
 type SignerParams struct {
 	OverriddenDate   time.Time
@@ -117,6 +160,7 @@ type CertificateContainer struct {
 const (
 	aws4_x509_rsa_sha256   = "AWS4-X509-RSA-SHA256"
 	aws4_x509_ecdsa_sha256 = "AWS4-X509-ECDSA-SHA256"
+	aws4_x509_mldsa        = "AWS4-X509-MLDSA"
 	timeFormat             = "20060102T150405Z"
 	shortTimeFormat        = "20060102"
 	x_amz_date             = "X-Amz-Date"
@@ -474,6 +518,64 @@ func certificateChainToString(certificateChain []*x509.Certificate) string {
 	return x509ChainString.String()
 }
 
+// GetCertificatePublicKeyAlgorithmOID extracts the OID from a certificate's public key algorithm
+func getCertificatePublicKeyAlgorithmOID(cert *x509.Certificate) (asn1.ObjectIdentifier, error) {
+	var spki SubjectPublicKeyInfo
+	_, err := asn1.Unmarshal(cert.RawSubjectPublicKeyInfo, &spki)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse SubjectPublicKeyInfo: %w", err)
+	}
+
+	return spki.Algorithm.Algorithm, nil
+}
+
+// GetCertificateSignatureAlgorithmOID extracts the OID from a certificate's signature algorithm
+// This is the algorithm used to sign the certificate itself
+func getCertificateSignatureAlgorithmOID(cert *x509.Certificate) (asn1.ObjectIdentifier, error) {
+	// Parse the outer certificate structure
+	var certStruct Certificate
+	_, err := asn1.Unmarshal(cert.Raw, &certStruct)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate structure: %w", err)
+	}
+
+	return certStruct.SignatureAlgorithm.Algorithm, nil
+}
+
+// GetCertificateTBSSignatureAlgorithmOID extracts the signature algorithm OID from the TBSCertificate
+// This should match the outer signature algorithm OID
+func getCertificateTBSSignatureAlgorithmOID(cert *x509.Certificate) (asn1.ObjectIdentifier, error) {
+	// Parse the outer certificate structure to get TBSCertificate
+	var certStruct Certificate
+	_, err := asn1.Unmarshal(cert.Raw, &certStruct)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse certificate structure: %w", err)
+	}
+
+	// Parse the TBSCertificate
+	var tbsCert TBSCertificate
+	_, err = asn1.Unmarshal(certStruct.TBSCertificate.FullBytes, &tbsCert)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse TBSCertificate: %w", err)
+	}
+
+	return tbsCert.SignatureAlgorithm.Algorithm, nil
+}
+
+// isMLDSASignatureAlgorithm checks if an OID represents an ML-DSA signature algorithm
+func isMLDSASignatureAlgorithm(oid asn1.ObjectIdentifier) (bool, string) {
+	if oid.Equal(OidMLDSA44) {
+		return true, "ML-DSA-44"
+	}
+	if oid.Equal(OidMLDSA65) {
+		return true, "ML-DSA-65"
+	}
+	if oid.Equal(OidMLDSA87) {
+		return true, "ML-DSA-87"
+	}
+	return false, ""
+}
+
 func CreateRequestSignFinalizeFunction(signer crypto.Signer, signingRegion string, signingAlgorithm string, certificate *x509.Certificate, certificateChain []*x509.Certificate) func(context.Context, middleware.FinalizeInput, middleware.FinalizeHandler) (middleware.FinalizeOutput, middleware.Metadata, error) {
 	return func(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (out middleware.FinalizeOutput, metadata middleware.Metadata, err error) {
 		req, ok := in.Request.(*smithyhttp.Request)
@@ -800,6 +902,34 @@ func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privat
 	return certChain, privateKey, nil
 }
 
+// isMLDSACertificate checks if a certificate uses ML-DSA by examining its public key algorithm OID
+func isMLDSACertificate(cert *x509.Certificate) (bool, string, error) {
+	// Parse the certificate's SubjectPublicKeyInfo
+	var spki SubjectPublicKeyInfo
+	rest, err := asn1.Unmarshal(cert.RawSubjectPublicKeyInfo, &spki)
+	if err != nil {
+		return false, "", fmt.Errorf("failed to parse SubjectPublicKeyInfo: %w", err)
+	}
+	if len(rest) > 0 {
+		return false, "", fmt.Errorf("trailing data after SubjectPublicKeyInfo")
+	}
+
+	// Check if the OID matches any ML-DSA variant
+	oid := spki.Algorithm.Algorithm
+
+	if oid.Equal(OidMLDSA44) {
+		return true, "ML-DSA-44", nil
+	}
+	if oid.Equal(OidMLDSA65) {
+		return true, "ML-DSA-65", nil
+	}
+	if oid.Equal(OidMLDSA87) {
+		return true, "ML-DSA-87", nil
+	}
+
+	return false, "", nil
+}
+
 // Load the private key referenced by `privateKeyId`. If `pkcs8Password` is provided, attempt to load an encrypted PKCS#8 key.
 func ReadPrivateKeyData(privateKeyId string, pkcs8Password ...string) (crypto.PrivateKey, error) {
 	if len(pkcs8Password) > 0 && pkcs8Password[0] != "" {
@@ -810,6 +940,11 @@ func ReadPrivateKeyData(privateKeyId string, pkcs8Password ...string) (crypto.Pr
 	}
 
 	if key, err := readPKCS8PrivateKey(privateKeyId); err == nil {
+		return key, nil
+	}
+
+	// Try MLDSA keys
+	if key, err := readMLDSAPrivateKey(privateKeyId); err == nil {
 		return key, nil
 	}
 
@@ -837,6 +972,20 @@ func ReadPrivateKeyDataFromPEMBlock(block *pem.Block) (key crypto.PrivateKey, er
 		return key, nil
 	}
 
+	// Try MLDSA parsing
+	var key44 mldsa44.PrivateKey
+	if err := key44.UnmarshalBinary(block.Bytes); err == nil {
+		return &key44, nil
+	}
+	var key65 mldsa65.PrivateKey
+	if err := key65.UnmarshalBinary(block.Bytes); err == nil {
+		return &key65, nil
+	}
+	var key87 mldsa87.PrivateKey
+	if err := key87.UnmarshalBinary(block.Bytes); err == nil {
+		return &key87, nil
+	}
+
 	return nil, errors.New("unable to parse private key")
 }
 
@@ -859,21 +1008,37 @@ func ReadCertificateData(certificateId string) (CertificateData, *x509.Certifica
 	//encode certificate
 	encodedDer, _ := encodeDer(block.Bytes)
 
-	//extract key type
+	//extract key type using ASN1 parsing to detect ML-DSA
 	var keyType string
-	switch cert.PublicKeyAlgorithm {
-	case x509.RSA:
-		keyType = "RSA"
-	case x509.ECDSA:
-		keyType = "EC"
-	default:
-		keyType = ""
+	var supportedAlgorithms []string
+
+	// First check if this is an ML-DSA certificate using ASN1 parsing
+	isMLDSA, variant, err := isMLDSACertificate(cert)
+	if err != nil {
+		return CertificateData{}, nil, fmt.Errorf("failed to check ML-DSA certificate: %w", err)
 	}
 
-	supportedAlgorithms := []string{
-		fmt.Sprintf("%sSHA256", keyType),
-		fmt.Sprintf("%sSHA384", keyType),
-		fmt.Sprintf("%sSHA512", keyType),
+	if isMLDSA {
+		// ML-DSA certificates use the variant as the key type
+		keyType = variant
+		// ML-DSA doesn't use hash algorithms in the same way
+		supportedAlgorithms = []string{variant}
+	} else {
+		// Fall back to standard x509 public key algorithm detection
+		switch cert.PublicKeyAlgorithm {
+		case x509.RSA:
+			keyType = "RSA"
+		case x509.ECDSA:
+			keyType = "EC"
+		default:
+			keyType = ""
+		}
+
+		supportedAlgorithms = []string{
+			fmt.Sprintf("%sSHA256", keyType),
+			fmt.Sprintf("%sSHA384", keyType),
+			fmt.Sprintf("%sSHA512", keyType),
+		}
 	}
 
 	//return struct
