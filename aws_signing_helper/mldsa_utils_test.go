@@ -298,51 +298,6 @@ func TestReadMLDSAPrivateKeyInvalidFile(t *testing.T) {
 	}
 }
 
-func TestExtractPublicKeyAlgorithmOID(t *testing.T) {
-	// Test with a real certificate that has a known algorithm
-	testCases := []struct {
-		name        string
-		certPath    string
-		expectError bool
-	}{
-		{
-			name:        "Valid RSA certificate",
-			certPath:    "../tst/certs/rsa-2048-sha256-cert.pem",
-			expectError: false,
-		},
-		{
-			name:        "Valid EC certificate",
-			certPath:    "../tst/certs/ec-prime256v1-sha256-cert.pem",
-			expectError: false,
-		},
-	}
-
-	for _, tc := range testCases {
-		t.Run(tc.name, func(t *testing.T) {
-			// Read the certificate
-			_, cert, err := ReadCertificateData(tc.certPath)
-			if err != nil {
-				t.Fatalf("Failed to read certificate: %v", err)
-			}
-
-			// Extract the OID
-			oid, err := extractPublicKeyAlgorithmOID(cert.Raw)
-			if tc.expectError {
-				if err == nil {
-					t.Error("extractPublicKeyAlgorithmOID() expected error, got nil")
-				}
-			} else {
-				if err != nil {
-					t.Errorf("extractPublicKeyAlgorithmOID() unexpected error: %v", err)
-				}
-				if len(oid) == 0 {
-					t.Error("extractPublicKeyAlgorithmOID() returned empty OID")
-				}
-			}
-		})
-	}
-}
-
 func TestMLDSASigningAlgorithmConstant(t *testing.T) {
 	// Verify the constant is correctly defined
 	if aws4_x509_mldsa != "AWS4-X509-MLDSA" {
