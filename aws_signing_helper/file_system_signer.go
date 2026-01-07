@@ -35,6 +35,12 @@ func (fileSystemSigner *FileSystemSigner) Public() crypto.PublicKey {
 			return &privateKey.PublicKey
 		}
 	}
+	{
+		privateKey, ok := privateKey.(MLDSAPrivateKey)
+		if ok {
+			return privateKey.Public()
+		}
+	}
 	return nil
 }
 
@@ -42,6 +48,15 @@ func (fileSystemSigner *FileSystemSigner) Close() {}
 
 func (fileSystemSigner *FileSystemSigner) Sign(rand io.Reader, digest []byte, opts crypto.SignerOpts) (signature []byte, err error) {
 	privateKey, _, _ := fileSystemSigner.readCertFiles()
+
+	// Check if it's an MLDSA key - MLDSA signs the message directly without hashing
+	mldsakey, ok := privateKey.(MLDSAPrivateKey)
+	if ok {
+		// MLDSA signs the digest directly (no additional hashing)
+		sig := mldsakey.Sign(digest, nil)
+		return sig, nil
+	}
+
 	var hash []byte
 	switch opts.HashFunc() {
 	case crypto.SHA256:
@@ -99,6 +114,10 @@ func GetFileSystemSigner(privateKeyPath string, certPath string, bundlePath stri
 	_, isEcKey := privateKey.(*ecdsa.PrivateKey)
 	if isEcKey {
 		signingAlgorithm = aws4_x509_ecdsa_sha256
+	}
+	_, isMLDSAKey := privateKey.(MLDSAPrivateKey)
+	if isMLDSAKey {
+		signingAlgorithm = aws4_x509_mldsa
 	}
 	if signingAlgorithm == "" {
 		log.Println("unsupported algorithm")

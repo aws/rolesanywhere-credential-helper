@@ -35,6 +35,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/cloudflare/circl/sign/mldsa/mldsa44"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
 	"golang.org/x/crypto/pbkdf2"
 	"golang.org/x/crypto/scrypt"
 )
@@ -115,15 +118,41 @@ func getNewHash(oid asn1.ObjectIdentifier) (func() hash.Hash, error) {
 // 'extractCipherParams' extracts and parses cipher parameters.
 // It identifies the encryption algorithm and returns the IV and key size based on the detected algorithm.
 func extractCipherParams(es pkix.AlgorithmIdentifier) ([]byte, int, error) {
+	if Debug {
+		log.Printf("Extracting cipher parameters for algorithm OID: %s", es.Algorithm.String())
+	}
+
 	algo, exist := cipherMap[es.Algorithm.String()]
 	if !exist {
+		if Debug {
+			log.Printf("Unsupported encryption algorithm OID: %s", es.Algorithm.String())
+			log.Printf("Supported algorithms: %v", func() []string {
+				var supported []string
+				for oid := range cipherMap {
+					supported = append(supported, oid)
+				}
+				return supported
+			}())
+		}
 		return nil, 0, errors.New("unsupported encryption algorithm")
+	}
+
+	if Debug {
+		log.Printf("Found supported algorithm with key size: %d bytes", algo.KeySize)
 	}
 
 	var iv []byte
 	if _, err := asn1.Unmarshal(es.Parameters.FullBytes, &iv); err != nil {
+		if Debug {
+			log.Printf("Failed to parse initialization vector: %v", err)
+		}
 		return nil, 0, errors.New("failed to parse the initialization vector")
 	}
+
+	if Debug {
+		log.Printf("Successfully extracted IV of size: %d bytes", len(iv))
+	}
+
 	return iv, algo.KeySize, nil
 }
 
@@ -134,14 +163,35 @@ func extractCipherParams(es pkix.AlgorithmIdentifier) ([]byte, int, error) {
 func deriveKeyUsingPBKDF2(parameterBytes []byte, keySize int, password []byte) ([]byte, error) {
 	var kdfParams PBKDF2Params
 	if _, err := asn1.Unmarshal(parameterBytes, &kdfParams); err != nil {
+		if Debug {
+			log.Printf("Failed to parse PBKDF2 parameters: %v", err)
+		}
 		return nil, fmt.Errorf("failed to parse ASN.1 OID: %w", err)
+	}
+
+	if Debug {
+		log.Printf("PBKDF2 parameters - Salt size: %d bytes, Iterations: %d, PRF OID: %v",
+			len(kdfParams.Salt), kdfParams.Iteration, kdfParams.PRF.Algorithm)
 	}
 
 	hashFunc, err := getNewHash(kdfParams.PRF.Algorithm)
 	if err != nil {
+		if Debug {
+			log.Printf("Failed to get hash function for PRF OID %v: %v", kdfParams.PRF.Algorithm, err)
+		}
 		return nil, err
 	}
+
+	if Debug {
+		log.Printf("Using PBKDF2 with %d iterations to derive %d-byte key", kdfParams.Iteration, keySize)
+	}
+
 	key := pbkdf2.Key(password, kdfParams.Salt, kdfParams.Iteration, keySize, hashFunc)
+
+	if Debug {
+		log.Printf("PBKDF2 successfully derived %d-byte key", len(key))
+	}
+
 	return key, nil
 }
 
@@ -152,14 +202,34 @@ func deriveKeyUsingPBKDF2(parameterBytes []byte, keySize int, password []byte) (
 func deriveKeyUsingScrypt(parameterBytes []byte, keySize int, password []byte) ([]byte, error) {
 	var kdfParams ScryptParams
 	if _, err := asn1.Unmarshal(parameterBytes, &kdfParams); err != nil {
+		if Debug {
+			log.Printf("Failed to parse Scrypt parameters: %v", err)
+		}
 		return nil, fmt.Errorf("failed to parse ASN.1 OID: %w", err)
+	}
+
+	if Debug {
+		log.Printf("Scrypt parameters - Salt size: %d bytes, Cost factor: %d, Block size: %d, Parallelization: %d",
+			len(kdfParams.Salt), kdfParams.CostFactor, kdfParams.BlockSizeFactor, kdfParams.ParallelizationFactor)
+	}
+
+	if Debug {
+		log.Printf("Using Scrypt to derive %d-byte key", keySize)
 	}
 
 	key, err := scrypt.Key(password, kdfParams.Salt, kdfParams.CostFactor, kdfParams.BlockSizeFactor,
 		kdfParams.ParallelizationFactor, keySize)
 	if err != nil {
+		if Debug {
+			log.Printf("Scrypt key derivation failed: %v", err)
+		}
 		return nil, err
 	}
+
+	if Debug {
+		log.Printf("Scrypt successfully derived %d-byte key", len(key))
+	}
+
 	return key, nil
 }
 
@@ -188,7 +258,7 @@ func parseDERFromPEMForPKCS8(pemDataId string, blockType string) (*pem.Block, er
 	return nil, fmt.Errorf("requested block type could not be found. The block type detected is %s", block.Type)
 }
 
-// 'isPKCS8EncryptedBlockType' tries to decode the PEM block
+// isPKCS8EncryptedBlockType tries to decode the PEM block
 // and determine if the PEM block type is 'ENCRYPTED PRIVATE KEY'.
 func isPKCS8EncryptedBlockType(pemDataId string) bool {
 	bytes, err := os.ReadFile(pemDataId)
@@ -211,53 +281,117 @@ func isPKCS8EncryptedBlockType(pemDataId string) bool {
 
 // 'readPKCS8PrivateKey' reads and parses an unencrypted PKCS#8 private key.
 func readPKCS8PrivateKey(privateKeyId string) (crypto.PrivateKey, error) {
+	if Debug {
+		log.Printf("Reading unencrypted PKCS#8 private key from: %s", privateKeyId)
+	}
+
 	block, err := parseDERFromPEMForPKCS8(privateKeyId, unencryptedBlockType)
 	if err != nil {
+		if Debug {
+			log.Printf("Failed to parse PEM data: %v", err)
+		}
 		return nil, err
+	}
+
+	if Debug {
+		log.Printf("Successfully parsed PEM block of type: %s", block.Type)
+		log.Printf("PEM block size: %d bytes", len(block.Bytes))
 	}
 
 	privateKey, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
+		if Debug {
+			log.Printf("Failed to parse PKCS#8 private key: %v", err)
+		}
 		return nil, errors.New("could not parse private key")
+	}
+
+	if Debug {
+		log.Printf("Successfully parsed PKCS#8 private key of type: %T", privateKey)
 	}
 
 	rsaPrivateKey, ok := privateKey.(*rsa.PrivateKey)
 	if ok {
+		if Debug {
+			log.Printf("Successfully loaded RSA private key with %d-bit modulus", rsaPrivateKey.N.BitLen())
+		}
 		return rsaPrivateKey, nil
 	}
 
 	ecPrivateKey, ok := privateKey.(*ecdsa.PrivateKey)
 	if ok {
+		if Debug {
+			log.Printf("Successfully loaded ECDSA private key with curve: %s", ecPrivateKey.Curve.Params().Name)
+		}
 		return ecPrivateKey, nil
 	}
 
+	if Debug {
+		log.Printf("Unsupported private key type: %T", privateKey)
+	}
 	return nil, errors.New("could not parse PKCS#8 private key")
 }
 
 // 'readPKCS8EncryptedPrivateKey' reads and parses an encrypted PKCS#8 private key, following the process defined in RFC 8018.
 // Note that the encryption scheme must be PBES2, and the supported key types are limited to RSA and ECDSA.
 func readPKCS8EncryptedPrivateKey(privateKeyId string, pkcs8Password []byte) (crypto.PrivateKey, error) {
+	if Debug {
+		log.Printf("Reading encrypted PKCS#8 private key from: %s", privateKeyId)
+	}
+
 	block, err := parseDERFromPEMForPKCS8(privateKeyId, encryptedBlockType)
 	if err != nil {
 		if Debug && strings.Contains(err.Error(), `The block type detected is PRIVATE KEY`) {
 			log.Println("PKCS#8 password provided but block type indicates that one isn't required.")
 		}
+		if Debug {
+			log.Printf("Failed to parse PEM data: %v", err)
+		}
 		return nil, errors.New("could not parse PEM data")
+	}
+
+	if Debug {
+		log.Printf("Successfully parsed PEM block of type: %s", block.Type)
+		log.Printf("PEM block size: %d bytes", len(block.Bytes))
 	}
 
 	var privKey EncryptedPrivateKeyInfo
 	if _, err := asn1.Unmarshal(block.Bytes, &privKey); err != nil {
+		if Debug {
+			log.Printf("Failed to parse PKCS#8 structure: %v", err)
+		}
 		return nil, fmt.Errorf("failed to parse PKCS#8 structure: %w", err)
+	}
+
+	if Debug {
+		log.Printf("Encryption algorithm OID: %v", privKey.EncryptionAlgorithm.Algorithm)
+		log.Printf("Encrypted data size: %d bytes", len(privKey.EncryptedData))
 	}
 
 	var pbes2 PBES2Params
 	if _, err := asn1.Unmarshal(privKey.EncryptionAlgorithm.Parameters.FullBytes, &pbes2); err != nil {
+		if Debug {
+			log.Printf("Failed to parse PBES2 parameters: %v", err)
+		}
 		return nil, errors.New("invalid PBES2 parameters")
+	}
+
+	if Debug {
+		log.Printf("Key derivation function OID: %v", pbes2.KeyDerivationFunc.Algorithm)
+		log.Printf("Encryption scheme OID: %v", pbes2.EncryptionScheme.Algorithm)
 	}
 
 	iv, keySize, err := extractCipherParams(pbes2.EncryptionScheme)
 	if err != nil {
+		if Debug {
+			log.Printf("Failed to extract cipher parameters: %v", err)
+		}
 		return nil, err
+	}
+
+	if Debug {
+		log.Printf("Cipher key size: %d bytes", keySize)
+		log.Printf("IV size: %d bytes", len(iv))
 	}
 
 	kdfOid := pbes2.KeyDerivationFunc.Algorithm
@@ -266,16 +400,48 @@ func readPKCS8EncryptedPrivateKey(privateKeyId string, pkcs8Password []byte) (cr
 	defer copy(key, make([]byte, len(key)))
 	switch {
 	case kdfOid.Equal(oidPBKDF2):
-		key, _ = deriveKeyUsingPBKDF2(pbes2.KeyDerivationFunc.Parameters.FullBytes, keySize, pkcs8Password)
+		if Debug {
+			log.Println("Using PBKDF2 for key derivation")
+		}
+		key, err = deriveKeyUsingPBKDF2(pbes2.KeyDerivationFunc.Parameters.FullBytes, keySize, pkcs8Password)
+		if err != nil {
+			if Debug {
+				log.Printf("PBKDF2 key derivation failed: %v", err)
+			}
+			return nil, fmt.Errorf("PBKDF2 key derivation failed: %w", err)
+		}
 	case kdfOid.Equal(oidScrypt):
-		key, _ = deriveKeyUsingScrypt(pbes2.KeyDerivationFunc.Parameters.FullBytes, keySize, pkcs8Password)
+		if Debug {
+			log.Println("Using Scrypt for key derivation")
+		}
+		key, err = deriveKeyUsingScrypt(pbes2.KeyDerivationFunc.Parameters.FullBytes, keySize, pkcs8Password)
+		if err != nil {
+			if Debug {
+				log.Printf("Scrypt key derivation failed: %v", err)
+			}
+			return nil, fmt.Errorf("Scrypt key derivation failed: %w", err)
+		}
 	default:
+		if Debug {
+			log.Printf("Unsupported key derivation function OID: %v", kdfOid)
+		}
 		return nil, errors.New("unsupported key derivation function")
+	}
+
+	if Debug {
+		log.Printf("Successfully derived key of size: %d bytes", len(key))
 	}
 
 	blockCipher, err := cipherMap[pbes2.EncryptionScheme.Algorithm.String()].NewCipher(key)
 	if err != nil {
+		if Debug {
+			log.Printf("Failed to create cipher: %v", err)
+		}
 		return nil, fmt.Errorf("failed to create cipher: %w", err)
+	}
+
+	if Debug {
+		log.Printf("Successfully created cipher for algorithm: %s", pbes2.EncryptionScheme.Algorithm.String())
 	}
 
 	ciphertext := privKey.EncryptedData
@@ -283,25 +449,117 @@ func readPKCS8EncryptedPrivateKey(privateKeyId string, pkcs8Password []byte) (cr
 	plaintext := make([]byte, len(ciphertext))
 	mode.CryptBlocks(plaintext, ciphertext)
 
+	if Debug {
+		log.Printf("Successfully decrypted %d bytes of ciphertext", len(ciphertext))
+	}
+
 	privateKey, err := x509.ParsePKCS8PrivateKey(plaintext)
 	if err != nil {
-		return nil, errors.New("incorrect password or invalid key format")
+		if Debug {
+			log.Printf("Standard PKCS#8 parsing failed: %v", err)
+			log.Println("Attempting MLDSA private key parsing...")
+		}
+
+		// Try parsing as MLDSA private key
+		mldsaKey, mldsaErr := parseMLDSAFromPKCS8(plaintext)
+		if mldsaErr != nil {
+			if Debug {
+				log.Printf("MLDSA parsing also failed: %v", mldsaErr)
+			}
+			return nil, errors.New("incorrect password or invalid key format")
+		}
+
+		if Debug {
+			log.Printf("Successfully parsed MLDSA private key: %s", mldsaKey.Scheme())
+		}
+		return mldsaKey, nil
+	}
+
+	if Debug {
+		log.Printf("Successfully parsed PKCS#8 private key of type: %T", privateKey)
 	}
 
 	switch privateKey.(type) {
 	case *rsa.PrivateKey:
 		rsaPrivateKey, ok := privateKey.(*rsa.PrivateKey)
 		if ok {
+			if Debug {
+				log.Printf("Successfully loaded RSA private key with %d-bit modulus", rsaPrivateKey.N.BitLen())
+			}
 			return rsaPrivateKey, nil
 		}
 	case *ecdsa.PrivateKey:
 		ecPrivateKey, ok := privateKey.(*ecdsa.PrivateKey)
 		if ok {
+			if Debug {
+				log.Printf("Successfully loaded ECDSA private key with curve: %s", ecPrivateKey.Curve.Params().Name)
+			}
 			return ecPrivateKey, nil
 		}
 	default:
+		if Debug {
+			log.Printf("Unsupported private key type: %T", privateKey)
+		}
 		return nil, errors.New("could not parse PKCS#8 private key")
 	}
 
 	return nil, errors.New("could not parse PKCS#8 private key")
+}
+
+// parseMLDSAFromPKCS8 attempts to parse MLDSA private key from decrypted PKCS#8 data
+func parseMLDSAFromPKCS8(pkcs8Data []byte) (MLDSAPrivateKey, error) {
+	// Parse PKCS#8 structure manually for MLDSA
+	var privKey pkcs8PrivateKey
+	if _, err := asn1.Unmarshal(pkcs8Data, &privKey); err != nil {
+		return nil, fmt.Errorf("failed to parse PKCS#8 structure: %w", err)
+	}
+
+	// Check the algorithm OID to determine which MLDSA variant
+	oid := privKey.Algo.Algorithm
+
+	// For MLDSA in PKCS#8, the private key field contains a SEQUENCE
+	// Parse as RawValue to inspect the structure
+	var rawSeq asn1.RawValue
+	if _, err := asn1.Unmarshal(privKey.PrivateKey, &rawSeq); err != nil {
+		return nil, fmt.Errorf("failed to parse private key sequence: %w", err)
+	}
+
+	// The SEQUENCE contains the seed as an OCTET STRING (32 bytes)
+	// We need to use NewKeyFromSeed to generate the full private key
+	var seed []byte
+	if _, err := asn1.Unmarshal(rawSeq.Bytes, &seed); err != nil {
+		return nil, fmt.Errorf("failed to extract seed: %w", err)
+	}
+
+	switch {
+	case oid.Equal(oidMLDSA44):
+		if len(seed) != 32 {
+			return nil, fmt.Errorf("invalid seed length for ML-DSA-44: got %d, want 32", len(seed))
+		}
+		var seedArray [32]byte
+		copy(seedArray[:], seed)
+		_, key := mldsa44.NewKeyFromSeed(&seedArray)
+		return &MLDSA44PrivateKey{key: key}, nil
+
+	case oid.Equal(oidMLDSA65):
+		if len(seed) != 32 {
+			return nil, fmt.Errorf("invalid seed length for ML-DSA-65: got %d, want 32", len(seed))
+		}
+		var seedArray [32]byte
+		copy(seedArray[:], seed)
+		_, key := mldsa65.NewKeyFromSeed(&seedArray)
+		return &MLDSA65PrivateKey{key: key}, nil
+
+	case oid.Equal(oidMLDSA87):
+		if len(seed) != 32 {
+			return nil, fmt.Errorf("invalid seed length for ML-DSA-87: got %d, want 32", len(seed))
+		}
+		var seedArray [32]byte
+		copy(seedArray[:], seed)
+		_, key := mldsa87.NewKeyFromSeed(&seedArray)
+		return &MLDSA87PrivateKey{key: key}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported MLDSA algorithm OID: %v", oid)
+	}
 }
