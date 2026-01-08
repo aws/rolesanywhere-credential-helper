@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io/ioutil"
 	"math/big"
 	"regexp"
 	"slices"
@@ -12,6 +11,7 @@ import (
 
 	helper "github.com/aws/rolesanywhere-credential-helper/aws_signing_helper"
 	"github.com/spf13/cobra"
+	"os"
 )
 
 var (
@@ -54,7 +54,7 @@ var (
 		X509_SERIAL_KEY,
 	}
 
-	DUPLICATE_KEYS_ERR_STR = "duplicate %s keys can't be present in cert selector"
+	DUPLICATE_KEYS_ERR_STR        = "duplicate %s keys can't be present in cert selector"
 	CERT_SELECTOR_KEY_VALUE_REGEX = regexp.MustCompile(`^\s*Key=(.+?),Value=(.+?)\s*(?:Key=|$)`)
 )
 
@@ -117,7 +117,7 @@ func getStringMap(s string) (map[string]string, error) {
 	m := make(map[string]string)
 	for {
 		match := CERT_SELECTOR_KEY_VALUE_REGEX.FindStringSubmatch(s)
-		if match == nil || len(match) == 0 {
+		if len(match) == 0 {
 			break
 		} else {
 			if len(match) < 3 {
@@ -238,7 +238,7 @@ func PopulateCertIdentifier(certSelector string, systemStoreName string) (helper
 
 	if certSelector != "" {
 		if strings.HasPrefix(certSelector, "file://") {
-			certSelectorFile, err := ioutil.ReadFile(strings.TrimPrefix(certSelector, "file://"))
+			certSelectorFile, err := os.ReadFile(strings.TrimPrefix(certSelector, "file://"))
 			if err != nil {
 				return helper.CertIdentifier{}, errors.New("unable to read cert selector file")
 			}
