@@ -31,9 +31,7 @@ import (
 	"errors"
 	"fmt"
 	"hash"
-	"log"
 	"os"
-	"strings"
 
 	"github.com/cloudflare/circl/sign/mldsa/mldsa44"
 	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
@@ -149,10 +147,6 @@ func extractCipherParams(es pkix.AlgorithmIdentifier) ([]byte, int, error) {
 		return nil, 0, errors.New("failed to parse the initialization vector")
 	}
 
-	if Debug {
-		log.Printf("Successfully extracted IV of size: %d bytes", len(iv))
-	}
-
 	return iv, algo.KeySize, nil
 }
 
@@ -182,15 +176,7 @@ func deriveKeyUsingPBKDF2(parameterBytes []byte, keySize int, password []byte) (
 		return nil, err
 	}
 
-	if Debug {
-		log.Printf("Using PBKDF2 with %d iterations to derive %d-byte key", kdfParams.Iteration, keySize)
-	}
-
 	key := pbkdf2.Key(password, kdfParams.Salt, kdfParams.Iteration, keySize, hashFunc)
-
-	if Debug {
-		log.Printf("PBKDF2 successfully derived %d-byte key", len(key))
-	}
 
 	return key, nil
 }
@@ -226,10 +212,6 @@ func deriveKeyUsingScrypt(parameterBytes []byte, keySize int, password []byte) (
 		return nil, err
 	}
 
-	if Debug {
-		log.Printf("Scrypt successfully derived %d-byte key", len(key))
-	}
-
 	return key, nil
 }
 
@@ -258,6 +240,7 @@ func parseDERFromPEMForPKCS8(pemDataId string, blockType string) (*pem.Block, er
 	return nil, fmt.Errorf("requested block type could not be found. The block type detected is %s", block.Type)
 }
 
+// isPKCS8EncryptedBlockType tries to decode the PEM block
 // isPKCS8EncryptedBlockType tries to decode the PEM block
 // and determine if the PEM block type is 'ENCRYPTED PRIVATE KEY'.
 func isPKCS8EncryptedBlockType(pemDataId string) bool {
@@ -341,12 +324,6 @@ func readPKCS8EncryptedPrivateKey(privateKeyId string, pkcs8Password []byte) (cr
 
 	block, err := parseDERFromPEMForPKCS8(privateKeyId, encryptedBlockType)
 	if err != nil {
-		if Debug && strings.Contains(err.Error(), `The block type detected is PRIVATE KEY`) {
-			log.Println("PKCS#8 password provided but block type indicates that one isn't required.")
-		}
-		if Debug {
-			log.Printf("Failed to parse PEM data: %v", err)
-		}
 		return nil, errors.New("could not parse PEM data")
 	}
 
@@ -400,25 +377,13 @@ func readPKCS8EncryptedPrivateKey(privateKeyId string, pkcs8Password []byte) (cr
 	defer copy(key, make([]byte, len(key)))
 	switch {
 	case kdfOid.Equal(oidPBKDF2):
-		if Debug {
-			log.Println("Using PBKDF2 for key derivation")
-		}
 		key, err = deriveKeyUsingPBKDF2(pbes2.KeyDerivationFunc.Parameters.FullBytes, keySize, pkcs8Password)
 		if err != nil {
-			if Debug {
-				log.Printf("PBKDF2 key derivation failed: %v", err)
-			}
 			return nil, fmt.Errorf("PBKDF2 key derivation failed: %w", err)
 		}
 	case kdfOid.Equal(oidScrypt):
-		if Debug {
-			log.Println("Using Scrypt for key derivation")
-		}
 		key, err = deriveKeyUsingScrypt(pbes2.KeyDerivationFunc.Parameters.FullBytes, keySize, pkcs8Password)
 		if err != nil {
-			if Debug {
-				log.Printf("Scrypt key derivation failed: %v", err)
-			}
 			return nil, fmt.Errorf("Scrypt key derivation failed: %w", err)
 		}
 	default:
@@ -455,28 +420,13 @@ func readPKCS8EncryptedPrivateKey(privateKeyId string, pkcs8Password []byte) (cr
 
 	privateKey, err := x509.ParsePKCS8PrivateKey(plaintext)
 	if err != nil {
-		if Debug {
-			log.Printf("Standard PKCS#8 parsing failed: %v", err)
-			log.Println("Attempting MLDSA private key parsing...")
-		}
-
 		// Try parsing as MLDSA private key
 		mldsaKey, mldsaErr := parseMLDSAFromPKCS8(plaintext)
 		if mldsaErr != nil {
-			if Debug {
-				log.Printf("MLDSA parsing also failed: %v", mldsaErr)
-			}
 			return nil, errors.New("incorrect password or invalid key format")
 		}
 
-		if Debug {
-			log.Printf("Successfully parsed MLDSA private key: %s", mldsaKey.Scheme())
-		}
 		return mldsaKey, nil
-	}
-
-	if Debug {
-		log.Printf("Successfully parsed PKCS#8 private key of type: %T", privateKey)
 	}
 
 	switch privateKey.(type) {
@@ -504,6 +454,64 @@ func readPKCS8EncryptedPrivateKey(privateKeyId string, pkcs8Password []byte) (cr
 	}
 
 	return nil, errors.New("could not parse PKCS#8 private key")
+}
+
+// parseMLDSAFromPKCS8 attempts to parse MLDSA private key from decrypted PKCS#8 data
+func parseMLDSAFromPKCS8(pkcs8Data []byte) (MLDSAPrivateKey, error) {
+	// Parse PKCS#8 structure manually for MLDSA
+	var privKey pkcs8PrivateKey
+	if _, err := asn1.Unmarshal(pkcs8Data, &privKey); err != nil {
+		return nil, fmt.Errorf("failed to parse PKCS#8 structure: %w", err)
+	}
+
+	// Check the algorithm OID to determine which MLDSA variant
+	oid := privKey.Algo.Algorithm
+
+	// For MLDSA in PKCS#8, the private key field contains a SEQUENCE
+	// Parse as RawValue to inspect the structure
+	var rawSeq asn1.RawValue
+	if _, err := asn1.Unmarshal(privKey.PrivateKey, &rawSeq); err != nil {
+		return nil, fmt.Errorf("failed to parse private key sequence: %w", err)
+	}
+
+	// The SEQUENCE contains the seed as an OCTET STRING (32 bytes)
+	// We need to use NewKeyFromSeed to generate the full private key
+	var seed []byte
+	if _, err := asn1.Unmarshal(rawSeq.Bytes, &seed); err != nil {
+		return nil, fmt.Errorf("failed to extract seed: %w", err)
+	}
+
+	switch {
+	case oid.Equal(oidMLDSA44):
+		if len(seed) != 32 {
+			return nil, fmt.Errorf("invalid seed length for ML-DSA-44: got %d, want 32", len(seed))
+		}
+		var seedArray [32]byte
+		copy(seedArray[:], seed)
+		_, key := mldsa44.NewKeyFromSeed(&seedArray)
+		return &MLDSA44PrivateKey{key: key}, nil
+
+	case oid.Equal(oidMLDSA65):
+		if len(seed) != 32 {
+			return nil, fmt.Errorf("invalid seed length for ML-DSA-65: got %d, want 32", len(seed))
+		}
+		var seedArray [32]byte
+		copy(seedArray[:], seed)
+		_, key := mldsa65.NewKeyFromSeed(&seedArray)
+		return &MLDSA65PrivateKey{key: key}, nil
+
+	case oid.Equal(oidMLDSA87):
+		if len(seed) != 32 {
+			return nil, fmt.Errorf("invalid seed length for ML-DSA-87: got %d, want 32", len(seed))
+		}
+		var seedArray [32]byte
+		copy(seedArray[:], seed)
+		_, key := mldsa87.NewKeyFromSeed(&seedArray)
+		return &MLDSA87PrivateKey{key: key}, nil
+
+	default:
+		return nil, fmt.Errorf("unsupported MLDSA algorithm OID: %v", oid)
+	}
 }
 
 // parseMLDSAFromPKCS8 attempts to parse MLDSA private key from decrypted PKCS#8 data
