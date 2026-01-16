@@ -1,4 +1,6 @@
 # Invalid RSA key for testing
 tst/certs/invalid-rsa-key.pem
+# Script that generates test fixtures with dummy/invalid keys
+generate-credential-process-data.sh
 # Do not factor in testing image templates since they are not meant for a privileged environment
 docker_image_resources/tests/pod_configurations
