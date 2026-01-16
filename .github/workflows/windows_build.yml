@@ -1,0 +1,52 @@
+name: Windows build and test rolesanywhere-credential-helper
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  statuses: write
+  id-token: write
+
+jobs:
+  Windows:
+    name: Build on ${{matrix.runner_image}}
+    runs-on: ${{matrix.runner_image}}
+    strategy:
+      matrix:
+        include:
+          - runner_image: windows-2022
+            arch: "X86_64"
+            display_name: "Windows X86_64"
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup go
+        uses: actions/setup-go@v5
+        with:
+          go-version-file: 'go.mod'
+          cache: true
+      
+      - name: Build Project
+        run: |
+          echo "Building on ${{ matrix.display_name }}"
+          make release
+          make test
+        shell: pwsh
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.2.0
+        with:
+          role-to-assume: ${{ secrets.BINARY_BUILDING_ROLE_ARN }}
+          role-session-name: githubwindowsbuild
+          aws-region: us-west-2
+      
+      - name: Upload to S3
+        id: s3
+        run: |
+          $S3_DESTINATION = "s3://${{ secrets.INTERMEDIATE_BUCKET_NAME }}"
+          $S3_PATH = "${{ secrets.WINDOWS_X86_64_S3_PATH }}"
+          aws s3 cp build/bin/aws_signing_helper "${S3_DESTINATION}/${S3_PATH}/aws_signing_helper.exe"
+        shell: pwsh

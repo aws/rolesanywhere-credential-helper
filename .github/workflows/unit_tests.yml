@@ -26,8 +26,10 @@ jobs:
           - name: macOS ARM
             os: macos-14
             pkcs11: true
-          - name: Windows
+          - name: Windows 2019
             os: windows-2019
+          - name: Windows 2022
+            os: windows-2022
     steps:
       - uses: actions/checkout@v4
 
