@@ -21,6 +21,7 @@ import (
 	"crypto/cipher"
 	"crypto/ecdsa"
 	"crypto/rsa"
+	"crypto/sha1"
 	"crypto/sha256"
 	"crypto/sha512"
 	"crypto/x509"
@@ -62,7 +63,7 @@ type PBKDF2RPFParams struct {
 type PBKDF2Params struct {
 	Salt      []byte
 	Iteration int
-	PRF       PBKDF2RPFParams
+	PRF       PBKDF2RPFParams `asn1:"optional"`
 }
 
 type ScryptParams struct {
@@ -74,6 +75,7 @@ type ScryptParams struct {
 
 // Supported PRFs
 var (
+	oidHMACWithSHA1   = asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 7}
 	oidHMACWithSHA256 = asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 9}
 	oidHMACWithSHA384 = asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 10}
 	oidHMACWithSHA512 = asn1.ObjectIdentifier{1, 2, 840, 113549, 2, 11}
@@ -101,6 +103,8 @@ const encryptedBlockType = "ENCRYPTED PRIVATE KEY"
 // 'getNewHash' creates a new hash based on the specified PRF
 func getNewHash(oid asn1.ObjectIdentifier) (func() hash.Hash, error) {
 	switch {
+	case oid.Equal(oidHMACWithSHA1):
+		return sha1.New, nil
 	case oid.Equal(oidHMACWithSHA256):
 		return sha256.New, nil
 	case oid.Equal(oidHMACWithSHA384):
@@ -137,7 +141,15 @@ func deriveKeyUsingPBKDF2(parameterBytes []byte, keySize int, password []byte) (
 		return nil, fmt.Errorf("failed to parse ASN.1 OID: %w", err)
 	}
 
-	hashFunc, err := getNewHash(kdfParams.PRF.Algorithm)
+	// If PRF is not specified, default to HMAC-SHA1
+	var prfOid asn1.ObjectIdentifier
+	if len(kdfParams.PRF.Algorithm) == 0 {  // prf missing?
+		prfOid = oidHMACWithSHA1  // assume default per rfc 8018
+	} else {
+		prfOid = kdfParams.PRF.Algorithm
+	}
+
+	hashFunc, err := getNewHash(prfOid)
 	if err != nil {
 		return nil, err
 	}
