@@ -2,5 +2,9 @@
 tst/certs/invalid-rsa-key.pem
 # ML-DSA keys are fixtures for unit tests
 tst/mldsa-fixtures/*
+
+# ACM-exported private key used for testing
+tst/keys/acm-encrypted.pem
+
 # Do not factor in testing image templates since they are not meant for a privileged environment
 docker_image_resources/tests/pod_configurations
