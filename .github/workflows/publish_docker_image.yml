@@ -1,6 +1,7 @@
 name: Publish Credential Helper Docker Image
 
 on:
+  workflow_dispatch:
   push:
     tags: ['v*.*.*']
 
@@ -62,7 +63,11 @@ jobs:
           docker manifest create ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:latest \
             ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@$AMD64_IMAGE_SHA \
             ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@$ARM64_IMAGE_SHA 
-          echo "manifest_sha=$(docker manifest push ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:latest)" >> "$GITHUB_OUTPUT"
+          echo "latest_manifest_sha=$(docker manifest push ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:latest)" >> "$GITHUB_OUTPUT"
+          docker manifest create ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:$VERSION-$TIMESTAMP \
+            ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@$AMD64_IMAGE_SHA \
+            ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@$ARM64_IMAGE_SHA
+          echo "versioned_manifest_sha=$(docker manifest push ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:$VERSION-$TIMESTAMP)" >> "$GITHUB_OUTPUT" 
 
       - name: Setup Notation CLI
         uses: notaryproject/notation-action/setup@v1
@@ -81,6 +86,7 @@ jobs:
           plugin_checksum: ${{steps.checksum.outputs.signer_sha}} # Required in order to use the AWS signer plugin
           key_id: arn:aws:signer:us-east-1:264252446756:/signing-profiles/IAM_ROLES_ANYWHERE_SIGNING_PROFILE_V1_0
           target_artifact_reference: |-
-            ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@${{steps.tag_and_push.outputs.manifest_sha}}
+            ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@${{steps.tag_and_push.outputs.latest_manifest_sha}}
+            ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@${{steps.tag_and_push.outputs.versioned_manifest_sha}}
             ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@${{steps.tag_and_push.outputs.amd64_image_sha}}
             ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}@${{steps.tag_and_push.outputs.arm64_image_sha}}
