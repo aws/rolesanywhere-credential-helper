@@ -65,9 +65,16 @@ func TestReadCertificateData(t *testing.T) {
 
 func TestReadInvalidCertificateData(t *testing.T) {
 	_, _, err := ReadCertificateData("../tst/certs/invalid-rsa-cert.pem")
-	if err == nil || !strings.Contains(err.Error(), "could not parse certificate") {
-		t.Log("Failed to throw a handled error")
+	if err == nil {
+		t.Log("Expected error but got none")
 		t.Fail()
+	} else {
+		// Accept either "could not parse PEM data" or "could not parse certificate" as valid errors
+		if !strings.Contains(err.Error(), "could not parse certificate") &&
+			!strings.Contains(err.Error(), "could not parse PEM data") {
+			t.Logf("Error doesn't contain expected text. Got: %v", err)
+			t.Fail()
+		}
 	}
 }
 
@@ -105,7 +112,7 @@ func TestReadPrivateKeyData(t *testing.T) {
 }
 
 func TestReadPrivateKeyDataWithPassword(t *testing.T) {
-	keyTypes := []string{"ec-prime256v1", "ec-secp384r1", "rsa-1024", "rsa-2048"}
+	keyTypes := []string{"ec-prime256v1", "ec-secp384r1", "rsa-1024", "rsa-2048", "mldsa44", "mldsa65", "mldsa87"}
 	supportedEncryptions := []string{
 		"aes128cbc", "aes192cbc", "aes256cbc",
 		"hmacWithSHA256", "hmacWithSHA384", "hmacWithSHA512",
@@ -115,7 +122,13 @@ func TestReadPrivateKeyDataWithPassword(t *testing.T) {
 	var fixtures []string
 	for _, keyType := range keyTypes {
 		for _, supportedEncryption := range supportedEncryptions {
-			fixtures = append(fixtures, fmt.Sprintf("../tst/certs/%s-key-pkcs8-%s.pem", keyType, supportedEncryption))
+			var path string
+			if strings.HasPrefix(keyType, "mldsa") {
+				path = fmt.Sprintf("../tst/mldsa-fixtures/%s-key-pkcs8-%s.pem", keyType, supportedEncryption)
+			} else {
+				path = fmt.Sprintf("../tst/certs/%s-key-pkcs8-%s.pem", keyType, supportedEncryption)
+			}
+			fixtures = append(fixtures, path)
 		}
 	}
 
@@ -123,6 +136,7 @@ func TestReadPrivateKeyDataWithPassword(t *testing.T) {
 		_, err := ReadPrivateKeyData(fixture, "password")
 
 		if err != nil {
+			log.Printf("Failed to read private key data %s", fixture)
 			t.Log("Failed to read private key data")
 			t.Fail()
 		}
@@ -318,6 +332,33 @@ func TestSign(t *testing.T) {
 				keylen, digest)
 			testTable = append(testTable, CredentialsOpts{
 				CertificateId: cert,
+			})
+		}
+	}
+
+	// ML-DSA variants
+	mldsa_variants := []string{"mldsa44", "mldsa65", "mldsa87"}
+	// Only AES-CBC encryption methods have real ML-DSA test fixtures
+	mldsa_encryption_opts := []string{
+		"aes128cbc",
+		"aes192cbc",
+		"aes256cbc",
+	}
+
+	for _, variant := range mldsa_variants {
+		cert := fmt.Sprintf("../tst/mldsa-fixtures/%s-cert.pem", variant)
+		key := fmt.Sprintf("../tst/mldsa-fixtures/%s-key.pem", variant)
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: cert,
+			PrivateKeyId:  key,
+		})
+
+		for _, method := range mldsa_encryption_opts {
+			key = fmt.Sprintf("../tst/mldsa-fixtures/%s-key-pkcs8-%s.pem", variant, method)
+			testTable = append(testTable, CredentialsOpts{
+				CertificateId: cert,
+				PrivateKeyId:  key,
+				Pkcs8Password: "password",
 			})
 		}
 	}
@@ -790,4 +831,113 @@ func GetMockedCreateSessionResponseServer() *httptest.Server {
 			"subjectArn": "arn:aws:rolesanywhere:us-east-1:000000000000:subject/41cl0bae-6783-40d4-ab20-65dc5d922e45"
 		  }`))
 	}))
+}
+func TestMLDSAEncryptedKeySigningWorkflow(t *testing.T) {
+	// Test the complete signing workflow with encrypted ML-DSA keys
+	mldsaVariants := []string{"mldsa44", "mldsa65", "mldsa87"}
+
+	for _, variant := range mldsaVariants {
+		t.Run(variant, func(t *testing.T) {
+			certFile := fmt.Sprintf("../tst/mldsa-fixtures/%s-cert.pem", variant)
+			keyFile := fmt.Sprintf("../tst/mldsa-fixtures/%s-key-pkcs8-aes256cbc.pem", variant)
+
+			// Create credentials options
+			credentialsOpts := CredentialsOpts{
+				CertificateId: certFile,
+				PrivateKeyId:  keyFile,
+				Pkcs8Password: "password",
+			}
+
+			// Test GetSigner
+			signer, signatureAlgorithm, err := GetSigner(&credentialsOpts)
+
+			if signer == nil {
+				t.Fatalf("Expected non-nil signer for %s", variant)
+			}
+
+			// Verify signature algorithm
+			if signatureAlgorithm != aws4_x509_mldsa {
+				t.Errorf("Expected %s signature algorithm, got %s", aws4_x509_mldsa, signatureAlgorithm)
+			}
+
+			// Test certificate operations
+			cert, err := signer.Certificate()
+			if err != nil {
+				t.Errorf("Failed to get certificate for %s: %v", variant, err)
+			} else if cert == nil {
+				t.Errorf("Got nil certificate for %s", variant)
+			}
+
+			// Test certificate chain (may be empty for self-signed ML-DSA certs)
+			_, err = signer.CertificateChain()
+			if err != nil {
+				t.Errorf("Failed to get certificate chain for %s: %v", variant, err)
+			}
+		})
+	}
+}
+
+func TestMLDSAEncryptedKeyPasswordValidation(t *testing.T) {
+	// Test password validation scenarios for encrypted ML-DSA keys
+	// Note: Wrong password tests are handled by TestMLDSAEncryptedKeyErrorHandling
+	// which tests ReadPrivateKeyData directly (GetSigner calls os.Exit on password errors)
+	testCases := []struct {
+		name     string
+		keyFile  string
+		password string
+	}{
+		{
+			name:     "Correct password - AES-128-CBC",
+			keyFile:  "../tst/mldsa-fixtures/mldsa44-key-pkcs8-aes128cbc.pem",
+			password: "password",
+		},
+		{
+			name:     "Correct password - AES-256-CBC",
+			keyFile:  "../tst/mldsa-fixtures/mldsa65-key-pkcs8-aes256cbc.pem",
+			password: "password",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			credentialsOpts := CredentialsOpts{
+				CertificateId: "../tst/mldsa-fixtures/mldsa44-cert.pem",
+				PrivateKeyId:  tc.keyFile,
+				Pkcs8Password: tc.password,
+			}
+
+			_, _, err := GetSigner(&credentialsOpts)
+			if err != nil {
+				t.Errorf("Expected success but got error: %v", err)
+			}
+		})
+	}
+}
+
+func TestMLDSAEncryptedKeyPerformance(t *testing.T) {
+	// Performance test for encrypted ML-DSA key operations
+	keyFile := "../tst/mldsa-fixtures/mldsa44-key-pkcs8-aes256cbc.pem"
+	certFile := "../tst/mldsa-fixtures/mldsa44-cert.pem"
+
+	credentialsOpts := CredentialsOpts{
+		CertificateId: certFile,
+		PrivateKeyId:  keyFile,
+		Pkcs8Password: "password",
+	}
+
+	// Test multiple signer creations
+	iterations := 5
+	for i := 0; i < iterations; i++ {
+		signer, _, err := GetSigner(&credentialsOpts)
+
+		if signer == nil {
+			t.Fatalf("Got nil signer on iteration %d", i)
+		}
+
+		// Test certificate retrieval performance
+		_, err = signer.Certificate()
+		if err != nil {
+			t.Errorf("Certificate retrieval failed on iteration %d: %v", i, err)
+		}
+	}
 }

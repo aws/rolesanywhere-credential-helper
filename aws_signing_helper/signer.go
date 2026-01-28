@@ -29,6 +29,9 @@ import (
 	v4 "github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/smithy-go/middleware"
 	smithyhttp "github.com/aws/smithy-go/transport/http"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa44"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
 	"golang.org/x/crypto/pkcs12"
 	"golang.org/x/term"
 )
@@ -117,6 +120,7 @@ type CertificateContainer struct {
 const (
 	aws4_x509_rsa_sha256   = "AWS4-X509-RSA-SHA256"
 	aws4_x509_ecdsa_sha256 = "AWS4-X509-ECDSA-SHA256"
+	aws4_x509_mldsa        = "AWS4-X509-MLDSA"
 	timeFormat             = "20060102T150405Z"
 	shortTimeFormat        = "20060102"
 	x_amz_date             = "X-Amz-Date"
@@ -813,6 +817,11 @@ func ReadPrivateKeyData(privateKeyId string, pkcs8Password ...string) (crypto.Pr
 		return key, nil
 	}
 
+	// Try MLDSA keys
+	if key, err := readMLDSAPrivateKey(privateKeyId); err == nil {
+		return key, nil
+	}
+
 	// Try EC and RSA keys as a fallback
 	if key, err := readECPrivateKey(privateKeyId); err == nil {
 		return key, nil
@@ -837,6 +846,20 @@ func ReadPrivateKeyDataFromPEMBlock(block *pem.Block) (key crypto.PrivateKey, er
 		return key, nil
 	}
 
+	// Try MLDSA parsing
+	var key44 mldsa44.PrivateKey
+	if err := key44.UnmarshalBinary(block.Bytes); err == nil {
+		return &key44, nil
+	}
+	var key65 mldsa65.PrivateKey
+	if err := key65.UnmarshalBinary(block.Bytes); err == nil {
+		return &key65, nil
+	}
+	var key87 mldsa87.PrivateKey
+	if err := key87.UnmarshalBinary(block.Bytes); err == nil {
+		return &key87, nil
+	}
+
 	return nil, errors.New("unable to parse private key")
 }
 
@@ -859,21 +882,37 @@ func ReadCertificateData(certificateId string) (CertificateData, *x509.Certifica
 	//encode certificate
 	encodedDer, _ := encodeDer(block.Bytes)
 
-	//extract key type
+	//extract key type using ASN1 parsing to detect ML-DSA
 	var keyType string
-	switch cert.PublicKeyAlgorithm {
-	case x509.RSA:
-		keyType = "RSA"
-	case x509.ECDSA:
-		keyType = "EC"
-	default:
-		keyType = ""
+	var supportedAlgorithms []string
+
+	// First check if this is an ML-DSA certificate using ASN1 parsing
+	isMLDSA, variant, err := IsMLDSACertificate(cert)
+	if err != nil {
+		return CertificateData{}, nil, fmt.Errorf("failed to check ML-DSA certificate: %w", err)
 	}
 
-	supportedAlgorithms := []string{
-		fmt.Sprintf("%sSHA256", keyType),
-		fmt.Sprintf("%sSHA384", keyType),
-		fmt.Sprintf("%sSHA512", keyType),
+	if isMLDSA {
+		// ML-DSA certificates use the variant as the key type
+		keyType = variant
+		// ML-DSA doesn't use hash algorithms in the same way
+		supportedAlgorithms = []string{variant}
+	} else {
+		// Fall back to standard x509 public key algorithm detection
+		switch cert.PublicKeyAlgorithm {
+		case x509.RSA:
+			keyType = "RSA"
+		case x509.ECDSA:
+			keyType = "EC"
+		default:
+			keyType = ""
+		}
+
+		supportedAlgorithms = []string{
+			fmt.Sprintf("%sSHA256", keyType),
+			fmt.Sprintf("%sSHA384", keyType),
+			fmt.Sprintf("%sSHA512", keyType),
+		}
 	}
 
 	//return struct

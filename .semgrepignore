@@ -1,4 +1,6 @@
 # Invalid RSA key for testing
 tst/certs/invalid-rsa-key.pem
+# ML-DSA keys are fixtures for unit tests
+tst/mldsa-fixtures/*
 # Do not factor in testing image templates since they are not meant for a privileged environment
 docker_image_resources/tests/pod_configurations

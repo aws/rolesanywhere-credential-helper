@@ -11,6 +11,10 @@ import (
 	"fmt"
 	"log"
 	"testing"
+
+	"github.com/cloudflare/circl/sign/mldsa/mldsa44"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa65"
+	"github.com/cloudflare/circl/sign/mldsa/mldsa87"
 )
 
 func RunSignTestWithTestTable(t *testing.T, testTable []CredentialsOpts) {
@@ -121,6 +125,33 @@ func RunNegativeSignTestWithTestTable(t *testing.T, testTable []CredentialsOpts)
 // Verify that the provided payload was signed correctly with the provided options.
 // This function is specifically used for unit testing.
 func Verify(payload []byte, publicKey crypto.PublicKey, digest crypto.Hash, sig []byte) (bool, error) {
+	// Check for ML-DSA keys first (they don't use traditional hash-based signatures)
+	{
+		publicKey, ok := publicKey.(*mldsa44.PublicKey)
+		if ok {
+			// ML-DSA signs the raw message, not a hash
+			valid := mldsa44.Verify(publicKey, payload, nil, sig)
+			return valid, nil
+		}
+	}
+
+	{
+		publicKey, ok := publicKey.(*mldsa65.PublicKey)
+		if ok {
+			valid := mldsa65.Verify(publicKey, payload, nil, sig)
+			return valid, nil
+		}
+	}
+
+	{
+		publicKey, ok := publicKey.(*mldsa87.PublicKey)
+		if ok {
+			valid := mldsa87.Verify(publicKey, payload, nil, sig)
+			return valid, nil
+		}
+	}
+
+	// For traditional algorithms (RSA, ECDSA), compute the hash
 	var hash []byte
 	switch digest {
 	case crypto.SHA256:
