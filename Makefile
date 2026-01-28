@@ -26,11 +26,13 @@ P11TOOL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp p11tool
 SOFTHSM2_MODULE=$(shell pkg-config --variable=libdir softhsm2 2>/dev/null)/softhsm/libsofthsm2.so
 
 certsdir=tst/certs
+mldsadir=tst/mldsa-fixtures
 
 PKCS8_OPENSSL_CMD = openssl pkcs8 -topk8 -inform PEM -outform PEM -in $< -out $@ -passout pass:password
 
 RSAKEYS := $(foreach keylen, 1024 2048 4096, $(certsdir)/rsa-$(keylen)-key.pem)
 ECKEYS := $(foreach curve, prime256v1 secp384r1, $(certsdir)/ec-$(curve)-key.pem)
+MLDSAKEYS :=  $(foreach algo, mldsa44 mldsa65 mldsa87, $(mldsadir)/$(algo)-key.pem)
 PKCS8KEYS := $(patsubst %-key.pem,%-key-pkcs8.pem,$(RSAKEYS) $(ECKEYS))
 PKCS8ENCRYPTEDKEYS := $(patsubst %.pem, %-pkcs8-scrypt.pem, $(RSAKEYS) $(ECKEYS)) \
 	$(foreach prf, hmacWithSHA256 hmacWithSHA384 hmacWithSHA512, \
@@ -39,7 +41,16 @@ PKCS8ENCRYPTEDKEYS := $(patsubst %.pem, %-pkcs8-scrypt.pem, $(RSAKEYS) $(ECKEYS)
 		$(patsubst %.pem, %-pkcs8-$(subst -,,$(algo)).pem, $(RSAKEYS) $(ECKEYS)))
 ECCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(ECKEYS)))
 RSACERTS := $(foreach digest, md5 sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(RSAKEYS)))
+MLDSACERTS :=  $(foreach algo, mldsa44 mldsa65 mldsa87, $(patsubst %-key.pem, %-cert.pem, $(MLDSAKEYS)))
 PKCS12CERTS := $(patsubst %-cert.pem, %.p12, $(RSACERTS) $(ECCERTS))
+
+# ML-DSA specific PKCS8 encrypted keys
+MLDSA_PKCS8KEYS := $(patsubst %-key.pem,%-key-pkcs8.pem,$(MLDSAKEYS))
+MLDSA_PKCS8ENCRYPTEDKEYS := $(patsubst %.pem, %-pkcs8-scrypt.pem, $(MLDSAKEYS)) \
+	$(foreach prf, hmacWithSHA256 hmacWithSHA384 hmacWithSHA512, \
+		$(patsubst %.pem, %-pkcs8-$(prf).pem, $(MLDSAKEYS))) \
+	$(foreach algo, aes-128-cbc aes-192-cbc aes-256-cbc, \
+		$(patsubst %.pem, %-pkcs8-$(subst -,,$(algo)).pem, $(MLDSAKEYS)))
 
 # Rules for converting a .pem private key to an encrypted PKCS#8 format using different
 # encryption schemes or key derivation functions (e.g., HMAC with SHA algorithms, AES-CBC, scrypt).
@@ -281,6 +292,17 @@ endef
 %-sha384-cert.pem: %-key.pem; $(CERT_RECIPE)
 %-sha512-cert.pem: %-key.pem; $(CERT_RECIPE)
 
+# ML-DSA certificates don't use digest in filename, so they need a separate recipe
+define MLDSA_CERT_RECIPE
+	@SUBJ=$$(echo "$@" | sed 's/.*\/\([^/]*\)-cert\.pem/\1/'); \
+	echo openssl req -x509 -new -key $< -out $@ -days 10000 -subj "//CN=roles-anywhere-$${SUBJ}"; \
+	eval openssl req -x509 -new -key $< -out $@ -days 10000 -subj "//CN=roles-anywhere-$${SUBJ}";
+endef
+
+%mldsa44-cert.pem: %mldsa44-key.pem; $(MLDSA_CERT_RECIPE)
+%mldsa65-cert.pem: %mldsa65-key.pem; $(MLDSA_CERT_RECIPE)
+%mldsa87-cert.pem: %mldsa87-key.pem; $(MLDSA_CERT_RECIPE)
+
 %-combo.pem: %-cert.pem
 	KEY=$$(echo "$@" | sed 's/-[^-]*-combo.pem/-key.pem/'); \
 	cat $${KEY} $< > $@.tmp && mv $@.tmp $@
@@ -340,7 +362,11 @@ $(ECKEYS):
 	CURVE=$$(echo "$@" | sed 's/.*ec-\([^-]*\)-key.pem/\1/'); \
 	openssl ecparam -name $${CURVE} -genkey -out $@
 
-$(certsdir)/cert-bundle.pem: $(RSACERTS) $(ECCERTS)
+$(MLDSAKEYS):
+	ALGO_UPPER=$$(echo "$@" | sed 's/.*\/\(mldsa[0-9]*\)-key.pem/\1/' | sed 's/mldsa\([0-9][0-9]\)/ML-DSA-\1/'); \
+	openssl genpkey -algorithm $${ALGO_UPPER} -out $@
+
+$(certsdir)/cert-bundle.pem: $(RSACERTS) $(ECCERTS) 
 	cat $^ > $@
 
 $(certsdir)/cert-bundle-with-comments.pem: $(RSACERTS) $(ECCERTS)
@@ -349,12 +375,17 @@ $(certsdir)/cert-bundle-with-comments.pem: $(RSACERTS) $(ECCERTS)
 		echo "Comment in bundle\n" >> $@; \
 	done
 
-KEYS := $(RSAKEYS) $(ECKEYS) $(PKCS8KEYS) $(PKCS8ENCRYPTEDKEYS)
+KEYS := $(RSAKEYS) $(ECKEYS) $(patsubst %-key.pem,%-key-pkcs8.pem,$(RSAKEYS) $(ECKEYS)) \
+	$(patsubst %.pem, %-pkcs8-scrypt.pem, $(RSAKEYS) $(ECKEYS)) \
+	$(foreach prf, hmacWithSHA256 hmacWithSHA384 hmacWithSHA512, \
+		$(patsubst %.pem, %-pkcs8-$(prf).pem, $(RSAKEYS) $(ECKEYS))) \
+	$(foreach algo, aes-128-cbc aes-192-cbc aes-256-cbc, \
+		$(patsubst %.pem, %-pkcs8-$(subst -,,$(algo)).pem, $(RSAKEYS) $(ECKEYS)))
 ALL_KEYS := $(KEYS) $(TPMKEYS)
 CERTS := $(RSACERTS) $(ECCERTS)
 ALL_CERTS := $(CERTS) $(TPMCERTS)
-COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(CERTS))
-ALL_COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(ALL_CERTS))
+COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(RSACERTS) $(ECCERTS))
+ALL_COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(RSACERTS) $(ECCERTS) $(TPMCERTS))
 
 .PHONY: test-all-certs
 test-all-certs: $(ALL_KEYS) $(ALL_CERTS) $(ALL_COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem tst/softhsm2.conf
@@ -363,16 +394,31 @@ test-all-certs: $(ALL_KEYS) $(ALL_CERTS) $(ALL_COMBOS) $(PKCS12CERTS) $(certsdir
 .PHONY: test-certs
 test-certs: $(KEYS) $(CERTS) $(COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem
 
+.PHONY: mldsa-fixtures
+mldsa-fixtures: $(MLDSAKEYS) $(MLDSA_PKCS8KEYS) $(MLDSA_PKCS8ENCRYPTEDKEYS) $(MLDSACERTS)
+
+$(MLDSAKEYS) $(MLDSA_PKCS8KEYS) $(MLDSA_PKCS8ENCRYPTEDKEYS) $(MLDSACERTS): | $(mldsadir)
+
+$(mldsadir):
+	mkdir -p $(mldsadir)
+
 .PHONY: test-clean
 test-clean:
 	rm -f $(RSAKEYS) $(ECKEYS) $(HWTPMKEYS)
-	rm -f $(PKCS8KEYS) $(PKCS8ENCRYPTEDKEYS)
+	rm -f $(patsubst %-key.pem,%-key-pkcs8.pem,$(RSAKEYS) $(ECKEYS))
+	rm -f $(patsubst %.pem, %-pkcs8-scrypt.pem, $(RSAKEYS) $(ECKEYS))
+	rm -f $(foreach prf, hmacWithSHA256 hmacWithSHA384 hmacWithSHA512, \
+		$(patsubst %.pem, %-pkcs8-$(prf).pem, $(RSAKEYS) $(ECKEYS)))
+	rm -f $(foreach algo, aes-128-cbc aes-192-cbc aes-256-cbc, \
+		$(patsubst %.pem, %-pkcs8-$(subst -,,$(algo)).pem, $(RSAKEYS) $(ECKEYS)))
 	rm -f $(RSACERTS) $(ECCERTS) $(HWTPMCERTS)
 	rm -f $(PKCS12CERTS) $(COMBOS)
 	rm -f $(certsdir)/cert-bundle.pem
 	rm -f $(certsdir)/cert-with-comments.pem
 	rm -f tst/softhsm2.conf
 	rm -rf tst/softhsm/*
+	rm -rf $(mldsadir)
+	rm -f $(certsdir)/invalid-*.pem
 	$(STOP_SWTPM_TCP) || :
 	$(STOP_SWTPM_UNIX) || :
 	rm -rf $(SWTPMKEYS) $(SWTPMCERTS) $(SWTPM_TMPKEYS) $(SWTPM_STATEDIR)

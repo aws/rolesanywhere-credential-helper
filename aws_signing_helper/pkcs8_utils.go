@@ -266,9 +266,15 @@ func readPKCS8EncryptedPrivateKey(privateKeyId string, pkcs8Password []byte) (cr
 	defer copy(key, make([]byte, len(key)))
 	switch {
 	case kdfOid.Equal(oidPBKDF2):
-		key, _ = deriveKeyUsingPBKDF2(pbes2.KeyDerivationFunc.Parameters.FullBytes, keySize, pkcs8Password)
+		key, err = deriveKeyUsingPBKDF2(pbes2.KeyDerivationFunc.Parameters.FullBytes, keySize, pkcs8Password)
+		if err != nil {
+			return nil, fmt.Errorf("PBKDF2 key derivation failed: %w", err)
+		}
 	case kdfOid.Equal(oidScrypt):
-		key, _ = deriveKeyUsingScrypt(pbes2.KeyDerivationFunc.Parameters.FullBytes, keySize, pkcs8Password)
+		key, err = deriveKeyUsingScrypt(pbes2.KeyDerivationFunc.Parameters.FullBytes, keySize, pkcs8Password)
+		if err != nil {
+			return nil, fmt.Errorf("Scrypt key derivation failed: %w", err)
+		}
 	default:
 		return nil, errors.New("unsupported key derivation function")
 	}
@@ -285,7 +291,13 @@ func readPKCS8EncryptedPrivateKey(privateKeyId string, pkcs8Password []byte) (cr
 
 	privateKey, err := x509.ParsePKCS8PrivateKey(plaintext)
 	if err != nil {
-		return nil, errors.New("incorrect password or invalid key format")
+		// Try parsing as MLDSA private key
+		mldsaKey, mldsaErr := ParseMLDSAFromPKCS8(plaintext)
+		if mldsaErr != nil {
+			return nil, errors.New("incorrect password or invalid key format")
+		}
+
+		return mldsaKey, nil
 	}
 
 	switch privateKey.(type) {
