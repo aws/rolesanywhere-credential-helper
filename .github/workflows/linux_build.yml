@@ -34,6 +34,7 @@ jobs:
         id: go-version
         run: |
           GO_VERSION=$(grep '^toolchain' go.mod | awk '{print $2}' | sed 's/go//')
+          echo "version=${GO_VERSION}" >> $GITHUB_OUTPUT
       
       - name: Build Docker image
         run: |
