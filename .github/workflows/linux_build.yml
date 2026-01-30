@@ -34,7 +34,8 @@ jobs:
         run: |
           docker build \
             -t al2023-builder:latest \
-            .github/docker_images/${{ matrix.docker_dir }}
+            -f .github/docker_images/${{ matrix.docker_dir }}/Dockerfile \
+            .
       
       - name: Build in Amazon Linux 2023 container
         run: |

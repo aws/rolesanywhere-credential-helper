@@ -18,12 +18,16 @@ ENV GOPATH=/root/go \
     HOME=/root \
     CGO_ENABLED=1
 
-# Install specific Go version
+# Copy go.mod to the container
+COPY go.mod /tmp/go.mod
+
+# Install Go
 RUN mkdir -p /root/go/bin && \
-    go install golang.org/dl/go1.24.11@latest && \
-    go1.24.11 download && \
+    GO_VERSION=$(grep '^toolchain' /tmp/go.mod | awk '{print $2}' | sed 's/go//') && \
+    go install golang.org/dl/go${GO_VERSION}@latest && \
+    go${GO_VERSION} download && \
     rm -rf /usr/local/go && \
-    ln -s /root/sdk/go1.24.11 /usr/local/go
+    ln -s /root/sdk/go${GO_VERSION} /usr/local/go
 
 # Update PATH with new Go installation
 ENV GOROOT=/usr/local/go \

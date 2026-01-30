@@ -11,10 +11,12 @@ IMAGE_TAG="latest"
 echo "Building Docker image: ${IMAGE_NAME}:${IMAGE_TAG}"
 
 # Build for aarch64
+WORKSPACE_ROOT="$(cd "${SCRIPT_DIR}/../../.." && pwd)"
 docker buildx build \
     --platform linux/arm64 \
     -t "${IMAGE_NAME}:${IMAGE_TAG}" \
+    -f "${SCRIPT_DIR}/Dockerfile" \
     --load \
-    "${SCRIPT_DIR}"
+    "${WORKSPACE_ROOT}"
 
 echo "Build complete."
