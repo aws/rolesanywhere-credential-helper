@@ -8,3 +8,7 @@ tst/keys/acm-encrypted.pem
 
 # Do not factor in testing image templates since they are not meant for a privileged environment
 docker_image_resources/tests/pod_configurations
+
+# Build container Dockerfiles - root user is acceptable for CI/CD build images
+.github/docker_images/amazonlinux-2023-x86_64/Dockerfile
+.github/docker_images/amazonlinux-2023-aarch64/Dockerfile

@@ -1,0 +1,71 @@
+name: Amazon Linux 2023 build and test rolesanywhere-credential-helper
+
+on:
+  push:
+    branches: [ main ]
+
+permissions:
+  statuses: write
+  id-token: write
+
+jobs:
+  Linux:
+    name: Build on ${{matrix.display_name}}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      matrix:
+        include:
+          - arch: "X86_64"
+            display_name: "Amazon Linux 2023 X86_64"
+            docker_platform: "linux/amd64"
+            docker_dir: "amazonlinux-2023-x86_64"
+            runner: "ubuntu-latest"
+          - arch: "Aarch64"
+            display_name: "Amazon Linux 2023 Aarch64"
+            docker_platform: "linux/arm64"
+            docker_dir: "amazonlinux-2023-aarch64"
+            runner: "ubuntu-24.04-arm"
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Get Go version from go.mod
+        id: go-version
+        run: |
+          GO_VERSION=$(grep '^toolchain' go.mod | awk '{print $2}' | sed 's/go//')
+          echo "version=${GO_VERSION}" >> $GITHUB_OUTPUT
+      
+      - name: Build Docker image
+        run: |
+          docker build \
+            -t al2023-builder:latest \
+            -f .github/docker_images/${{ matrix.docker_dir }}/Dockerfile \
+            --build-arg GO_VERSION=${{ steps.go-version.outputs.version }} \
+            .
+      
+      - name: Build in Amazon Linux 2023 container
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/workspace \
+            -w /workspace \
+            al2023-builder:latest \
+            bash -c "make release"
+      
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4.2.0
+        with:
+          role-to-assume: ${{ secrets.BINARY_BUILDING_ROLE_ARN }}
+          role-session-name: githublinuxbuild
+          aws-region: us-west-2
+      
+      - name: Upload to S3
+        id: s3
+        run: |
+          S3_DESTINATION="s3://${{ secrets.INTERMEDIATE_BUCKET_NAME }}"
+          if [[ "${{ matrix.arch }}" == "X86_64" ]]; then
+            S3_PATH=${{ secrets.LINUX_X86_64_S3_PATH }}
+          else
+            S3_PATH=${{ secrets.LINUX_AARCH64_S3_PATH }}
+          fi
+          aws s3 cp build/bin/aws_signing_helper "${S3_DESTINATION}/${S3_PATH}/aws_signing_helper"
