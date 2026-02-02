@@ -17,10 +17,10 @@ ENV GOPATH=/root/go \
     HOME=/root
  
 RUN mkdir -p /root/go/bin && \
-    go install golang.org/dl/go1.24.11@latest && \
-    go1.24.11 download && \
+    go install golang.org/dl/go1.24.12@latest && \
+    go1.24.12 download && \
     rm -rf /usr/local/go && \
-    ln -s /root/sdk/go1.24.11 /usr/local/go
+    ln -s /root/sdk/go1.24.12 /usr/local/go
  
 ENV GOROOT=/usr/local/go \
     PATH=/usr/local/go/bin:/root/go/bin:$PATH
