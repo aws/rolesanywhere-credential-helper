@@ -6,7 +6,7 @@ The AWS IAM Roles Anywhere Credential Helper is a tool that uses certificates an
 
 ## Syntax
 
-```
+```bash
 aws_signing_helper [command]
 ```
 
@@ -28,7 +28,7 @@ aws_signing_helper [command]
 
 Example:
 
-```
+```bash
 aws_signing_helper --help
 ```
 
@@ -38,7 +38,7 @@ Retrieves temporary AWS credentials by sending a CreateSession request to the IA
 
 ### Syntax
 
-```
+```bash
 aws_signing_helper credential-process --certificate <path> --private-key <path> --role-arn <arn> --trust-anchor-arn <arn> [options]
 ```
 
@@ -46,14 +46,14 @@ aws_signing_helper credential-process --certificate <path> --private-key <path> 
 
 `--certificate <path>`
 
-
 Path to the end-entity certificate file.
 
 * Type: String
-* Required: Yes
+* Required: No
+  * Alternatively, provide `--cert-selector`
 
 `--private-key <path>`
-Path to the private key file. Only plaintext private keys are supported.
+Path to the private key file. Encrypted and plaintext private keys are supported.
 
 * Type: String
 * Required: Yes
@@ -77,7 +77,7 @@ ARN of the trust anchor used for authentication.
 ARN of the profile that provides a mapping for the specified role.
 
 * Type: String
-* Required: No
+* Required: Yes
 
 `--debug`
 
@@ -95,7 +95,7 @@ Skip verification of the SSL certificate on the endpoint.
 
 ### Example
 
-```
+```bash
 aws_signing_helper credential-process \
   --certificate client-cert.pem \
   --private-key client-key.pem \
@@ -109,11 +109,13 @@ Updates a profile in the AWS credentials file with temporary AWS credentials.
 
 ### Syntax
 
-```
+```bash
 aws_signing_helper update [--profile <name>] [--once] [options]
 ```
 
 ### Options
+
+(All options from `credential-process` are also available)
 
 `--profile <name>`
 
@@ -131,11 +133,9 @@ Update credentials only once instead of continuously.
 * Required: No
 * Default: false
 
-(All options from `credential-process` are also available)
-
 ### Example
 
-```
+```bash
 aws_signing_helper update \
   --profile my-profile \
   --certificate client-cert.pem \
@@ -150,11 +150,13 @@ Serves AWS credentials through a local endpoint that is compatible with IMDSv2.
 
 ### Syntax
 
-```
+```bash
 aws_signing_helper serve [--port <number>] [--hop-limit <number>] [options]
 ```
 
 ### Options
+
+(All options from `credential-process` are also available)
 
 `--port <number>`
 
@@ -172,11 +174,9 @@ The IP TTL to set on responses.
 * Required: No
 * Default: 64
 
-(All options from `credential-process` are also available)
-
 ### Example
 
-```
+```bash
 aws_signing_helper serve \
   --port 1338 \
   --certificate client-cert.pem \
@@ -191,7 +191,7 @@ Signs a fixed string using the specified private key or certificate.
 
 ### Syntax
 
-```
+```bash
 aws_signing_helper sign-string [--private-key <path>] [--certificate <uri>] [--format <format>] [--digest <algorithm>] [options]
 ```
 
@@ -231,7 +231,7 @@ Digest algorithm to use for signing.
 
 ### Example
 
-```
+```bash
 aws_signing_helper sign-string \
   --private-key client-key.pem \
   --format text
@@ -243,7 +243,7 @@ Reads and displays certificate data from a file, PKCS#11 token, or certificate s
 
 ### Syntax
 
-```
+```bash
 aws_signing_helper read-certificate-data [--certificate <path>] [--cert-selector <selector>] [options]
 ```
 
@@ -265,7 +265,7 @@ JSON structure to identify a certificate from a certificate store.
 
 ### Example
 
-```
+```bash
 aws_signing_helper read-certificate-data --certificate client-cert.pem
 ```
 
@@ -275,7 +275,7 @@ Displays the current version number of the AWS IAM Roles Anywhere Credential Hel
 
 ### Syntax
 
-```
+```bash
 aws_signing_helper version
 ```
 

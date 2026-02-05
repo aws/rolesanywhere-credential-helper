@@ -2,6 +2,14 @@
 
 This section describes how to test TPM support in the AWS IAM Roles Anywhere Credential Helper.
 
+## Running Unit Tests
+
+To run our most general set of unit tests, ensure you have go and openssl installed, then run:
+
+```bash
+make test
+```
+
 ## Unit Tests for TPM Support
 
 The unit tests for TPM support use keys bound to either a hardware TPM or a software TPM. For software TPM testing, we use `swtpm`. You can find the repository at [https://github.com/stefanberger/swtpm](https://github.com/stefanberger/swtpm).
@@ -21,7 +29,7 @@ These dependencies are available on many Linux distributions through standard pa
 
 To run only the TPM-related unit tests:
 
-```
+```bash
 make test-tpm-signer
 ```
 
@@ -80,3 +88,11 @@ The script stores test data in the `credential-process-data` directory. When tes
 ### create_tpm2_key.sh
 
 We include a small script that emulates a subset of the `create_tpm2_key` utility from the [IBM OpenSSL ENGINE](https://git.kernel.org/pub/scm/linux/kernel/git/jejb/openssl_tpm2_engine.git/). This script tests TPM key files that include a permanent handle as their parent.
+
+## Running All Unit Tests
+
+To run our full set of unit tests, ensure you have all pre-requisites installed, then run:
+
+```bash
+make test-all
+```

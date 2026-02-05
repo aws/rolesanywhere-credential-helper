@@ -64,15 +64,7 @@ For full command documentation, including available [environment variables](comm
 
 Use `credential-process` to vend temporary credentials.  `credential-process` sends a CreateSession request to the IAM Roles Anywhere service.
 
-Command:
-
-```
-aws_signing_helper credential-process \
-  --certificate client-cert.pem \
-  --private-key client-key.pem \
-  --role-arn arn:aws:iam::123456789012:role/MyRole \
-  --trust-anchor-arn arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/abcdef1234567890
-```
+[Example usage of credential-process command](commands.md#example)
 
 For more information about the signing process, see [Signing process for IAM Roles Anywhere](https://docs.aws.amazon.com/rolesanywhere/latest/userguide/authentication-sign-process.html).
 
@@ -80,24 +72,8 @@ For more information about the signing process, see [Signing process for IAM Rol
 
 Use `serve` to provide temporary credentials through a local endpoint compatible with IMDSv2. Note that any process that can reach 127.0.0.1 can retrieve AWS credentials from the credential helper.
 
-#### Example
+[Example usage of serve command](commands.md#example-2)
 
-Command:
-
-```
-aws_signing_helper serve \
-  --certificate client-cert.pem \
-  --private-key client-key.pem \
-  --role-arn arn:aws:iam::123456789012:role/MyRole \
-  --trust-anchor-arn arn:aws:rolesanywhere:us-east-1:123456789012:trust-anchor/abcdef1234567890 \
-  --port 1338
-```
-
-Output:
-
-```txt
-Starting server on port 1338...
-```
 ## Docker Image
 
 The AWS IAM Roles Anywhere Credential Helper is also available as a Docker image, providing a containerized deployment option for environments like Kubernetes, Docker Compose, or other container orchestration platforms.
@@ -157,7 +133,7 @@ On Windows or macOS, the credential helper supports using private keys and certi
 
 #### Using the --cert-selector flag
 
-```
+```bash
 aws_signing_helper credential-process \
     --cert-selector <string or path>
     --private-key <path>
@@ -196,7 +172,7 @@ Create a file called `selector.json`:
 
 Use it with:
 
-```
+```bash
 aws_signing_helper credential-process \
   --cert-selector file://path/to/selector.json \
   --role-arn arn:aws:iam::123456789012:role/MyRole \
@@ -205,7 +181,7 @@ aws_signing_helper credential-process \
 
 ##### Using command line parameters
 
-```
+```bash
 aws_signing_helper credential-process \
   --cert-selector Key=x509Subject,Value=CN=Subject Key=x509Issuer,Value=CN=Issuer Key=x509Serial,Value=15D19632234BF759A32802C0DA88F9E8AFC8702D \
   --role-arn arn:aws:iam::123456789012:role/MyRole \
@@ -270,7 +246,7 @@ To use your keys with IAM Roles Anywhere, you need to import your certificate an
 
 To import a PFX file containing your certificate and private key, open Command Prompt and run:
 
-```cmd
+```bash
 certutil -user -p %UNWRAPPING_PASSWORD% -importPFX "MY" \path\to\identity.pfx
 ```
 
@@ -284,7 +260,7 @@ You can also import your certificate using a PowerShell cmdlet or Windows CNG/Cr
 
 To secure keys through Windows CNG, import your certificate into your user's "MY" certificate store:
 
-```cmd
+```bash
 certutil -user -p %UNWRAPPING_PASSWORD% -importPFX "MY" \path\to\identity.pfx
 ```
 
@@ -296,7 +272,7 @@ The credential helper supports using a PKCS#11 URI instead of a filename to use 
 
 These examples show how to use the `aws_signing_helper credential-process` command with different PKCS#11 configurations.
 
-```
+```bash
 # Using a certificate from a PKCS#11 token
 aws_signing_helper credential-process \
   --certificate 'pkcs11:manufacturer=piv_II;id=%01' \
@@ -327,7 +303,7 @@ The credential helper doesn't currently support specifying the `CKU_CONTEXT_SPEC
 
 The credential helper supports private key files containing a TPM wrapped key in the `-----BEGIN TSS2 PRIVATE KEY-----` format. You can use such a file as you would any plain key file:
 
-```
+```bash
 aws_signing_helper credential-process \
   --certificate client-cert.pem \
   --private-key tpm-key.pem \
@@ -337,7 +313,7 @@ aws_signing_helper credential-process \
 
 You can also use a TPM key handle:
 
-```
+```bash
 aws_signing_helper credential-process \
   --certificate client-cert.pem \
   --private-key handle:${CHILD_HANDLE} \
@@ -417,7 +393,7 @@ openssl req -provider tpm2 -provider default -propquery '?provider=tpm2' \
 
 6. Once you have your CSR, you can provide it to a CA so that it can issue a client certificate for you. The client certificate and TPM key can then be used with the credential helper application as follows:
 
-```
+```bash
 /path/to/aws_signing_helper credential-process \
     —certificate /path/to/certificate/file \
     —private-key handle:${CHILD_HANDLE} \
@@ -449,7 +425,7 @@ For the TPM key PEM file format, refer to: TPM2 Key Format Specification
 
 To use the credential helper with a TPM key file, run the following command:
 
-```
+```bash
 aws_signing_helper credential-process \
     --certificate /path/to/certificate/file \
     --private-key /path/to/tpm/key/file \
@@ -459,6 +435,52 @@ aws_signing_helper credential-process \
 ```
 
 Replace the placeholder values with your specific file paths and ARNs.
+
+### Password-Encrypted Private Keys
+
+You can pass a password-encrypted private key to the credential helper for signing the request. The credential helper supports two formats of PKCS#8 private key files:
+- Unencrypted: `-----BEGIN PRIVATE KEY-----`
+- Password-encrypted: `-----BEGIN ENCRYPTED PRIVATE KEY-----` (using PBES2)
+
+To encrypt a plaintext private key stored on disk, you can use `openssl`:
+
+```bash
+openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pass:password -v2 aes-256-cbc
+```
+
+This command encrypts a PEM file containing an unencrypted private key in PKCS#8 format using the AES-256-CBC cipher with the password "password". The encrypted key is saved to a PEM file. Supported ciphers include:
+
+- AES-128-CBC
+- AES-192-CBC
+- AES-256-CBC
+
+You can also encrypt the key using a different pseudorandom function (PRF):
+
+```bash
+openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pass:password -v2prf hmacWithSHA256
+```
+
+Supported PRFs include:
+
+- HMACWithSHA256
+- HMACWithSHA384
+- HMACWithSHA512
+
+If you don't specify a cipher or PRF, the key is converted to PKCS#8 format using PKCS#5 v2.0 with AES-256-CBC and HMACWithSHA256.
+The credential helper supports decrypting PKCS#8-encrypted private keys using PBES2, as defined in PKCS#5 (RFC 8018), with the options mentioned earlier. The key derivation function is PBKDF2, as specified in RFC 8018.
+To enhance key protection, you can use scrypt to secure the PKCS#8-encoded key. Scrypt, defined in RFC 7914, is a memory-intensive KDF that improves resistance to attacks.
+To encrypt a key using scrypt with OpenSSL:
+
+```bash
+openssl pkcs8 -topk8 -in unencrypted-key.pem -out encrypted-key.pem -passout pass:password -scrypt
+```
+
+This command uses the default scrypt parameters: N=16,384, r=8, and p=1.
+After obtaining the encrypted key in a PEM file, pass it to the credential helper along with the password as the value for the `--pkcs8-password` option during signing. Note the following:
+
+- If you don't want to encrypt a private key and are using OpenSSL, use the `-nocrypt` flag.
+- Zero-length passwords are treated as no password.
+- Only UTF-8-encoded passwords are supported.
 
 ## YubiKey and Attestation Certificates
 
