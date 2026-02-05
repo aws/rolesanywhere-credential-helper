@@ -57,7 +57,8 @@ Usage:
 TA_ARN=$(aws rolesanywhere create-trust-anchor \
     --name "Test TA" \
     --source "sourceType=CERTIFICATE_BUNDLE,sourceData={x509CertificateData=$(cat credential-process-data/root-cert.pem)}" \
-    --enabled | --query -r '.trustAnchor.trustAnchorArn')
+    --enabled \
+    --query 'trustAnchor.trustAnchorArn')
 
 # Create a profile that maps to your role
 PROFILE_ARN=$(aws rolesanywhere create-profile \
