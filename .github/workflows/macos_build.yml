@@ -16,9 +16,11 @@ jobs:
         include:
           - runner_image: macos-15-intel
             arch: "X86_64"
+            goarch: "amd64"
             display_name: "MacOS X86_64"
           - runner_image: macos-14
             arch: "Aarch64"
+            goarch: "arm64"
             display_name: "MacOS Aarch64"
 
     steps:
@@ -40,6 +42,10 @@ jobs:
           fi
 
       - name: Build Project
+        env:
+          CGO_ENABLED: 1
+          GOOS: darwin
+          GOARCH: ${{ matrix.goarch }}
         run: |
           echo "Building on ${{ matrix.display_name }}"
           make release
