@@ -13,14 +13,15 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"log"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 
 	helper "github.com/aws/rolesanywhere-credential-helper/aws_signing_helper"
 	"github.com/spf13/cobra"
+	"io"
 )
 
 var (
@@ -50,15 +51,7 @@ func (e enum) String() string {
 }
 
 func (a *enum) Set(p string) error {
-	isIncluded := func(opts []string, val string) bool {
-		for _, opt := range opts {
-			if val == opt {
-				return true
-			}
-		}
-		return false
-	}
-	if !isIncluded(a.Allowed, p) {
+	if !slices.Contains(a.Allowed, p) {
 		return fmt.Errorf("%s is not included in %s", p, strings.Join(a.Allowed, ","))
 	}
 	a.Value = p
@@ -173,7 +166,7 @@ var signStringCmd = &cobra.Command{
 					"Credential Helper Signing Test\" || SIGN_STRING_TEST_VERSION || SHA256(\"IAM RA\" || PUBLIC_KEY_BYTE_ARRAY)\"")
 			}
 		} else {
-			stringToSignBytes, _ = ioutil.ReadAll(bufio.NewReader(os.Stdin))
+			stringToSignBytes, _ = io.ReadAll(bufio.NewReader(os.Stdin))
 		}
 
 		sigBytes, err := signer.Sign(rand.Reader, stringToSignBytes, digest)

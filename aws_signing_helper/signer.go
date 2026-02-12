@@ -150,14 +150,14 @@ func GetPassword(ttyReadFile *os.File, ttyWriteFile *os.File, prompt string, par
 	}
 
 	password := string(passwordBytes[:])
-	strings.Replace(password, "\r", "", -1) // Remove CR
+	strings.ReplaceAll(password, "\r", "") // Remove CR
 	return password, nil
 }
 
 type PasswordPromptProps struct {
 	InitialPassword                    string
 	NoPassword                         bool
-	CheckPassword                      func(string) (interface{}, error)
+	CheckPassword                      func(string) (any, error)
 	IncorrectPasswordMsg               string
 	Prompt                             string
 	Reprompt                           string
@@ -165,7 +165,7 @@ type PasswordPromptProps struct {
 	CheckPasswordAuthorizationErrorMsg string
 }
 
-func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, interface{}, error) {
+func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, any, error) {
 	var (
 		err                                error
 		ttyReadPath                        string
@@ -178,8 +178,8 @@ func PasswordPrompt(passwordPromptInput PasswordPromptProps) (string, interface{
 		password                           string
 		incorrectPasswordMsg               string
 		checkPasswordAuthorizationErrorMsg string
-		checkPassword                      func(string) (interface{}, error)
-		checkPasswordResult                interface{}
+		checkPassword                      func(string) (any, error)
+		checkPasswordResult                any
 		noPassword                         bool
 	)
 
@@ -482,7 +482,7 @@ func CreateRequestSignFinalizeFunction(signer crypto.Signer, signingRegion strin
 	return func(ctx context.Context, in middleware.FinalizeInput, next middleware.FinalizeHandler) (out middleware.FinalizeOutput, metadata middleware.Metadata, err error) {
 		req, ok := in.Request.(*smithyhttp.Request)
 		if !ok {
-			return out, metadata, errors.New(fmt.Sprintf("unexpected request middleware type %T", in.Request))
+			return out, metadata, fmt.Errorf("unexpected request middleware type %T", in.Request)
 		}
 
 		payloadHash := v4.GetPayloadHash(ctx)
@@ -518,7 +518,7 @@ func signRequest(signer crypto.Signer, signingRegion string, signingAlgorithm st
 
 // Create the canonical query string.
 func createCanonicalQueryString(r *http.Request) string {
-	rawQuery := strings.Replace(r.URL.Query().Encode(), "+", "%20", -1)
+	rawQuery := strings.ReplaceAll(r.URL.Query().Encode(), "+", "%20")
 	return rawQuery
 }
 
@@ -736,7 +736,6 @@ func readRSAPrivateKey(privateKeyId string) (*rsa.PrivateKey, error) {
 // the container and treats that as the end-entity certificate. Also, the
 // order of the other certificates in the chain aren't guaranteed. It's
 // also not guaranteed that those certificates form a chain with the
-// end-entity certificate either.
 func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privateKey crypto.PrivateKey, err error) {
 	var (
 		bytes               []byte
@@ -803,6 +802,7 @@ func ReadPKCS12Data(certificateId string) (certChain []*x509.Certificate, privat
 
 	return certChain, privateKey, nil
 }
+// end-entity certificate either.
 
 // Load the private key referenced by `privateKeyId`. If `pkcs8Password` is provided, attempt to load an encrypted PKCS#8 key.
 func ReadPrivateKeyData(privateKeyId string, pkcs8Password ...string) (crypto.PrivateKey, error) {
