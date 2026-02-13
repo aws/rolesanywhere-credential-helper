@@ -2,6 +2,7 @@ package aws_signing_helper
 
 import (
 	"bufio"
+	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -9,9 +10,20 @@ import (
 	"time"
 )
 
-const UpdateRefreshTime = time.Minute * time.Duration(5)
-const AwsSharedCredentialsFileEnvVarName = "AWS_SHARED_CREDENTIALS_FILE"
-const BufferSize = 49152
+const (
+	UpdateRefreshTime                  = time.Minute * time.Duration(5)
+	AwsSharedCredentialsFileEnvVarName = "AWS_SHARED_CREDENTIALS_FILE"
+	BufferSize                         = 49152
+
+	// UpdateOnceMode tries to update the credentials file one time and returns.
+	UpdateOnceMode UpdateMode = "once"
+	// UpdateFailFastMode updates the credentials file before
+	// the credentials expire but exits on errors.
+	UpdateFailFastMode UpdateMode = "fail-fast"
+	// UpdateRetryMode updates the credentials file continuously before
+	// the credentials expire and retries on errors with a backoff time.
+	UpdateRetryMode UpdateMode = "retry"
+)
 
 // Structure to contain a temporary credential
 type TemporaryCredential struct {
@@ -21,54 +33,44 @@ type TemporaryCredential struct {
 	Expiration      time.Time
 }
 
-// Updates credentials in the credentials file for the specified profile
-func Update(credentialsOptions CredentialsOpts, profile string, once bool) {
-	var refreshableCred = TemporaryCredential{}
-	var nextRefreshTime time.Time
+type UpdateMode string
 
+// UpdateOpts configure the update credentials file process.
+type UpdateOpts struct {
+	// Profile is the name of the AWS profile to update.
+	Profile string
+	// Mode configures how the update process handles retries.
+	Mode UpdateMode
+}
+
+// Updates credentials in the credentials file for the specified profile
+func Update(credentialsOptions CredentialsOpts, opts UpdateOpts) {
+	if err := updateCredentialsFile(credentialsOptions, opts); err != nil {
+		log.Fatal(err)
+	}
+}
+
+func updateCredentialsFile(credentialsOptions CredentialsOpts, opts UpdateOpts) error {
 	signer, signatureAlgorithm, err := GetSigner(&credentialsOptions)
 	if err != nil {
-		log.Println(err)
-		os.Exit(1)
+		return err
 	}
 	defer signer.Close()
 
-	for {
-		credentialProcessOutput, err := GenerateCredentials(&credentialsOptions, signer, signatureAlgorithm)
-		if err != nil {
-			log.Fatal(err)
-		}
+	updater := fileCredentialsUpdater{profile: opts.Profile}
 
-		// Assign credential values
-		refreshableCred.AccessKeyId = credentialProcessOutput.AccessKeyId
-		refreshableCred.SecretAccessKey = credentialProcessOutput.SecretAccessKey
-		refreshableCred.SessionToken = credentialProcessOutput.SessionToken // nosemgrep
-		refreshableCred.Expiration, _ = time.Parse(time.RFC3339, credentialProcessOutput.Expiration)
-		if (refreshableCred == TemporaryCredential{}) {
-			log.Println("no credentials created")
-			os.Exit(1)
+	switch opts.Mode {
+	case UpdateOnceMode:
+		if _, err := updater.updateCredentialsFile(&credentialsOptions, signer, signatureAlgorithm); err != nil {
+			return err
 		}
-
-		// Get credentials file contents
-		lines, err := GetCredentialsFileContents()
-		if err != nil {
-			log.Println("unable to get credentials file contents")
-			os.Exit(1)
-		}
-
-		// Write to credentials file
-		err = WriteTo(profile, lines, &refreshableCred)
-		if err != nil {
-			log.Println("unable to write to AWS credentials file")
-			os.Exit(1)
-		}
-
-		if once {
-			break
-		}
-		nextRefreshTime = refreshableCred.Expiration.Add(-UpdateRefreshTime)
-		log.Println("Credentials will be refreshed at", nextRefreshTime.String())
-		time.Sleep(time.Until(nextRefreshTime))
+		return nil
+	case UpdateFailFastMode:
+		return refreshCredentials(updater.updateCredentialsFile, &credentialsOptions, signer, signatureAlgorithm)
+	case UpdateRetryMode:
+		return refreshCredentials(withRetries(updater.updateCredentialsFile), &credentialsOptions, signer, signatureAlgorithm)
+	default:
+		return fmt.Errorf("update mode %s is not supported", opts.Mode)
 	}
 }
 
@@ -84,15 +86,14 @@ func GetCredentialsFileContents() ([]string, error) {
 	if awsCredentialsPath == "" {
 		awsCredentialsPath = filepath.Join(homeDir, ".aws", "credentials")
 	}
-	if err = os.MkdirAll(filepath.Dir(awsCredentialsPath), 0600); err != nil {
+	if err = os.MkdirAll(filepath.Dir(awsCredentialsPath), 0o600); err != nil {
 		log.Println("unable to create credentials file")
 		return nil, err
 	}
 
-	readOnlyCredentialsFile, err := os.OpenFile(awsCredentialsPath, os.O_RDONLY|os.O_CREATE, 0600)
+	readOnlyCredentialsFile, err := os.OpenFile(awsCredentialsPath, os.O_RDONLY|os.O_CREATE, 0o600)
 	if err != nil {
-		log.Println("unable to get or create read-only AWS credentials file")
-		os.Exit(1)
+		return nil, fmt.Errorf("unable to get or create read-only AWS credentials file: %w", err)
 	}
 	defer readOnlyCredentialsFile.Close()
 
@@ -113,20 +114,20 @@ func GetWriteOnlyCredentialsFile() (*os.File, error) {
 	if awsCredentialsPath == "" {
 		awsCredentialsPath = filepath.Join(homeDir, ".aws", "credentials")
 	}
-	return os.OpenFile(awsCredentialsPath, os.O_WRONLY|os.O_TRUNC, 0200)
+	return os.OpenFile(awsCredentialsPath, os.O_WRONLY|os.O_TRUNC, 0o200)
 }
 
 // Function that will get the new conents of the credentials file after a
 // refresh has been done
 func GetNewCredentialsFileContents(profileName string, readLines []string, cred *TemporaryCredential) []string {
-	var profileExist = false
-	var profileSection = "[" + profileName + "]"
+	profileExist := false
+	profileSection := "[" + profileName + "]"
 	// A variable that checks whether or not required fields are written to the destination file
 	newCredVisit := map[string]bool{"aws_access_key_id": false, "aws_secret_access_key": false, "aws_session_token": false}
 	accessKey := "aws_access_key_id = " + cred.AccessKeyId + "\n"
 	secretKey := "aws_secret_access_key = " + cred.SecretAccessKey + "\n"
 	sessionToken := "aws_session_token = " + cred.SessionToken + "\n"
-	var writeLines = make([]string, 0)
+	writeLines := make([]string, 0)
 	for readLinesIndex := 0; readLinesIndex < len(readLines); readLinesIndex++ {
 		if !profileExist && readLines[readLinesIndex] == profileSection {
 			writeLines = append(writeLines[:], profileSection+"\n")
@@ -143,7 +144,6 @@ func GetNewCredentialsFileContents(profileName string, readLines []string, cred 
 					}
 					if !newCredVisit["aws_session_token"] {
 						writeLines = append(writeLines[:], sessionToken)
-
 					}
 					if readLinesIndex != len(readLines)-1 {
 						readLinesIndex -= 1
@@ -185,18 +185,15 @@ func GetNewCredentialsFileContents(profileName string, readLines []string, cred 
 func WriteTo(profileName string, readLines []string, cred *TemporaryCredential) error {
 	destFile, err := GetWriteOnlyCredentialsFile()
 	if err != nil {
-		log.Println("unable to get write-only AWS credentials file")
-		os.Exit(1)
+		fmt.Errorf("unable to get write-only AWS credentials file: %w", err)
 	}
 	defer destFile.Close()
 
 	// Create buffered writer
 	destFileWriter := bufio.NewWriterSize(destFile, BufferSize)
 	for _, line := range GetNewCredentialsFileContents(profileName, readLines, cred) {
-		_, err := destFileWriter.WriteString(line)
-		if err != nil {
-			log.Println("unable to write to credentials file")
-			os.Exit(1)
+		if _, err := destFileWriter.WriteString(line); err != nil {
+			return fmt.Errorf("unable to write to credentials file: %w", err)
 		}
 	}
 
