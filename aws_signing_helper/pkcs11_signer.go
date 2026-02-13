@@ -1,3 +1,5 @@
+//go:build with_pkcs11
+
 package aws_signing_helper
 
 // RFC7512 defines a standard URI format for referencing PKCS#11 objects.
