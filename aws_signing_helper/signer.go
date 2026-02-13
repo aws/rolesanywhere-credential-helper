@@ -44,10 +44,11 @@ type SignerParams struct {
 }
 
 type CertIdentifier struct {
-	Subject         string
-	Issuer          string
-	SerialNumber    *big.Int
-	SystemStoreName string // Only relevant in the case of Windows
+	Subject             string
+	Issuer              string
+	SerialNumber        *big.Int
+	SystemStoreName     string // Only relevant in the case of Windows
+	SystemStoreLocation string // Only relevant in the case of Windows
 }
 
 var (
@@ -62,6 +63,12 @@ var (
 		"Root",
 		"Trust",
 		"CA",
+	}
+
+	// Predefined system store locations.
+	SystemStoreLocations = []string{
+		"CurrentUser",
+		"LocalMachine",
 	}
 
 	// Signing name for the IAM Roles Anywhere service

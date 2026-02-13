@@ -32,6 +32,7 @@ var (
 
 	certSelector                 string
 	systemStoreName              string
+	systemStoreLocation          string
 	useLatestExpiringCertificate bool
 
 	libPkcs11 string
@@ -80,8 +81,10 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().StringVar(&certificateBundleId, "intermediates", "", "Path to intermediate certificate bundle file")
 	subCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store. "+
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
-	subCmd.PersistentFlags().StringVar(&systemStoreName, "system-store-name", "MY", "Name of the system store to search for within the "+
-		"CERT_SYSTEM_STORE_CURRENT_USER context. Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
+	subCmd.PersistentFlags().StringVar(&systemStoreName, "system-store-name", "MY", "Name of the system store to search for. "+
+		"Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
+	subCmd.PersistentFlags().StringVar(&systemStoreLocation, "system-store-location", "CurrentUser", "Location of the system store to search for. "+
+		"Can be either \"CurrentUser\" or \"LocalMachine\". Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
 	subCmd.PersistentFlags().BoolVar(&useLatestExpiringCertificate, "use-latest-expiring-certificate", false, "If multiple certificates match "+
 		"a given certificate selector, the one that expires the latest will be chosen (if more than one still fits this criteria, an arbitrary "+
 		"one is chosen from those that meet the criteria)")
@@ -97,14 +100,17 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
+	subCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-location")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "system-store-name")
+	subCmd.MarkFlagsMutuallyExclusive("private-key", "system-store-location")
 	subCmd.MarkFlagsMutuallyExclusive("private-key", "use-latest-expiring-certificate")
 	subCmd.MarkFlagsMutuallyExclusive("use-latest-expiring-certificate", "intermediates")
 	subCmd.MarkFlagsMutuallyExclusive("use-latest-expiring-certificate", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "intermediates")
 	subCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
+	subCmd.MarkFlagsMutuallyExclusive("system-store-location", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "cert-selector")
 	subCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "reuse-pin")
 	subCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "cert-selector")
@@ -230,7 +236,7 @@ func PopulateCertIdentifierFromCertSelectorStr(certSelectorStr string) (helper.C
 
 // Populates a CertIdentifier using a cert selector
 // Note that this method can take in a file name as a the cert selector
-func PopulateCertIdentifier(certSelector string, systemStoreName string) (helper.CertIdentifier, error) {
+func PopulateCertIdentifier(certSelector string, systemStoreName string, systemStoreLocation string) (helper.CertIdentifier, error) {
 	var (
 		certIdentifier helper.CertIdentifier
 		err            error
@@ -265,12 +271,24 @@ func PopulateCertIdentifier(certSelector string, systemStoreName string) (helper
 		certIdentifier.SystemStoreName = systemStoreName
 	}
 
+	matchedSystemStoreLocation := false
+	for _, predefinedLocation := range helper.SystemStoreLocations {
+		if strings.EqualFold(systemStoreLocation, predefinedLocation) {
+			certIdentifier.SystemStoreLocation = predefinedLocation
+			matchedSystemStoreLocation = true
+			break
+		}
+	}
+	if !matchedSystemStoreLocation {
+		return helper.CertIdentifier{}, fmt.Errorf("unsupported system store location: %s", systemStoreLocation)
+	}
+
 	return certIdentifier, err
 }
 
 // Populate CredentialsOpts that is used to aggregate all the information required to call CreateSession
 func PopulateCredentialsOptions() error {
-	certIdentifier, err := PopulateCertIdentifier(certSelector, systemStoreName)
+	certIdentifier, err := PopulateCertIdentifier(certSelector, systemStoreName, systemStoreLocation)
 	if err != nil {
 		return err
 	}

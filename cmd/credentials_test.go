@@ -22,7 +22,7 @@ func TestValidSelectorParsing(t *testing.T) {
 		" \n  Key=x509Subject,Value=CN=CN With Trailing Spaces  ,O=O With Spaces   \t   Key=x509Issuer,Value=CN=Issuer  \n",
 	}
 	for _, fixture := range fixtures {
-		_, err := PopulateCertIdentifier(fixture, "MY")
+		_, err := PopulateCertIdentifier(fixture, "MY", "CurrentUser")
 		if err != nil {
 			t.Log("Unable to populate cert identifier from selector")
 			t.Fail()
@@ -44,7 +44,7 @@ func TestInvalidSelectorParsing(t *testing.T) {
 		"Key=x509Subject,Value=Test Key=x509Subject,Value=Test2",
 	}
 	for _, fixture := range fixtures {
-		_, err := PopulateCertIdentifier(fixture, "MY")
+		_, err := PopulateCertIdentifier(fixture, "MY", "CurrentUser")
 		if err == nil {
 			t.Log("Expected parsing failure, but received none")
 			t.Fail()
@@ -55,7 +55,7 @@ func TestInvalidSelectorParsing(t *testing.T) {
 func TestValidSelectorParsingResults(t *testing.T) {
 	fixture := " \n  Key=x509Subject,Value=CN=CN With Trailing Spaces  ,O=O With Spaces   \t   Key=x509Issuer,Value=CN=Issuer  \n "
 
-	certIdentifier, err := PopulateCertIdentifier(fixture, "MY")
+	certIdentifier, err := PopulateCertIdentifier(fixture, "MY", "CurrentUser")
 	if err != nil {
 		t.Log("Unable to populate cert identifier from selector")
 		t.Fail()
