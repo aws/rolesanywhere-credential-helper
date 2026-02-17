@@ -99,6 +99,13 @@ var (
 	ErrRequiresUI = errors.New("provider requries UI to operate")
 )
 
+// systemStoreLocationMap maps system store location names to their corresponding
+// high word of the dwFlags used in CertOpenStore.
+var systemStoreLocationMap = map[string]uint32{
+	"CurrentUser":  windows.CERT_SYSTEM_STORE_CURRENT_USER,
+	"LocalMachine": windows.CERT_SYSTEM_STORE_LOCAL_MACHINE,
+}
+
 // Error codes for Windows APIs - implements the error interface.
 // Error codes are maintained on a per-thread basis. In order to
 // get the last error code, C.GetLastError needs to be called (called
@@ -143,8 +150,8 @@ func (secStatus securityStatus) Error() string {
 	return fmt.Sprintf("SECURITY_STATUS %d", int(secStatus))
 }
 
-// Gets the certificates that match the given CertIdentifier within the user's specified system
-// certificate store. By default, that is "MY".
+// Gets the certificates that match the given CertIdentifier within the specified system
+// certificate store and store location. By default, that is "MY" in "CurrentUser".
 // If there is only a single matching certificate, then its chain will be returned too
 func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Handle, certCtxs []*windows.CertContext, certChains [][]*x509.Certificate, certContainers []CertificateContainer, err error) {
 	storeName, err := windows.UTF16PtrFromString(certIdentifier.SystemStoreName)
@@ -152,7 +159,12 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 		return 0, nil, nil, nil, errors.New("unable to UTF-16 encode personal certificate store name")
 	}
 
-	store, err = windows.CertOpenStore(windows.CERT_STORE_PROV_SYSTEM_W, 0, 0, windows.CERT_SYSTEM_STORE_CURRENT_USER, uintptr(unsafe.Pointer(storeName)))
+	dwFlags, ok := systemStoreLocationMap[certIdentifier.SystemStoreLocation]
+	if !ok {
+		return 0, nil, nil, nil, fmt.Errorf("unsupported system store location: %s", certIdentifier.SystemStoreLocation)
+	}
+
+	store, err = windows.CertOpenStore(windows.CERT_STORE_PROV_SYSTEM_W, 0, 0, dwFlags, uintptr(unsafe.Pointer(storeName)))
 	if err != nil {
 		return 0, nil, nil, nil, errors.New("failed to open system cert store")
 	}
