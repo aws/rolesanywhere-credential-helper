@@ -128,7 +128,7 @@ jobs:
         uses: aquasecurity/setup-trivy@v0.2.0
         with:
           cache: true
-          version: v0.63.0
+          version: v0.69.3
 
       - name: Scan Docker image with Trivy
         run: |
