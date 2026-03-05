@@ -8,7 +8,7 @@ require (
 	github.com/aws/aws-sdk-go-v2 v1.40.0
 	github.com/aws/aws-sdk-go-v2/config v1.32.0
 	github.com/aws/smithy-go v1.23.2
-	github.com/cloudflare/circl v1.6.1
+	github.com/cloudflare/circl v1.6.3
 	github.com/google/go-tpm v0.3.3
 	github.com/miekg/pkcs11 v1.1.1
 	github.com/spf13/cobra v1.10.1
