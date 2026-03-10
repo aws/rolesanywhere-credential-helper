@@ -25,10 +25,10 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - name: Setup go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5.6.0
         with:
           go-version-file: 'go.mod'
           cache: true
@@ -52,7 +52,7 @@ jobs:
           make test
 
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4.2.0
+        uses: aws-actions/configure-aws-credentials@f24d7193d98baebaeacc7e2227925dd47cc267f5 # v4.2.0
         with:
           role-to-assume: ${{ secrets.BINARY_BUILDING_ROLE_ARN }}
           role-session-name: githubmacosbuild
