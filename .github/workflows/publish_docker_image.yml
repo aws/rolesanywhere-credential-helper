@@ -22,21 +22,21 @@ jobs:
       AWS_SIGNER_PLUGIN_FILENAME: notation-aws-signer-plugin.zip
     steps:
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
         
       - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@master
+        uses: aws-actions/configure-aws-credentials@f24d7193d98baebaeacc7e2227925dd47cc267f5 # v4.2.0
         with:
           role-to-assume: arn:aws:iam::264252446756:role/GithubActionsAccessRole 
           aws-region: ${{ env.AWS_REGION }}
 
       - name: Login to Amazon ECR
         id: login-ecr
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
       - name: Login to Amazon ECR Public
         id: login-ecr-public
-        uses: aws-actions/amazon-ecr-login@v2
+        uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
         with: 
           registry-type: public
 
@@ -70,7 +70,7 @@ jobs:
           echo "versioned_manifest_sha=$(docker manifest push ${{ env.PUBLIC_REGISTRY }}/${{ env.PUBLIC_REPOSITORY }}:$VERSION-$TIMESTAMP)" >> "$GITHUB_OUTPUT" 
 
       - name: Setup Notation CLI
-        uses: notaryproject/notation-action/setup@v1
+        uses: notaryproject/notation-action/setup@b6fee73110795d6793253c673bd723f12bcf9bbb # v1.2.2
 
       - name: Retrieve AWS Signer Checksum Value 
         id: checksum
@@ -79,7 +79,7 @@ jobs:
           echo "signer_sha=$(sha256sum ${{env.AWS_SIGNER_PLUGIN_FILENAME}} | cut -f1 -d' ')" >> "$GITHUB_OUTPUT"
 
       - name: Sign the Images and Manifest with Notation 
-        uses: notaryproject/notation-action/sign@v1
+        uses: notaryproject/notation-action/sign@b6fee73110795d6793253c673bd723f12bcf9bbb # v1.2.2
         with:
           plugin_name: com.amazonaws.signer.notation.plugin
           plugin_url: https://d2hvyiie56hcat.cloudfront.net/linux/amd64/plugin/latest/notation-aws-signer-plugin.zip 
