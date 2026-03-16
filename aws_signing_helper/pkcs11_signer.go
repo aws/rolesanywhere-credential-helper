@@ -318,6 +318,7 @@ func getCertsInSession(module *pkcs11.Ctx, slotId uint, session pkcs11.SessionHa
 func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkcs11URI, userPin string, single bool) (matchedSlot SlotIdInfo, session pkcs11.SessionHandle, loggedIn bool, matchingCerts []CertObjInfo, err error) {
 	var (
 		errNoMatchingCerts error
+		curSession         pkcs11.SessionHandle
 	)
 
 	errNoMatchingCerts = errors.New("no matching certificates")
@@ -333,7 +334,7 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 	// matches the provided PKCS#11 URI, a search is performed for
 	// matching certificate objects."
 	for _, slot := range slots {
-		curSession, err := module.OpenSession(slot.id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
+		curSession, err = module.OpenSession(slot.id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 		if err != nil {
 			if Debug {
 				log.Printf("unable to open session in slot %d"+
@@ -374,7 +375,7 @@ func getMatchingCerts(module *pkcs11.Ctx, slots []SlotIdInfo, uri *pkcs11uri.Pkc
 	// tokens in which the object could reside."
 	if len(slots) == 1 {
 		if userPin != "" {
-			curSession, err := module.OpenSession(slots[0].id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
+			curSession, err = module.OpenSession(slots[0].id, pkcs11.CKF_SERIAL_SESSION|pkcs11.CKS_RO_PUBLIC_SESSION)
 			if err != nil {
 				err = errNoMatchingCerts
 				goto fail
