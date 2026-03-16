@@ -50,7 +50,6 @@ func TestReadCertificateData(t *testing.T) {
 	}
 	for _, fixture := range fixtures {
 		certData, _, err := ReadCertificateData(fixture.CertPath)
-
 		if err != nil {
 			t.Log("Failed to read certificate data")
 			t.Fail()
@@ -103,7 +102,6 @@ func TestReadPrivateKeyData(t *testing.T) {
 
 	for _, fixture := range fixtures {
 		_, err := ReadPrivateKeyData(fixture)
-
 		if err != nil {
 			t.Log("Failed to read private key data")
 			t.Fail()
@@ -399,7 +397,6 @@ func TestCredentialProcess(t *testing.T) {
 				return
 			}
 			resp, err := GenerateCredentials(&credentialsOpts, signer, signatureAlgorithm)
-
 			if err != nil {
 				t.Log(err)
 				t.Log("Unable to call credential-process")
@@ -661,7 +658,12 @@ aws_secret_access_key = test`,
 			defer writeOnlyCredentialsFile.Close()
 			writeOnlyCredentialsFile.WriteString(tc.inputFileContents)
 
-			Update(credentialsOpts, tc.profile, true)
+			updateOpts := UpdateOpts{
+				Profile: tc.profile,
+				Mode:    UpdateOnceMode,
+			}
+
+			Update(credentialsOpts, updateOpts)
 
 			fileByteContents, _ := ioutil.ReadFile(TestCredentialsFilePath)
 			fileStringContents := trimLastChar(string(fileByteContents))
@@ -706,7 +708,12 @@ aws_session_token = sessionToken
 			defer tc.server.Close()
 			os.Setenv(AwsSharedCredentialsFileEnvVarName, TestCredentialsFilePath)
 
-			Update(credentialsOpts, tc.profile, true)
+			updateOpts := UpdateOpts{
+				Profile: tc.profile,
+				Mode:    UpdateOnceMode,
+			}
+
+			Update(credentialsOpts, updateOpts)
 
 			fileByteContents, _ := ioutil.ReadFile(TestCredentialsFilePath)
 			fileStringContents := trimLastChar(string(fileByteContents))
