@@ -78,8 +78,10 @@ func init() {
 	signStringCmd.PersistentFlags().BoolVar(&debug, "debug", false, "To print debug output")
 	signStringCmd.PersistentFlags().StringVar(&certSelector, "cert-selector", "", "JSON structure to identify a certificate from a certificate store. "+
 		"Can be passed in either as string or a file name (prefixed by \"file://\")")
-	signStringCmd.PersistentFlags().StringVar(&systemStoreName, "system-store-name", "MY", "Name of the system store to search for within the "+
-		"CERT_SYSTEM_STORE_CURRENT_USER context. Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
+	signStringCmd.PersistentFlags().StringVar(&systemStoreName, "system-store-name", "MY", "Name of the system store to search for. "+
+		"Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
+	signStringCmd.PersistentFlags().StringVar(&systemStoreLocation, "system-store-location", "CurrentUser", "Location of the system store to search for. "+
+		"Can be either \"CurrentUser\" or \"LocalMachine\". Note that this flag is only relevant for Windows certificate stores and will be ignored otherwise")
 	signStringCmd.PersistentFlags().BoolVar(&useLatestExpiringCertificate, "use-latest-expiring-certificate", false, "If multiple certificates match "+
 		"a given certificate selector, the one that expires the latest will be chosen (if more than one still fits this criteria, an arbitrary "+
 		"one is chosen from those that meet the criteria)")
@@ -96,12 +98,15 @@ func init() {
 
 	signStringCmd.MarkFlagsMutuallyExclusive("certificate", "cert-selector")
 	signStringCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-name")
+	signStringCmd.MarkFlagsMutuallyExclusive("certificate", "system-store-location")
 	signStringCmd.MarkFlagsMutuallyExclusive("private-key", "cert-selector")
 	signStringCmd.MarkFlagsMutuallyExclusive("private-key", "system-store-name")
+	signStringCmd.MarkFlagsMutuallyExclusive("private-key", "system-store-location")
 	signStringCmd.MarkFlagsMutuallyExclusive("private-key", "use-latest-expiring-certificate")
 	signStringCmd.MarkFlagsMutuallyExclusive("use-latest-expiring-certificate", "reuse-pin")
 	signStringCmd.MarkFlagsMutuallyExclusive("cert-selector", "reuse-pin")
 	signStringCmd.MarkFlagsMutuallyExclusive("system-store-name", "reuse-pin")
+	signStringCmd.MarkFlagsMutuallyExclusive("system-store-location", "reuse-pin")
 	signStringCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "cert-selector")
 	signStringCmd.MarkFlagsMutuallyExclusive("tpm-key-password", "reuse-pin")
 	signStringCmd.MarkFlagsMutuallyExclusive("no-tpm-key-password", "cert-selector")
