@@ -312,20 +312,12 @@ func readPKCS8EncryptedPrivateKey(privateKeyId string, pkcs8Password []byte) (cr
 		return mldsaKey, nil
 	}
 
-	switch privateKey.(type) {
+	switch privateKey := privateKey.(type) {
 	case *rsa.PrivateKey:
-		rsaPrivateKey, ok := privateKey.(*rsa.PrivateKey)
-		if ok {
-			return rsaPrivateKey, nil
-		}
+		return privateKey, nil
 	case *ecdsa.PrivateKey:
-		ecPrivateKey, ok := privateKey.(*ecdsa.PrivateKey)
-		if ok {
-			return ecPrivateKey, nil
-		}
+		return privateKey, nil
 	default:
 		return nil, errors.New("could not parse PKCS#8 private key")
 	}
-
-	return nil, errors.New("could not parse PKCS#8 private key")
 }
