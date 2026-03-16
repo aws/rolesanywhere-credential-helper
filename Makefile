@@ -12,8 +12,14 @@ else
 	extra_ld_flags=
 endif
 
+ifeq ($(ROLESANYWHERE_WITH_PKCS11),)
+	# the envvar is unset, so we are NOT doing the PKCS11 build
 build/bin/aws_signing_helper:
-	go build -buildmode=pie -ldflags "-X 'github.com/aws/rolesanywhere-credential-helper/cmd.Version=${VERSION}' $(extra_ld_flags) -linkmode=external -w -s" -trimpath -o build/bin/aws_signing_helper main.go
+	go build -buildmode=pie -ldflags "-X 'github.com/aws/rolesanywhere-credential-helper/cmd.Version=${VERSION}' $(extra_ld_flags) -w -s" -trimpath -o build/bin/aws_signing_helper main.go
+else
+build/bin/aws_signing_helper:
+	CGO_ENABLED=1 go build -tags with_pkcs11 -ldflags "-X 'github.com/aws/rolesanywhere-credential-helper/cmd.Version=${VERSION}' $(extra_ld_flags) -linkmode=external -w -s" -trimpath -o build/bin/aws_signing_helper main.go
+endif
 
 .PHONY: clean
 clean: test-clean
