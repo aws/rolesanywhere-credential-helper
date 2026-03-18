@@ -1,6 +1,7 @@
 package aws_signing_helper
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -11,9 +12,11 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"strconv"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws/arn"
@@ -351,7 +354,22 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	log.Println("Local server started on port:", endpoint.PortNum)
 	log.Println("Make it available to the sdk by running:")
 	log.Printf("export AWS_EC2_METADATA_SERVICE_ENDPOINT=http://%s:%d/", LocalHostAddress, endpoint.PortNum)
-	if err := endpoint.Server.Serve(listener); err != nil {
+
+	// Graceful shutdown on SIGTERM/SIGINT
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGTERM, syscall.SIGINT)
+	go func() {
+		<-quit
+		log.Println("Shutting down server...")
+		ticker.Stop()
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		if err := endpoint.Server.Shutdown(ctx); err != nil {
+			log.Println("Server forced to shutdown:", err)
+		}
+	}()
+
+	if err := endpoint.Server.Serve(listener); err != nil && err != http.ErrServerClosed {
 		log.Println("Httpserver: ListenAndServe() error")
 		os.Exit(1)
 	}
