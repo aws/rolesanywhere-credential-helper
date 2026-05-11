@@ -2,7 +2,7 @@ VERSION=1.8.2
 # IMPORTANT: This VERSION variable is parsed by the GitHub Actions image build workflow.
 # Please maintain the X.Y.Z format to ensure compatibility with the automated build process.
 .PHONY: release
-release: build/bin/aws_signing_helper
+release: test-certs mldsa-fixtures build/bin/aws_signing_helper
 
 curdir=$(shell pwd)
 uname=$(shell uname -s)

@@ -2,7 +2,7 @@ module github.com/aws/rolesanywhere-credential-helper
 
 go 1.26.0
 
-toolchain go1.26.2
+toolchain go1.26.3
 
 require (
 	github.com/aws/aws-sdk-go-v2 v1.40.0
@@ -13,10 +13,10 @@ require (
 	github.com/miekg/pkcs11 v1.1.1
 	github.com/spf13/cobra v1.10.1
 	github.com/stefanberger/go-pkcs11uri v0.0.0-20230803200340-78284954bff6
-	golang.org/x/crypto v0.45.0
-	golang.org/x/net v0.47.0
-	golang.org/x/sys v0.38.0
-	golang.org/x/term v0.37.0
+	golang.org/x/crypto v0.50.0
+	golang.org/x/net v0.53.0
+	golang.org/x/sys v0.43.0
+	golang.org/x/term v0.42.0
 )
 
 require (
