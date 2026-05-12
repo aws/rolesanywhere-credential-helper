@@ -1,4 +1,4 @@
-VERSION=1.8.2
+VERSION=1.8.3
 # IMPORTANT: This VERSION variable is parsed by the GitHub Actions image build workflow.
 # Please maintain the X.Y.Z format to ensure compatibility with the automated build process.
 .PHONY: release
@@ -366,7 +366,7 @@ $(MLDSAKEYS):
 	ALGO_UPPER=$$(echo "$@" | sed 's/.*\/\(mldsa[0-9]*\)-key.pem/\1/' | sed 's/mldsa\([0-9][0-9]\)/ML-DSA-\1/'); \
 	openssl genpkey -algorithm $${ALGO_UPPER} -out $@
 
-$(certsdir)/cert-bundle.pem: $(RSACERTS) $(ECCERTS) 
+$(certsdir)/cert-bundle.pem: $(RSACERTS) $(ECCERTS)
 	cat $^ > $@
 
 $(certsdir)/cert-bundle-with-comments.pem: $(RSACERTS) $(ECCERTS)
