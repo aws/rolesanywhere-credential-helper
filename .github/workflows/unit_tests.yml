@@ -2,8 +2,13 @@ name: Unit Tests
 
 on:
   push:
+    branches: [ main ]
   pull_request:
   workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   tests:
@@ -65,9 +70,11 @@ jobs:
       - name: Set build flag environment variables for Sonoma compatability on x86 Mac
         if: matrix.os == 'macos-15-intel'
         run: |
-            echo "MACOSX_DEPLOYMENT_TARGET=14.0" >> $GITHUB_ENV
-            echo "CGO_CFLAGS=-mmacosx-version-min=14.0" >> $GITHUB_ENV
-            echo "CGO_LDFLAGS=-mmacosx-version-min=14.0" >> $GITHUB_ENV
+            {
+              echo "MACOSX_DEPLOYMENT_TARGET=14.0"
+              echo "CGO_CFLAGS=-mmacosx-version-min=14.0"
+              echo "CGO_LDFLAGS=-mmacosx-version-min=14.0"
+            } >> "$GITHUB_ENV"
 
       - name: Base tests (macOS)
         if: runner.os == 'macOS'

@@ -2,6 +2,11 @@ name: MacOS build and test rolesanywhere-credential-helper
 on:
   push:
     branches: [ main ]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   statuses: write
@@ -52,6 +57,7 @@ jobs:
           make test
 
       - name: Configure AWS credentials
+        if: github.event_name == 'push' && github.repository == 'aws/rolesanywhere-credential-helper'
         uses: aws-actions/configure-aws-credentials@f24d7193d98baebaeacc7e2227925dd47cc267f5 # v4.2.0
         with:
           role-to-assume: ${{ secrets.BINARY_BUILDING_ROLE_ARN }}
@@ -59,6 +65,7 @@ jobs:
           aws-region: us-west-2
 
       - name: Upload to S3
+        if: github.event_name == 'push' && github.repository == 'aws/rolesanywhere-credential-helper'
         id: s3
         run: |
           S3_DESTINATION="s3://${{ secrets.INTERMEDIATE_BUCKET_NAME }}"

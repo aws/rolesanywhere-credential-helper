@@ -3,6 +3,11 @@ name: Build and Test Credential Helper Docker Image
 on:
   push:
     branches: [ main ]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
+  cancel-in-progress: true
 
 env:
   STAGING_REGISTRY: 264252446756.dkr.ecr.us-east-1.amazonaws.com
@@ -16,7 +21,7 @@ permissions:
 
 jobs:
   build-and-push:
-    name: Build Docker Images and Push to Staging Repository
+    name: Build Docker Images (${{ matrix.platform }})
     strategy:
       matrix:
         include:
@@ -31,12 +36,14 @@ jobs:
         uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         
       - name: Configure AWS credentials
+        if: github.event_name == 'push' && github.repository == 'aws/rolesanywhere-credential-helper'
         uses: aws-actions/configure-aws-credentials@f24d7193d98baebaeacc7e2227925dd47cc267f5 # v4.2.0
         with:
           role-to-assume: arn:aws:iam::264252446756:role/GithubActionsAccessRole
           aws-region: ${{ env.AWS_REGION }}
           
       - name: Login to Amazon ECR
+        if: github.event_name == 'push' && github.repository == 'aws/rolesanywhere-credential-helper'
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
 
@@ -44,24 +51,57 @@ jobs:
         id: extract-version
         run: |
           VERSION=$(grep '^VERSION=' Makefile | cut -d'=' -f2)
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          echo "Extracted version: $VERSION"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
+      - name: Extract Go version from go.mod
+        id: go-version
+        run: |
+          GO_VERSION=$(grep '^toolchain' go.mod | awk '{print $2}' | sed 's/go//')
+          if [ -z "$GO_VERSION" ]; then
+            GO_VERSION=$(grep '^go ' go.mod | awk '{print $2}')
+          fi
+          echo "version=${GO_VERSION}" >> "$GITHUB_OUTPUT"
+
+      # push=true outputs to registry (--output=type=registry)
+      # load=true outputs to local daemon only (--output=type=docker)
+      # See: https://github.com/docker/build-push-action#inputs
+      # See: https://docs.docker.com/build/ci/github-actions/test-before-push/
       - name: Build and Push Docker image
         uses: docker/build-push-action@ca052bb54ab0790a636c9b5f226502c73d547a25 # v5.4.0
         with:
           context: .
           file: ./docker_image_resources/Dockerfile
           platforms: linux/${{ matrix.platform }}
-          push: true
+          push: ${{ github.event_name == 'push' && github.repository == 'aws/rolesanywhere-credential-helper' }}
+          load: ${{ !(github.event_name == 'push' && github.repository == 'aws/rolesanywhere-credential-helper') }}
           build-args: |
             VERSION=${{ steps.extract-version.outputs.version }}
+            GO_VERSION=${{ steps.go-version.outputs.version }}
           tags: |
             ${{ env.STAGING_REGISTRY }}/${{ env.STAGING_REPOSITORY }}:${{ github.sha }}-${{ matrix.platform }}
           provenance: false # provenance must be disabled in order to prevent manifest creation failures
 
+      - name: Verify image runs
+        if: "!(github.event_name == 'push' && github.repository == 'aws/rolesanywhere-credential-helper')"
+        run: |
+          docker run --rm "${{ env.STAGING_REGISTRY }}/${{ env.STAGING_REPOSITORY }}:${{ github.sha }}-${{ matrix.platform }}" version
+
+      - name: Install Trivy Image Scanner
+        if: "!(github.event_name == 'push' && github.repository == 'aws/rolesanywhere-credential-helper')"
+        uses: aquasecurity/setup-trivy@7483281e2107e7eecac919ed9d4f5ce2d89e4614 # v0.2.0
+        with:
+          cache: true
+          version: v0.69.3
+
+      - name: Scan Docker image with Trivy
+        if: "!(github.event_name == 'push' && github.repository == 'aws/rolesanywhere-credential-helper')"
+        run: |
+          IMAGE_REFERENCE="${{ env.STAGING_REGISTRY }}/${{ env.STAGING_REPOSITORY }}:${{ github.sha }}-${{ matrix.platform }}"
+          ./docker_image_resources/tests/scripts/scan-image.sh "$IMAGE_REFERENCE"
+
   test-and-scan:
     name: Test and Scan Docker Images
+    if: github.event_name == 'push' && github.repository == 'aws/rolesanywhere-credential-helper'
     needs: build-and-push
     strategy:
       matrix:
@@ -92,7 +132,7 @@ jobs:
         run: |
           MAX_PULL_ATTEMPTS=3
           PULL_ATTEMPT=0
-          until docker pull ${{ env.STAGING_REGISTRY }}/${{ env.STAGING_REPOSITORY }}:${{ github.sha }}-${{matrix.platform}}; do
+          until docker pull "${{ env.STAGING_REGISTRY }}/${{ env.STAGING_REPOSITORY }}:${{ github.sha }}-${{matrix.platform}}"; do
               PULL_ATTEMPT=$((PULL_ATTEMPT + 1))
               if [ $PULL_ATTEMPT -ge $MAX_PULL_ATTEMPTS ]; then
                   echo "Failed to pull image after $MAX_PULL_ATTEMPTS attempts"
@@ -102,7 +142,7 @@ jobs:
               sleep 10
           done
             
-          echo "REPOSITORY=${{ env.STAGING_REPOSITORY }}" >> $GITHUB_ENV
+          echo "REPOSITORY=${{ env.STAGING_REPOSITORY }}" >> "$GITHUB_ENV"
 
           mkdir -p docker_image_resources/tests/certs
           
@@ -118,7 +158,7 @@ jobs:
         run: |
           # Run basic version test
           echo "Testing version command:"
-          docker run --rm ${{ env.STAGING_REGISTRY }}/${{ env.STAGING_REPOSITORY }}:${{ github.sha }}-${{matrix.platform}} version
+          docker run --rm "${{ env.STAGING_REGISTRY }}/${{ env.STAGING_REPOSITORY }}:${{ github.sha }}-${{matrix.platform}}" version
 
           # Run Integration Tests 
           cd docker_image_resources
