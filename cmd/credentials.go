@@ -54,7 +54,7 @@ var (
 		X509_SERIAL_KEY,
 	}
 
-	DUPLICATE_KEYS_ERR_STR = "duplicate %s keys can't be present in cert selector"
+	DUPLICATE_KEYS_ERR_STR        = "duplicate %s keys can't be present in cert selector"
 	CERT_SELECTOR_KEY_VALUE_REGEX = regexp.MustCompile(`^\s*Key=(.+?),Value=(.+?)\s*(?:Key=|$)`)
 )
 

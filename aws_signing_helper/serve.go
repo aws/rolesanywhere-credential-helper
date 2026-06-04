@@ -283,8 +283,8 @@ func setupHandlers(roleName string, putTokenHandler http.HandlerFunc, getRoleNam
 	mux.HandleFunc(TOKEN_RESOURCE_PATH_WITH_TRAILING_SLASH, putTokenHandler)
 	mux.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH, getRoleNameHandler)
 	mux.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH_WITH_TRAILING_SLASH, getRoleNameHandler)
-	mux.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH_WITH_TRAILING_SLASH + roleName, getCredentialsHandler)
-	mux.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH_WITH_TRAILING_SLASH + roleName + "/", getCredentialsHandler)
+	mux.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH_WITH_TRAILING_SLASH+roleName, getCredentialsHandler)
+	mux.HandleFunc(SECURITY_CREDENTIALS_RESOURCE_PATH_WITH_TRAILING_SLASH+roleName+"/", getCredentialsHandler)
 
 	return mux
 }

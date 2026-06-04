@@ -143,8 +143,8 @@ func deriveKeyUsingPBKDF2(parameterBytes []byte, keySize int, password []byte) (
 
 	// If PRF is not specified, default to HMAC-SHA1
 	var prfOid asn1.ObjectIdentifier
-	if len(kdfParams.PRF.Algorithm) == 0 {  // prf missing?
-		prfOid = oidHMACWithSHA1  // assume default per rfc 8018
+	if len(kdfParams.PRF.Algorithm) == 0 { // prf missing?
+		prfOid = oidHMACWithSHA1 // assume default per rfc 8018
 	} else {
 		prfOid = kdfParams.PRF.Algorithm
 	}
