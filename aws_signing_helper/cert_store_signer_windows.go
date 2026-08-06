@@ -44,6 +44,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 	"unsafe"
 )
 
@@ -177,7 +178,10 @@ func GetMatchingCertsAndChain(certIdentifier CertIdentifier) (store windows.Hand
 		// Previous chainCtx should be freed here if it isn't nil
 		chainCtx, err = windows.CertFindChainInStore(store, encoding, flags, findType, paramsPtr, chainCtx)
 		if err != nil {
-			if strings.Contains(err.Error(), "Cannot find object or property.") {
+			// CertFindChainInStore sets CRYPT_E_NOT_FOUND when the
+			// enumeration is complete. Match on the error code rather than
+			// its message, which is localized on non-English systems.
+			if errors.Is(err, syscall.Errno(windows.CRYPT_E_NOT_FOUND)) {
 				break
 			}
 			err = errors.New("unable to find certificate chain in store")
