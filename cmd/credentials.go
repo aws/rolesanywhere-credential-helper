@@ -21,6 +21,7 @@ var (
 	sessionDuration   int
 	region            string
 	endpoint          string
+	useFipsEndpoint   bool
 	noVerifySSL       bool
 	withProxy         bool
 	debug             bool
@@ -72,6 +73,7 @@ func initCredentialsSubCommand(subCmd *cobra.Command) {
 	subCmd.PersistentFlags().IntVar(&sessionDuration, "session-duration", 3600, "Duration, in seconds, for the resulting session")
 	subCmd.PersistentFlags().StringVar(&region, "region", "", "Signing region")
 	subCmd.PersistentFlags().StringVar(&endpoint, "endpoint", "", "Endpoint used to call CreateSession")
+	subCmd.PersistentFlags().BoolVar(&useFipsEndpoint, "use-fips-endpoint", false, "Resolve the FIPS-compliant CreateSession endpoint for the region (equivalent to AWS_USE_FIPS_ENDPOINT=true)")
 	subCmd.PersistentFlags().BoolVar(&noVerifySSL, "no-verify-ssl", false, "To disable SSL verification")
 	subCmd.PersistentFlags().BoolVar(&withProxy, "with-proxy", false, "To make the CreateSession call with a proxy")
 	subCmd.PersistentFlags().BoolVar(&debug, "debug", false, "To print debug output")
@@ -287,6 +289,7 @@ func PopulateCredentialsOptions() error {
 		SessionDuration:              sessionDuration,
 		Region:                       region,
 		Endpoint:                     endpoint,
+		UseFipsEndpoint:              useFipsEndpoint,
 		NoVerifySSL:                  noVerifySSL,
 		WithProxy:                    withProxy,
 		Debug:                        debug,
