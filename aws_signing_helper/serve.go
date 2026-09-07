@@ -28,6 +28,10 @@ const LocalHostAddress = "127.0.0.1"
 
 var RefreshTime = time.Minute * time.Duration(5)
 
+// The minimum time between CreateSession refresh attempts.
+var MinRefreshInterval = time.Minute * time.Duration(5)
+var CertExpiryWarningHorizon = time.Hour * 24 * time.Duration(30)
+
 type RefreshableCred struct {
 	AccessKeyId     string
 	SecretAccessKey string
@@ -96,7 +100,11 @@ func InsertToken(token string, expirationTime time.Time) error {
 		}
 
 		delete(tokenMap, earliestExpiringToken)
-		log.Printf("evicting earliest expiring token: %s", earliestExpiringToken)
+		if Debug {
+			log.Printf("evicting earliest expiring token: %s", earliestExpiringToken)
+		} else {
+			log.Printf("evicting earliest expiring token")
+		}
 	}
 	tokenMap[token] = expirationTime
 	mutex.Unlock()
@@ -155,6 +163,13 @@ func FindTokenTTLSeconds(r *http.Request) (string, error) {
 }
 
 func AllIssuesHandlers(cred *RefreshableCred, roleName string, opts *CredentialsOpts, signer Signer, signatureAlgorithm string) (http.HandlerFunc, http.HandlerFunc, http.HandlerFunc) {
+	// Serializes refresh attempts against the shared cred and throttles retries so
+	// a run of CreateSession failures does not call the API on every request.
+	var (
+		refreshMutex       sync.Mutex
+		lastRefreshAttempt time.Time
+	)
+
 	// Handles PUT requests to /latest/api/token/
 	putTokenHandler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != "PUT" {
@@ -232,37 +247,47 @@ func AllIssuesHandlers(cred *RefreshableCred, roleName string, opts *Credentials
 
 		var nextRefreshTime = cred.Expiration.Add(-RefreshTime)
 		if time.Until(nextRefreshTime) < RefreshTime {
-			if Debug {
-				log.Println("Generating credentials")
+			refreshMutex.Lock()
+			if time.Since(lastRefreshAttempt) >= MinRefreshInterval {
+				lastRefreshAttempt = time.Now()
+				if Debug {
+					log.Println("Generating credentials")
+				}
+				credentialProcessOutput, gcErr := GenerateCredentials(opts, signer, signatureAlgorithm)
+				if gcErr != nil {
+					// Keep the last-known-good credentials.
+					log.Printf("Error generating credentials: %s\n", gcErr)
+				} else {
+					cred.AccessKeyId = credentialProcessOutput.AccessKeyId
+					cred.SecretAccessKey = credentialProcessOutput.SecretAccessKey
+					cred.Token = credentialProcessOutput.SessionToken
+					cred.Expiration, _ = time.Parse(time.RFC3339, credentialProcessOutput.Expiration)
+					cred.Code = REFRESHABLE_CRED_CODE
+					cred.LastUpdated = time.Now()
+					cred.Type = REFRESHABLE_CRED_TYPE
+				}
 			}
-			credentialProcessOutput, gcErr := GenerateCredentials(opts, signer, signatureAlgorithm)
-			if gcErr != nil {
-				log.Printf("Error generating credentials: %s\n", gcErr)
-			}
-			cred.AccessKeyId = credentialProcessOutput.AccessKeyId
-			cred.SecretAccessKey = credentialProcessOutput.SecretAccessKey
-			cred.Token = credentialProcessOutput.SessionToken
-			cred.Expiration, _ = time.Parse(time.RFC3339, credentialProcessOutput.Expiration)
-			cred.Code = REFRESHABLE_CRED_CODE
-			cred.LastUpdated = time.Now()
-			cred.Type = REFRESHABLE_CRED_TYPE
-			err := json.NewEncoder(w).Encode(cred)
+			refreshMutex.Unlock()
 
-			if err != nil {
+			// When a refresh failed or was throttled and no valid cached
+			// credentials remain to fall back on, surface the failure instead of
+			// returning empty credentials with a "Success" code.
+			if cred.AccessKeyId == "" || !time.Now().Before(cred.Expiration) {
+				log.Println("Error: no valid credentials available after refresh attempt")
 				w.WriteHeader(http.StatusInternalServerError)
-				io.WriteString(w, "failed to encode credentials")
+				io.WriteString(w, "failed to refresh credentials")
 				return
 			}
 		} else {
 			if Debug {
 				log.Println("Using previously obtained credentials")
 			}
-			err := json.NewEncoder(w).Encode(cred)
-			if err != nil {
-				w.WriteHeader(http.StatusInternalServerError)
-				io.WriteString(w, "failed to encode credentials")
-				return
-			}
+		}
+
+		if encErr := json.NewEncoder(w).Encode(cred); encErr != nil {
+			w.WriteHeader(http.StatusInternalServerError)
+			io.WriteString(w, "failed to encode credentials")
+			return
 		}
 
 		tokenTTL, err := FindTokenTTLSeconds(r)
@@ -305,7 +330,24 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	}
 	defer signer.Close()
 
-	credentialProcessOutput, _ := GenerateCredentials(&credentialsOptions, signer, signatureAlgorithm)
+	if cert, certErr := signer.Certificate(); certErr == nil && cert != nil {
+		now := time.Now()
+		switch {
+		case now.After(cert.NotAfter):
+			log.Printf("warning: client certificate expired at %s; CreateSession will fail", cert.NotAfter.Format(time.RFC3339))
+		case now.Before(cert.NotBefore):
+			log.Printf("warning: client certificate is not valid until %s; CreateSession will fail", cert.NotBefore.Format(time.RFC3339))
+		case now.Add(CertExpiryWarningHorizon).After(cert.NotAfter):
+			log.Printf("warning: client certificate expires soon, at %s; rotate it to avoid authentication failures", cert.NotAfter.Format(time.RFC3339))
+		}
+	}
+
+	credentialProcessOutput, err := GenerateCredentials(&credentialsOptions, signer, signatureAlgorithm)
+	if err != nil {
+		// Fail fast.
+		log.Printf("failed to generate initial credentials: %s", err)
+		os.Exit(1)
+	}
 	refreshableCred.AccessKeyId = credentialProcessOutput.AccessKeyId
 	refreshableCred.SecretAccessKey = credentialProcessOutput.SecretAccessKey
 	refreshableCred.Token = credentialProcessOutput.SessionToken
