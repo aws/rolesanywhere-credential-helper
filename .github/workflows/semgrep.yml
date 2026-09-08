@@ -8,6 +8,10 @@ on:
   # paths or branches, see the following GitHub documentation:
   # https://docs.github.com/en/actions/using-workflows/events-that-trigger-workflows#pull_request
   pull_request: {}
+
+permissions:
+  contents: read
+
 jobs:
   semgrep:
     # User definable name of this GitHub Actions job.

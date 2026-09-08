@@ -1,35 +1,33 @@
 #!/bin/bash
 set -euo pipefail
 
-# Configuration
-VERSION="${VERSION:-latest}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+REPO_ROOT="$(cd "${SCRIPT_DIR}/.." && pwd)"
+
+VERSION="${VERSION:-$(grep '^VERSION=' "${REPO_ROOT}/Makefile" | cut -d'=' -f2)}"
+GO_VERSION="${GO_VERSION:-$(grep '^toolchain' "${REPO_ROOT}/go.mod" | awk '{print $2}' | sed 's/go//')}"
+if [ -z "${GO_VERSION}" ]; then
+  GO_VERSION=$(grep '^go ' "${REPO_ROOT}/go.mod" | awk '{print $2}')
+fi
+
 REGISTRY="${REGISTRY:-local}"
 REPOSITORY="${REPOSITORY:-iamra-credential-helper}"
 
-if [ $(uname -m) = "x86_64" ] || [ $(uname -m) = "amd64" ]; then
-  PLATFORM=amd64
-elif [ $(uname -m) = "aarch64" ] || [ $(uname -m) = "arm64" ]; then
-  PLATFORM=arm64
-else
-  echo "Error: Invalid platform. Supported platforms are arm64 and amd64 linux."
-  exit 1
-fi
+case "$(uname -m)" in
+  x86_64|amd64)   PLATFORM=amd64 ;;
+  aarch64|arm64)  PLATFORM=arm64 ;;
+  *) echo "Error: unsupported platform $(uname -m)"; exit 1 ;;
+esac
 
-# Set platform-specific build arguments
-PLATFORM_ARG="--platform=linux/${PLATFORM}"
-
-# Build the image
-echo "Building ${REGISTRY}/${REPOSITORY}:${VERSION} for ${PLATFORM}..."
-echo ${PLATFORM_ARG}
+echo "Building ${REGISTRY}/${REPOSITORY}:${VERSION} for ${PLATFORM} (Go ${GO_VERSION})..."
 docker buildx build \
-  ${PLATFORM_ARG} \
+  --platform "linux/${PLATFORM}" \
   --load \
+  --build-arg "VERSION=${VERSION}" \
+  --build-arg "GO_VERSION=${GO_VERSION}" \
   -t "${REGISTRY}/${REPOSITORY}:${VERSION}-${PLATFORM}" \
   -t "${REGISTRY}/${REPOSITORY}:${VERSION}" \
-  -f Dockerfile \
-  ..
+  -f "${SCRIPT_DIR}/Dockerfile" \
+  "${REPO_ROOT}"
 
-echo "Build completed successfully"
-echo "Created tags:"
-echo "- ${REGISTRY}/${REPOSITORY}:${VERSION}-${PLATFORM} (platform-specific)"
-echo "- ${REGISTRY}/${REPOSITORY}:${VERSION} (default)"
+echo "Build complete: ${REGISTRY}/${REPOSITORY}:${VERSION}"
