@@ -31,6 +31,7 @@ type CredentialsOpts struct {
 	SessionDuration              int
 	Region                       string
 	Endpoint                     string
+	UseFipsEndpoint              bool
 	NoVerifySSL                  bool
 	WithProxy                    bool
 	Debug                        bool
@@ -89,7 +90,15 @@ func GenerateCredentials(opts *CredentialsOpts, signer Signer, signatureAlgorith
 		}
 	})
 	ctx := context.TODO()
-	cfg, err := config.LoadDefaultConfig(ctx, config.WithRegion(opts.Region), config.WithHTTPClient(httpClient), config.WithClientLogMode(logMode))
+	configOptions := []func(*config.LoadOptions) error{
+		config.WithRegion(opts.Region),
+		config.WithHTTPClient(httpClient),
+		config.WithClientLogMode(logMode),
+	}
+	if opts.UseFipsEndpoint {
+		configOptions = append(configOptions, config.WithUseFIPSEndpoint(aws.FIPSEndpointStateEnabled))
+	}
+	cfg, err := config.LoadDefaultConfig(ctx, configOptions...)
 	if err != nil {
 		return CredentialProcessOutput{}, err
 	}
