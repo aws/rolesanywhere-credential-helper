@@ -63,6 +63,20 @@ func TestReadCertificateData(t *testing.T) {
 	}
 }
 
+func TestReadUnsupportedCertificateData(t *testing.T) {
+	// Ed25519 is parseable X.509 but not a signing algorithm this helper
+	// supports, so ReadCertificateData must reject it rather than reporting
+	// a bogus empty key type with SHA256/384/512 as supported algorithms.
+	_, _, err := ReadCertificateData("../tst/certs/ed25519-cert.pem")
+	if err == nil {
+		t.Log("Expected error for unsupported public key algorithm but got none")
+		t.Fail()
+	} else if !strings.Contains(err.Error(), "unsupported public key algorithm") {
+		t.Logf("Error doesn't contain expected text. Got: %v", err)
+		t.Fail()
+	}
+}
+
 func TestReadInvalidCertificateData(t *testing.T) {
 	_, _, err := ReadCertificateData("../tst/certs/invalid-rsa-cert.pem")
 	if err == nil {
