@@ -17,6 +17,7 @@ package aws_signing_helper
 // So all the user should ever have to do is something like
 //     --private-key pkcs11:manufacturer=piv_II;id=%01
 // or --certificate pkcs11:object=Certificate%20for%20Digital%20Signature?pin-value=123456
+// or --certificate pkcs11:object=Certificate%20for%20Digital%20Signature?pin-source=file:/etc/pin
 //
 // The PKCS#11 URI is a bit of a misnomer; it's not really a unique
 // identifier — it's more of a search term; specifying the constraints
@@ -448,7 +449,7 @@ func GetMatchingPKCSCerts(uriStr string, lib string) (matchingCerts []Certificat
 		return nil, err
 	}
 
-	userPin, _ = uri.GetQueryAttribute("pin-value", false)
+	userPin, _ = uri.GetPIN()
 
 	module, err = initializePKCS11Module(lib)
 	if err != nil {
@@ -726,7 +727,7 @@ func getPKCS11Key(module *pkcs11.Ctx, session pkcs11.SessionHandle, loggedIn boo
 	}
 
 	if userPin == "" {
-		userPin, _ = keyUri.GetQueryAttribute("pin-value", false)
+		userPin, _ = keyUri.GetPIN()
 	}
 
 	// This time we're looking for a *single* slot, as we (presumably)
@@ -1226,7 +1227,7 @@ func GetPKCS11Signer(libPkcs11 string, cert *x509.Certificate, certChain []*x509
 		if err != nil {
 			goto fail
 		}
-		userPin, _ = certUri.GetQueryAttribute("pin-value", false)
+		userPin, _ = certUri.GetPIN()
 		certSlot, slots, session, loggedIn, certObj, err = getCertificate(module, certUri, userPin)
 		if err != nil {
 			goto fail
@@ -1278,7 +1279,7 @@ func GetPKCS11Signer(libPkcs11 string, cert *x509.Certificate, certChain []*x509
 		keyUri.Parse(certUriStr)
 		noKeyUri = true
 	}
-	if _userPin, ok := keyUri.GetQueryAttribute("pin-value", false); ok {
+	if _userPin, err := keyUri.GetPIN(); err == nil {
 		userPin = _userPin
 	}
 

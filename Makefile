@@ -259,8 +259,11 @@ tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS
 		--label ec-prime256v1 --id 02
 	mv $@.tmp $@
 
+tst/pin.txt:
+	echo -n 1234 > $@
+
 .PHONY: test-all
-test-all: test-all-certs tst/softhsm2.conf
+test-all: test-all-certs tst/softhsm2.conf tst/pin.txt
 	$(START_SWTPM)
 	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf go test -v ./... || :
 	$(STOP_SWTPM)
@@ -275,8 +278,8 @@ test-tpm-signer: $(certsdir)/cert-bundle.pem $(TPMKEYS) $(TPMCERTS) $(TPMLOADEDK
 	$(STOP_SWTPM)
 
 .PHONY: test-pkcs11-signer
-test-pkcs11-signer: tst/softhsm2.conf
-	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf PKCS11_MODULE=$$(pkg-config --variable=libdir softhsm2)/softhsm/libsofthsm2.so go test ./... -run "PKCS11"
+test-pkcs11-signer: tst/softhsm2.conf tst/pin.txt
+	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf PKCS11_MODULE=$(SHM2_LIBDIR)/softhsm/libsofthsm2.so go test ./... -run "PKCS11"
 
 .PHONY: test
 test: test-certs
