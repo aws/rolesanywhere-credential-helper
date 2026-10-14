@@ -1,5 +1,6 @@
 build/
 tst/certs/
+tst/mldsa-fixtures/
 credential-process-data/
 tst/softhsm/
 tst/softhsm2.conf
