@@ -24,7 +24,6 @@ import (
 
 const DefaultPort = 9911
 const DefaultHopLimit = 64
-const LocalHostAddress = "127.0.0.1"
 
 var RefreshTime = time.Minute * time.Duration(5)
 
@@ -363,8 +362,6 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	putTokenHandler, getRoleNameHandler, getCredentialsHandler := AllIssuesHandlers(&endpoint.TmpCred, roleName, &credentialsOptions, signer, signatureAlgorithm)
 	handler := setupHandlers(roleName, putTokenHandler, getRoleNameHandler, getCredentialsHandler)
 
-	endpoint.Server = &http.Server{Handler: handler}
-
 	// Background thread that cleans up expired tokens
 	ticker := time.NewTicker(5 * time.Second)
 	go func() {
@@ -393,6 +390,7 @@ func Serve(port int, credentialsOptions CredentialsOpts) {
 	}
 	listener = NewListenerWithTTL(listener, credentialsOptions.ServerTTL)
 	endpoint.PortNum = listener.Addr().(*net.TCPAddr).Port
+	endpoint.Server = &http.Server{Handler: serveRequestGuard(endpoint.PortNum, handler)}
 	log.Println("Local server started on port:", endpoint.PortNum)
 	log.Println("Make it available to the sdk by running:")
 	log.Printf("export AWS_EC2_METADATA_SERVICE_ENDPOINT=http://%s:%d/", LocalHostAddress, endpoint.PortNum)
