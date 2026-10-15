@@ -388,11 +388,11 @@ COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(RSACERTS) $(ECCERTS))
 ALL_COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(RSACERTS) $(ECCERTS) $(TPMCERTS))
 
 .PHONY: test-all-certs
-test-all-certs: $(ALL_KEYS) $(ALL_CERTS) $(ALL_COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem mldsa-fixtures tst/softhsm2.conf
+test-all-certs: $(ALL_KEYS) $(ALL_CERTS) $(ALL_COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem tst/softhsm2.conf
 	$(STOP_SWTPM_TCP) 2>/dev/null || :
 
 .PHONY: test-certs
-test-certs: $(KEYS) $(CERTS) $(COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem mldsa-fixtures
+test-certs: $(KEYS) $(CERTS) $(COMBOS) $(PKCS12CERTS) $(certsdir)/cert-bundle.pem $(certsdir)/cert-bundle-with-comments.pem
 
 .PHONY: mldsa-fixtures
 mldsa-fixtures: $(MLDSAKEYS) $(MLDSA_PKCS8KEYS) $(MLDSA_PKCS8ENCRYPTEDKEYS) $(MLDSACERTS)
