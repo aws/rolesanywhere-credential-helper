@@ -23,7 +23,12 @@ clean: test-clean
 # This portion is largely copied from https://gitlab.com/openconnect/openconnect/-/blob/v9.12/tests/Makefile.am#L363.
 SHM2_UTIL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp softhsm2-util
 P11TOOL=SOFTHSM2_CONF=tst/softhsm2.conf.tmp p11tool
-SOFTHSM2_MODULE=$(shell pkg-config --variable=libdir softhsm2 2>/dev/null)/softhsm/libsofthsm2.so
+SHM2_LIBDIR := $(shell pkg-config --variable=libdir softhsm2)
+ifeq ($(strip $(SHM2_LIBDIR)),)
+# Fallback for distributions like Debian that don't provide a .pc file for SoftHSM2
+SHM2_LIBDIR := /usr/lib
+endif
+SOFTHSM2_MODULE=$(SHM2_LIBDIR)/softhsm/libsofthsm2.so
 
 certsdir=tst/certs
 mldsadir=tst/mldsa-fixtures
@@ -237,25 +242,28 @@ tst/softhsm2.conf: tst/softhsm2.conf.template $(PKCS8KEYS) $(RSACERTS) $(ECCERTS
 	$(SHM2_UTIL) --token credential-helper-test --pin 1234 \
 		--import $(certsdir)/ec-prime256v1-key-pkcs8.pem --label ec-prime256v1 --id 02
 
-	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $$(pkg-config --variable=libdir softhsm2)/softhsm/libsofthsm2.so \
+	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $(SHM2_LIBDIR)/softhsm/libsofthsm2.so \
 		--login --pin 1234 --write-object $(certsdir)/rsa-2048-key-pkcs8.pem --type privkey \
 		--label rsa-2048-always-auth --id 03 --usage-sign --always-auth
 
-	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $$(pkg-config --variable=libdir softhsm2)/softhsm/libsofthsm2.so \
+	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $(SHM2_LIBDIR)/softhsm/libsofthsm2.so \
 		--login --pin 1234 --write-object $(certsdir)/ec-prime256v1-key-pkcs8.pem --type privkey \
 		--label ec-prime256v1-always-auth --id 04 --usage-sign --always-auth
 
-	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $$(pkg-config --variable=libdir softhsm2)/softhsm/libsofthsm2.so \
+	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $(SHM2_LIBDIR)/softhsm/libsofthsm2.so \
 		--login --pin 1234 --write-object $(certsdir)/rsa-2048-sha256-cert.pem --type cert \
 		--label rsa-2048 --id 01
 
-	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $$(pkg-config --variable=libdir softhsm2)/softhsm/libsofthsm2.so \
+	SOFTHSM2_CONF=tst/softhsm2.conf.tmp pkcs11-tool --module $(SHM2_LIBDIR)/softhsm/libsofthsm2.so \
 		--login --pin 1234 --write-object $(certsdir)/ec-prime256v1-sha256-cert.pem --type cert \
 		--label ec-prime256v1 --id 02
 	mv $@.tmp $@
 
+tst/pin.txt:
+	echo -n 1234 > $@
+
 .PHONY: test-all
-test-all: test-all-certs tst/softhsm2.conf
+test-all: test-all-certs tst/softhsm2.conf tst/pin.txt
 	$(START_SWTPM)
 	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf go test -v ./... || :
 	$(STOP_SWTPM)
@@ -270,8 +278,8 @@ test-tpm-signer: $(certsdir)/cert-bundle.pem $(TPMKEYS) $(TPMCERTS) $(TPMLOADEDK
 	$(STOP_SWTPM)
 
 .PHONY: test-pkcs11-signer
-test-pkcs11-signer: tst/softhsm2.conf
-	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf PKCS11_MODULE=$$(pkg-config --variable=libdir softhsm2)/softhsm/libsofthsm2.so go test ./... -run "PKCS11"
+test-pkcs11-signer: tst/softhsm2.conf tst/pin.txt
+	SOFTHSM2_CONF=$(curdir)/tst/softhsm2.conf PKCS11_MODULE=$(SHM2_LIBDIR)/softhsm/libsofthsm2.so go test ./... -run "PKCS11"
 
 .PHONY: test
 test: test-certs
