@@ -3,5 +3,6 @@ tst/certs/
 credential-process-data/
 tst/softhsm/
 tst/softhsm2.conf
+tst/pin.txt
 .idea/
 tst/swtpm

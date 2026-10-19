@@ -3,6 +3,7 @@ package aws_signing_helper
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -16,6 +17,68 @@ func TestPKCS11Signer(t *testing.T) {
 		base_pkcs11_uri := "pkcs11:token=credential-helper-test?pin-value=1234"
 		basic_pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s?pin-value=1234", object)
 		always_auth_pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s-always-auth?pin-value=1234", object)
+		cert_file := fmt.Sprintf("../tst/certs/%s-sha256-cert.pem", object)
+
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: basic_pkcs11_uri,
+			LibPkcs11:     libPkcs11,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			PrivateKeyId: basic_pkcs11_uri,
+			LibPkcs11:    libPkcs11,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: basic_pkcs11_uri,
+			PrivateKeyId:  basic_pkcs11_uri,
+			LibPkcs11:     libPkcs11,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: cert_file,
+			PrivateKeyId:  basic_pkcs11_uri,
+			LibPkcs11:     libPkcs11,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: basic_pkcs11_uri,
+			PrivateKeyId:  always_auth_pkcs11_uri,
+			ReusePin:      true,
+			LibPkcs11:     libPkcs11,
+		})
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: cert_file,
+			PrivateKeyId:  always_auth_pkcs11_uri,
+			ReusePin:      true,
+			LibPkcs11:     libPkcs11,
+		})
+		// Note that for the below test case, there are two matching keys.
+		// Both keys will validate with the certificate, and one will be chosen
+		// (it doesn't matter which, since both are the exact same key - it's
+		// just that one has the CKA_ALWAYS_AUTHENTICATE attribute set).
+		testTable = append(testTable, CredentialsOpts{
+			CertificateId: cert_file,
+			PrivateKeyId:  base_pkcs11_uri,
+			ReusePin:      true,
+			LibPkcs11:     libPkcs11,
+		})
+	}
+
+	RunSignTestWithTestTable(t, testTable)
+}
+
+func TestPKCS11SignerPinSource(t *testing.T) {
+	testTable := []CredentialsOpts{}
+	libPkcs11 := os.Getenv("PKCS11_MODULE")
+
+	pkcs11_objects := []string{"rsa-2048", "ec-prime256v1"}
+	absolutePinPath, err := filepath.Abs("../tst/pin.txt")
+	if err != nil {
+		t.Log("Failed to get absolute path to pin-source file")
+		t.Fail()
+	}
+
+	for _, object := range pkcs11_objects {
+		base_pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test?pin-source=file:%s", absolutePinPath)
+		basic_pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s?pin-source=file:%s", object, absolutePinPath)
+		always_auth_pkcs11_uri := fmt.Sprintf("pkcs11:token=credential-helper-test;object=%s-always-auth?pin-source=file:%s", object, absolutePinPath)
 		cert_file := fmt.Sprintf("../tst/certs/%s-sha256-cert.pem", object)
 
 		testTable = append(testTable, CredentialsOpts{
