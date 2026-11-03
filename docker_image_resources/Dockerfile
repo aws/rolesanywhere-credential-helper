@@ -41,7 +41,7 @@ RUN make release
 
 # Stage 2: Create a minimal runtime image
 # Version pinned to most recent stable release
-FROM --platform=$TARGETPLATFORM public.ecr.aws/eks-distro-build-tooling/eks-distro-minimal-base-glibc:latest-al23@sha256:26c890720d064808b5b522b78177e24c907f240d71b16924eccea85ef15e8120
+FROM --platform=$TARGETPLATFORM public.ecr.aws/eks-distro-build-tooling/eks-distro-minimal-base-glibc:latest-al23@sha256:78daebe7fe20f97fad60a03b526373ed4f1740f5e5595f9c1896d262cf192655
 
 # Add build argument for version in final stage
 ARG VERSION
