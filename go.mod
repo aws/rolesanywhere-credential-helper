@@ -11,7 +11,7 @@ require (
 	github.com/miekg/pkcs11 v1.1.1
 	github.com/spf13/cobra v1.10.1
 	github.com/stefanberger/go-pkcs11uri v0.0.0-20230803200340-78284954bff6
-	golang.org/x/crypto v0.58.0
+	golang.org/x/crypto v0.58.1-0.20261009181718-2f1f834330b2
 	golang.org/x/net v0.62.0
 	golang.org/x/sys v0.49.0
 	golang.org/x/term v0.47.0
