@@ -3,8 +3,7 @@
 
 TODO for PKCS#11 support
 
- • Clean up the support for entering PIN interactively, perhaps add URI
-   pin-source= support
+ • Clean up the support for entering PIN interactively
 
  • Automated testing, perhaps by pulling in the prepopulated SoftHSM tokens
    used for openconnect testing. I've manually tested those and Yubikey PIV
