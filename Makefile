@@ -42,6 +42,8 @@ PKCS8ENCRYPTEDKEYS := $(patsubst %.pem, %-pkcs8-scrypt.pem, $(RSAKEYS) $(ECKEYS)
 ECCERTS := $(foreach digest, sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(ECKEYS)))
 RSACERTS := $(foreach digest, md5 sha1 sha256 sha384 sha512, $(patsubst %-key.pem, %-$(digest)-cert.pem, $(RSAKEYS)))
 MLDSACERTS :=  $(foreach algo, mldsa44 mldsa65 mldsa87, $(patsubst %-key.pem, %-cert.pem, $(MLDSAKEYS)))
+ED25519KEY := $(certsdir)/ed25519-key.pem
+ED25519CERT := $(certsdir)/ed25519-cert.pem
 PKCS12CERTS := $(patsubst %-cert.pem, %.p12, $(RSACERTS) $(ECCERTS))
 
 # ML-DSA specific PKCS8 encrypted keys
@@ -303,6 +305,12 @@ endef
 %mldsa65-cert.pem: %mldsa65-key.pem; $(MLDSA_CERT_RECIPE)
 %mldsa87-cert.pem: %mldsa87-key.pem; $(MLDSA_CERT_RECIPE)
 
+# Ed25519 uses PureEdDSA with no external digest, so like ML-DSA it has no
+# digest in the filename and a self-signed cert is built without a -sha* flag.
+$(ED25519KEY):
+	openssl genpkey -algorithm ed25519 -out $@
+%ed25519-cert.pem: %ed25519-key.pem; $(MLDSA_CERT_RECIPE)
+
 %-combo.pem: %-cert.pem
 	KEY=$$(echo "$@" | sed 's/-[^-]*-combo.pem/-key.pem/'); \
 	cat $${KEY} $< > $@.tmp && mv $@.tmp $@
@@ -381,8 +389,9 @@ KEYS := $(RSAKEYS) $(ECKEYS) $(patsubst %-key.pem,%-key-pkcs8.pem,$(RSAKEYS) $(E
 		$(patsubst %.pem, %-pkcs8-$(prf).pem, $(RSAKEYS) $(ECKEYS))) \
 	$(foreach algo, aes-128-cbc aes-192-cbc aes-256-cbc, \
 		$(patsubst %.pem, %-pkcs8-$(subst -,,$(algo)).pem, $(RSAKEYS) $(ECKEYS)))
+KEYS += $(ED25519KEY)
 ALL_KEYS := $(KEYS) $(TPMKEYS)
-CERTS := $(RSACERTS) $(ECCERTS)
+CERTS := $(RSACERTS) $(ECCERTS) $(ED25519CERT)
 ALL_CERTS := $(CERTS) $(TPMCERTS)
 COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(RSACERTS) $(ECCERTS))
 ALL_COMBOS := $(patsubst %-cert.pem, %-combo.pem, $(RSACERTS) $(ECCERTS) $(TPMCERTS))
