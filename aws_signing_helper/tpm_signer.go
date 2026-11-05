@@ -184,10 +184,7 @@ func (tpmv2Signer *TPMv2Signer) Sign(rand io.Reader, digest []byte, opts crypto.
 			return nil, errors.New("failed to obtain ecdsa.PublicKey")
 		}
 		bitSize := ecPubKey.Curve.Params().BitSize
-		byteSize := (bitSize + 7) / 8
-		if byteSize > sha512.Size {
-			byteSize = sha512.Size
-		}
+		byteSize := min((bitSize + 7) / 8, sha512.Size)
 		switch byteSize {
 		case sha512.Size:
 			algo = tpm2.AlgSHA512
@@ -248,7 +245,7 @@ func (tpmv2Signer *TPMv2Signer) signHelper(rw io.ReadWriter, keyHandle tpmutil.H
 	passwordPromptInput := PasswordPromptProps{
 		InitialPassword: tpmv2Signer.password,
 		NoPassword:      tpmv2Signer.emptyAuth,
-		CheckPassword: func(password string) (interface{}, error) {
+		CheckPassword: func(password string) (any, error) {
 			return tpm2.Sign(rw, keyHandle, password, digest, nil, sigScheme)
 		},
 		IncorrectPasswordMsg:               "incorrect TPM key password",
@@ -354,9 +351,7 @@ func GetTPMv2Signer(opts GetTPMv2SignerOpts) (signer Signer, signingAlgorithm st
 			return nil, "", errors.New("invalid TPM handle format")
 		}
 		hexHandleStr := handleParts[1]
-		if strings.HasPrefix(hexHandleStr, "0x") {
-			hexHandleStr = hexHandleStr[2:]
-		}
+		hexHandleStr = strings.TrimPrefix(hexHandleStr, "0x")
 		handleValue, err := strconv.ParseUint(hexHandleStr, 16, 32)
 		if err != nil {
 			return nil, "", errors.New("invalid hex TPM handle value")
