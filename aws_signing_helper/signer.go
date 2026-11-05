@@ -905,7 +905,7 @@ func ReadCertificateData(certificateId string) (CertificateData, *x509.Certifica
 		case x509.ECDSA:
 			keyType = "EC"
 		default:
-			keyType = ""
+			return CertificateData{}, nil, fmt.Errorf("unsupported public key algorithm: %s", cert.PublicKeyAlgorithm)
 		}
 
 		supportedAlgorithms = []string{
