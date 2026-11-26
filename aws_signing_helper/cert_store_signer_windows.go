@@ -30,6 +30,7 @@ int MAKE_LANG_ID(int p, int s) {
 import "C"
 
 import (
+	"bytes"
 	"crypto"
 	"crypto/ecdsa"
 	"crypto/rsa"
@@ -634,7 +635,11 @@ func exportCertContext(certCtx *windows.CertContext) (*x509.Certificate, error) 
 		return nil, errors.New("unknown certificate encoding type")
 	}
 
-	der := unsafe.Slice(certCtx.EncodedCert, certCtx.Length)
+	// Copy the encoded certificate into Go-owned memory. x509.ParseCertificate doesn't
+	// copy its input, so without this the returned certificate's Raw fields would point
+	// into memory owned by certCtx, which is released when the context is freed or the
+	// store is closed.
+	der := bytes.Clone(unsafe.Slice(certCtx.EncodedCert, certCtx.Length))
 	return x509.ParseCertificate(der)
 }
 
