@@ -24,7 +24,7 @@ jobs:
             arch: "X86_64"
             goarch: "amd64"
             display_name: "MacOS X86_64"
-          - runner_image: macos-14
+          - runner_image: macos-15
             arch: "Aarch64"
             goarch: "arm64"
             display_name: "MacOS Aarch64"
